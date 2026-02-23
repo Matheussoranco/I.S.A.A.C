@@ -21,6 +21,7 @@ class LLMSettings(BaseSettings):
     llm_provider: Literal["openai", "anthropic"] = "openai"
     model_name: str = "gpt-4o"
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    base_url: str = ""  # Custom API base URL (e.g. http://localhost:11434/v1 for Ollama)
 
 
 class SandboxSettings(BaseSettings):

@@ -31,11 +31,14 @@ def get_llm() -> BaseChatModel:
     if provider == "openai":
         from langchain_openai import ChatOpenAI  # noqa: PLC0415
 
-        return ChatOpenAI(
-            model=cfg.model_name,
-            temperature=cfg.temperature,
-            api_key=settings.openai_api_key,  # type: ignore[arg-type]
-        )
+        kwargs: dict = {
+            "model": cfg.model_name,
+            "temperature": cfg.temperature,
+            "api_key": settings.openai_api_key or "ollama",  # type: ignore[arg-type]
+        }
+        if cfg.base_url:
+            kwargs["base_url"] = cfg.base_url
+        return ChatOpenAI(**kwargs)
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic  # noqa: PLC0415
