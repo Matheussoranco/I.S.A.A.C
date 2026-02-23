@@ -6,7 +6,8 @@ generalised from a concrete task solution.  Skills are stored as:
 * ``skills/{name}.py``  — executable Python source.
 * ``skills/_index.json`` — manifest with metadata & embeddings.
 
-Retrieval is performed via cosine similarity on embeddings (ChromaDB).
+Retrieval is performed via cosine similarity on embeddings (ChromaDB)
+with a keyword fallback when ChromaDB is unavailable.
 """
 
 from __future__ import annotations
@@ -19,6 +20,19 @@ from typing import Any
 from isaac.core.state import SkillCandidate
 
 logger = logging.getLogger(__name__)
+
+
+def _get_chroma_client() -> Any | None:
+    """Lazy-load a persistent ChromaDB client, returning None on failure."""
+    try:
+        import chromadb  # noqa: PLC0415
+
+        return chromadb
+    except ImportError:
+        logger.warning(
+            "ChromaDB not installed — falling back to keyword skill search."
+        )
+        return None
 
 
 class SkillLibrary:
@@ -35,6 +49,62 @@ class SkillLibrary:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._dir / "_index.json"
         self._index: dict[str, dict[str, Any]] = self._load_index()
+        self._collection: Any | None = None
+        self._chroma_client: Any | None = None
+
+    # -- ChromaDB lazy init -------------------------------------------------
+
+    def _ensure_collection(self) -> Any | None:
+        """Return the ChromaDB collection, creating it on first access."""
+        if self._collection is not None:
+            return self._collection
+
+        chromadb = _get_chroma_client()
+        if chromadb is None:
+            return None
+
+        try:
+            chroma_dir = self._dir / ".chromadb"
+            chroma_dir.mkdir(parents=True, exist_ok=True)
+            self._chroma_client = chromadb.PersistentClient(
+                path=str(chroma_dir),
+            )
+            self._collection = self._chroma_client.get_or_create_collection(
+                name="skills",
+                metadata={"hnsw:space": "cosine"},
+            )
+            # Sync any index entries that aren't yet in the collection
+            self._sync_index_to_collection()
+            return self._collection
+        except Exception:
+            logger.warning("ChromaDB initialisation failed — using keyword fallback.", exc_info=True)
+            return None
+
+    def _sync_index_to_collection(self) -> None:
+        """Ensure every indexed skill has a ChromaDB document."""
+        if self._collection is None:
+            return
+        existing = set(self._collection.get()["ids"])
+        for name, meta in self._index.items():
+            if name not in existing:
+                doc = self._build_document(name, meta)
+                self._collection.add(
+                    ids=[name],
+                    documents=[doc],
+                    metadatas=[{"name": name, "task_context": meta.get("task_context", "")}],
+                )
+
+    @staticmethod
+    def _build_document(name: str, meta: dict[str, Any]) -> str:
+        """Build a searchable document string from skill metadata."""
+        parts = [
+            f"skill: {name}",
+            f"task: {meta.get('task_context', '')}",
+        ]
+        tags = meta.get("tags", [])
+        if tags:
+            parts.append(f"tags: {', '.join(tags)}")
+        return " | ".join(parts)
 
     # -- persistence --------------------------------------------------------
 
@@ -57,7 +127,7 @@ class SkillLibrary:
         """Promote a *SkillCandidate* into the persistent library.
 
         Writes the Python source to ``skills/{name}.py`` and updates the
-        manifest index.
+        manifest index.  Also upserts into ChromaDB for semantic retrieval.
         """
         name = candidate.name.strip().replace(" ", "_").lower()
         if not name:
@@ -67,15 +137,32 @@ class SkillLibrary:
         py_path = self._dir / f"{name}.py"
         py_path.write_text(candidate.code, encoding="utf-8")
 
-        self._index[name] = {
+        meta = {
             "name": name,
             "input_schema": candidate.input_schema,
             "output_schema": candidate.output_schema,
             "task_context": candidate.task_context,
             "success_count": candidate.success_count,
+            "skill_type": getattr(candidate, "skill_type", "code"),
+            "tags": list(getattr(candidate, "tags", [])),
             "file": str(py_path.name),
         }
+        self._index[name] = meta
         self._save_index()
+
+        # Upsert into ChromaDB
+        collection = self._ensure_collection()
+        if collection is not None:
+            doc = self._build_document(name, meta)
+            try:
+                collection.upsert(
+                    ids=[name],
+                    documents=[doc],
+                    metadatas=[{"name": name, "task_context": candidate.task_context}],
+                )
+            except Exception:
+                logger.warning("ChromaDB upsert failed for skill '%s'.", name, exc_info=True)
+
         logger.info("Skill '%s' committed to library at %s", name, py_path)
 
     # -- read ---------------------------------------------------------------
@@ -99,11 +186,34 @@ class SkillLibrary:
         return self._index.get(name)
 
     def search(self, query: str, top_k: int = 5) -> list[str]:
-        """Naïve keyword search over skill names and task contexts.
+        """Search for skills relevant to *query*.
 
-        TODO: Replace with ChromaDB embedding similarity once the embedding
-        pipeline is wired up.
+        Uses ChromaDB embedding similarity when available, falling back to
+        keyword matching otherwise.
         """
+        collection = self._ensure_collection()
+        if collection is not None and collection.count() > 0:
+            return self._search_chromadb(collection, query, top_k)
+        return self._search_keyword(query, top_k)
+
+    def _search_chromadb(
+        self, collection: Any, query: str, top_k: int,
+    ) -> list[str]:
+        """Semantic search via ChromaDB embedding similarity."""
+        try:
+            results = collection.query(
+                query_texts=[query],
+                n_results=min(top_k, collection.count()),
+            )
+            ids = results.get("ids", [[]])[0]
+            logger.debug("ChromaDB search for '%s' returned %d results.", query, len(ids))
+            return ids
+        except Exception:
+            logger.warning("ChromaDB query failed — falling back to keyword.", exc_info=True)
+            return self._search_keyword(query, top_k)
+
+    def _search_keyword(self, query: str, top_k: int) -> list[str]:
+        """Naïve keyword search over skill names and task contexts."""
         q = query.lower()
         scored: list[tuple[int, str]] = []
         for name, meta in self._index.items():

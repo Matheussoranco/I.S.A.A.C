@@ -113,7 +113,7 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
     from isaac.core.state import ErrorEntry, SkillCandidate
     from isaac.llm.provider import get_llm
 
-    llm = get_llm()
+    llm = get_llm("strong")
     max_cycles: int = settings.graph.max_ui_cycles
     plan: list[PlanStep] = state.get("plan", [])
     world_model: WorldModel = state.get("world_model", WorldModel())

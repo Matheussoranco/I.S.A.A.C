@@ -14,7 +14,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LLMSettings(BaseSettings):
-    """LLM provider configuration."""
+    """LLM provider configuration.
+
+    Supports tiered models: a *fast* model for lightweight tasks (perception,
+    planning) and a *strong* model for heavy lifting (synthesis, reflection).
+    When tier-specific fields are blank, they fall back to the default model.
+    """
 
     model_config = SettingsConfigDict(env_prefix="ISAAC_")
 
@@ -22,6 +27,16 @@ class LLMSettings(BaseSettings):
     model_name: str = "gpt-4o"
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     base_url: str = ""  # Custom API base URL (e.g. http://localhost:11434/v1 for Ollama)
+
+    # Tier overrides — leave blank to inherit from the defaults above.
+    fast_model: str = ""
+    """Lightweight model for Perception & Planner (e.g. gpt-4o-mini)."""
+    fast_temperature: float = Field(default=-1.0, ge=-1.0, le=2.0)
+    """Temperature for the fast model (-1 means inherit from ``temperature``)."""
+    strong_model: str = ""
+    """Powerful model for Synthesis & Reflection (e.g. o3, claude-3.5-sonnet)."""
+    strong_temperature: float = Field(default=-1.0, ge=-1.0, le=2.0)
+    """Temperature for the strong model (-1 means inherit from ``temperature``)."""
 
 
 class SandboxSettings(BaseSettings):

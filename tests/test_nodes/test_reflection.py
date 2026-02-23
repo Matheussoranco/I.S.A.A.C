@@ -13,6 +13,7 @@ from isaac.core.state import (
     UIActionResult,
     make_initial_state,
 )
+from isaac.memory.episodic import get_episodic_memory, reset_episodic_memory
 from isaac.nodes.reflection import reflection_node
 
 
@@ -133,3 +134,84 @@ class TestReflectionNode:
 
         assert result["plan"][0].status == "failed"
         assert "errors" in result
+
+    # ------------------------------------------------------------------
+    # Episodic memory recording
+    # ------------------------------------------------------------------
+
+    def setup_method(self) -> None:
+        reset_episodic_memory()
+
+    def teardown_method(self) -> None:
+        reset_episodic_memory()
+
+    def test_code_success_records_episode(self) -> None:
+        state = make_initial_state()
+        state["plan"] = [PlanStep(id="s1", description="print 42", status="active")]
+        state["code_buffer"] = "print(42)"
+        state["execution_logs"] = [
+            ExecutionResult(stdout="42\n", stderr="", exit_code=0, duration_ms=100.0)
+        ]
+
+        mock = MockLLM(
+            '{"success": true, "summary": "printed 42", '
+            '"skill_candidate": {"name": "printer", "description": "prints"}}'
+        )
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            reflection_node(state)
+
+        mem = get_episodic_memory()
+        assert mem.size == 1
+        ep = mem.recent(1)[0]
+        assert ep.success is True
+        assert ep.node == "reflection"
+        assert "print 42" in ep.task
+
+    def test_code_failure_records_episode(self) -> None:
+        state = make_initial_state()
+        state["plan"] = [PlanStep(id="s1", description="crash", status="active")]
+        state["code_buffer"] = "raise ValueError()"
+        state["execution_logs"] = [
+            ExecutionResult(stdout="", stderr="ValueError", exit_code=1, duration_ms=50.0)
+        ]
+
+        mock = MockLLM(
+            '{"success": false, "diagnosis": "ValueError", '
+            '"revised_hypothesis": "handle errors"}'
+        )
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            reflection_node(state)
+
+        mem = get_episodic_memory()
+        assert mem.size == 1
+        ep = mem.recent(1)[0]
+        assert ep.success is False
+        assert "FAILED" in ep.result_summary
+
+    def test_ui_success_records_episode(self) -> None:
+        state, mock = self._make_ui_state(
+            '{"success": true, "summary": "logged in", '
+            '"skill_candidate": {"name": "login_click"}}'
+        )
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            reflection_node(state)
+
+        mem = get_episodic_memory()
+        assert mem.size == 1
+        ep = mem.recent(1)[0]
+        assert ep.success is True
+        assert ep.node == "reflection_ui"
+
+    def test_ui_failure_records_episode(self) -> None:
+        state, mock = self._make_ui_state(
+            '{"success": false, "diagnosis": "not found", '
+            '"revised_hypothesis": "try scrolling"}'
+        )
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            reflection_node(state)
+
+        mem = get_episodic_memory()
+        assert mem.size == 1
+        ep = mem.recent(1)[0]
+        assert ep.success is False
+        assert ep.node == "reflection_ui"

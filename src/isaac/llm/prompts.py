@@ -228,10 +228,13 @@ def planner_prompt(
     hypothesis: str,
     errors: list[ErrorEntry],
     available_skills: list[str],
+    episodic_context: str = "",
 ) -> list[BaseMessage]:
     """Build the prompt for the Planner node.
 
     Steps now include a ``mode`` field: 'code', 'ui', or 'hybrid'.
+    Episodic context (if available) gives the LLM visibility into recent
+    successes and failures so it can avoid repeating mistakes.
     """
     error_summaries = [
         {"node": e.node, "message": e.message, "attempt": e.attempt}
@@ -243,6 +246,11 @@ def planner_prompt(
             f"  active_window: {world_model.gui_state.active_window_title}\n"
             f"  current_url:   {world_model.gui_state.current_url}\n"
         )
+    episodic_section = ""
+    if episodic_context and episodic_context != "No prior episodes.":
+        episodic_section = (
+            f"\n## Recent experience (episodic memory)\n{episodic_context}\n"
+        )
     return [
         _SYSTEM_PLANNER,
         HumanMessage(
@@ -252,8 +260,9 @@ def planner_prompt(
                 f"{json.dumps(world_model.observations)}\n"
                 + (f"\n## GUI context\n{gui_context}\n" if gui_context else "")
                 + f"\n## Past errors\n{json.dumps(error_summaries)}\n\n"
-                f"## Available skills\n{json.dumps(available_skills)}\n\n"
-                "Respond with JSON:\n"
+                f"## Available skills\n{json.dumps(available_skills)}\n"
+                + episodic_section
+                + "\nRespond with JSON:\n"
                 '{"steps": [{"id": "s1", "description": "...", '
                 '"mode": "code|ui|hybrid", "depends_on": []}]}'
             )

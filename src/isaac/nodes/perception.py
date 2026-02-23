@@ -73,7 +73,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
     """
     from isaac.llm.provider import get_llm
 
-    llm = get_llm()
+    llm = get_llm("fast")
 
     # -- Extract latest user message ----------------------------------------
     messages = state.get("messages", [])

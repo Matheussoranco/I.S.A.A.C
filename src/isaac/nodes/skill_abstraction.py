@@ -33,10 +33,22 @@ def _has_pending_steps(plan: list[PlanStep]) -> bool:
     return any(s.status == "pending" for s in plan)
 
 
+def _deps_satisfied(step: PlanStep, plan: list[PlanStep]) -> bool:
+    """Return True if all steps listed in ``depends_on`` are done."""
+    if not step.depends_on:
+        return True
+    done_ids = {s.id for s in plan if s.status == "done"}
+    return all(dep in done_ids for dep in step.depends_on)
+
+
 def _advance_plan(plan: list[PlanStep]) -> None:
-    """Activate the first pending step in-place."""
+    """Activate the next eligible pending step, respecting dependencies.
+
+    A step is eligible when all its ``depends_on`` predecessors are ``done``.
+    Falls back to the first pending step if no dependency info exists.
+    """
     for step in plan:
-        if step.status == "pending":
+        if step.status == "pending" and _deps_satisfied(step, plan):
             step.status = "active"
             return
 
@@ -134,7 +146,7 @@ def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
     from isaac.llm.provider import get_llm
     from isaac.memory.skill_library import SkillLibrary
 
-    llm = get_llm()
+    llm = get_llm("strong")
     skill_lib = SkillLibrary(settings.skills_dir)
 
     candidate: SkillCandidate | None = state.get("skill_candidate")

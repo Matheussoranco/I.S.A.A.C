@@ -34,6 +34,7 @@ from isaac.nodes.reflection import reflection_node
 from isaac.nodes.sandbox import sandbox_node
 from isaac.nodes.skill_abstraction import skill_abstraction_node
 from isaac.nodes.synthesis import synthesis_node
+from isaac.memory.context_manager import compress_messages
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,9 @@ def build_and_run() -> int:
 
             # Append the user message
             state["messages"] = [HumanMessage(content=user_input)]
+
+            # Compress history if it's grown too large
+            state["messages"] = compress_messages(state.get("messages", []))
 
             # Run the graph
             try:

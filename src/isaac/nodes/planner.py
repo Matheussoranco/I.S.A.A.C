@@ -24,10 +24,12 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     """
     from isaac.config.settings import settings
     from isaac.llm.provider import get_llm
+    from isaac.memory.episodic import get_episodic_memory
     from isaac.memory.skill_library import SkillLibrary
 
-    llm = get_llm()
+    llm = get_llm("fast")
     skill_lib = SkillLibrary(settings.skills_dir)
+    episodic = get_episodic_memory()
 
     world_model: WorldModel = state.get("world_model", WorldModel())
     hypothesis: str = state.get("hypothesis", "")
@@ -35,9 +37,12 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     iteration: int = state.get("iteration", 0) + 1
 
     available_skills = skill_lib.list_names()
+    episodic_context = episodic.summarise_recent(5)
 
     # Call LLM
-    prompt = planner_prompt(world_model, hypothesis, errors, available_skills)
+    prompt = planner_prompt(
+        world_model, hypothesis, errors, available_skills, episodic_context,
+    )
     response = llm.invoke(prompt)
     content = response.content if isinstance(response.content, str) else str(response.content)
 
@@ -74,11 +79,17 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
             )
         ]
 
-    # Mark the first pending step as active
+    # Mark the first dependency-satisfied pending step as active
     for step in steps:
         if step.status == "pending":
-            step.status = "active"
-            break
+            # Check if all dependencies are satisfied (done)
+            deps_ok = all(
+                any(s.id == dep and s.status == "done" for s in steps)
+                for dep in step.depends_on
+            ) if step.depends_on else True
+            if deps_ok:
+                step.status = "active"
+                break
 
     logger.info("Planner: %d steps generated, iteration=%d", len(steps), iteration)
 

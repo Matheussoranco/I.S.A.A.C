@@ -75,7 +75,7 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
     from isaac.llm.provider import get_llm
     from isaac.memory.skill_library import SkillLibrary
 
-    llm = get_llm()
+    llm = get_llm("strong")
     skill_lib = SkillLibrary(settings.skills_dir)
 
     plan: list[PlanStep] = state.get("plan", [])

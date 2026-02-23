@@ -27,6 +27,7 @@ from isaac.core.state import (
     UIActionResult,
 )
 from isaac.llm.prompts import reflection_prompt, reflection_ui_prompt
+from isaac.memory.episodic import Episode, get_episodic_memory
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,8 @@ def _reflect_ui(
         )
         parsed = _parse_reflection_json(content, state.get("hypothesis", ""))
 
+    episodic = get_episodic_memory()
+
     if parsed.get("success", False):
         if active_step:
             active_step.status = "done"
@@ -121,6 +124,15 @@ def _reflect_ui(
             skill_type="ui",
             tags=candidate_info.get("tags", ["ui"]),
         )
+        episodic.record(Episode(
+            task=step_desc,
+            hypothesis=state.get("hypothesis", ""),
+            code=state.get("code_buffer", ""),
+            result_summary=parsed.get("summary", "UI step succeeded."),
+            success=True,
+            node="reflection_ui",
+            iteration=state.get("iteration", 0),
+        ))
         logger.info("Reflection (UI): step SUCCEEDED — UI skill candidate proposed.")
     else:
         attempt = len([e for e in errors if e.node == "reflection"]) + 1
@@ -141,6 +153,15 @@ def _reflect_ui(
         if active_step:
             active_step.status = "failed"
         updates["plan"] = plan
+        episodic.record(Episode(
+            task=step_desc,
+            hypothesis=state.get("hypothesis", ""),
+            code=state.get("code_buffer", ""),
+            result_summary=message,
+            success=False,
+            node="reflection_ui",
+            iteration=state.get("iteration", 0),
+        ))
         logger.info(
             "Reflection (UI): step FAILED (attempt %d) — hypothesis revised.",
             attempt,
@@ -182,6 +203,8 @@ def _reflect_code(
     )
     parsed = _parse_reflection_json(content, state.get("hypothesis", ""))
 
+    episodic = get_episodic_memory()
+
     if parsed.get("success", False):
         if active_step:
             active_step.status = "done"
@@ -194,12 +217,22 @@ def _reflect_code(
             task_context=step_desc,
             success_count=1,
         )
+        episodic.record(Episode(
+            task=step_desc,
+            hypothesis=state.get("hypothesis", ""),
+            code=code,
+            result_summary=parsed.get("summary", f"exit={log.exit_code}"),
+            success=True,
+            node="reflection",
+            iteration=state.get("iteration", 0),
+        ))
         logger.info("Reflection: step SUCCEEDED — skill candidate proposed.")
     else:
         attempt = len([e for e in errors if e.node == "reflection"]) + 1
+        diagnosis = parsed.get("diagnosis", "Unknown failure")
         new_error = ErrorEntry(
             node="reflection",
-            message=parsed.get("diagnosis", "Unknown failure"),
+            message=diagnosis,
             traceback=log.stderr[:2000] if log.stderr else None,
             timestamp=datetime.now(tz=timezone.utc).isoformat(),
             attempt=attempt,
@@ -211,6 +244,15 @@ def _reflect_code(
         if active_step:
             active_step.status = "failed"
         updates["plan"] = plan
+        episodic.record(Episode(
+            task=step_desc,
+            hypothesis=state.get("hypothesis", ""),
+            code=code,
+            result_summary=f"FAILED: {diagnosis}",
+            success=False,
+            node="reflection",
+            iteration=state.get("iteration", 0),
+        ))
         logger.info(
             "Reflection: step FAILED (attempt %d) — hypothesis revised.",
             attempt,
@@ -232,7 +274,7 @@ def reflection_node(state: IsaacState) -> dict[str, Any]:
     """
     from isaac.llm.provider import get_llm
 
-    llm = get_llm()
+    llm = get_llm("strong")
     plan: list[PlanStep] = state.get("plan", [])
     errors: list[ErrorEntry] = list(state.get("errors", []))
     active_step = _get_active_step(plan)
