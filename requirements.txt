@@ -1,0 +1,24 @@
+# Core — Cognitive Engine
+langgraph>=0.2
+langchain-core>=0.3
+langchain-openai>=0.2
+langchain-anthropic>=0.2
+
+# Sandbox
+docker>=7.0
+
+# Configuration & Validation
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# Numerical (ARC-AGI grids)
+numpy>=1.26
+
+# Skill Library — Embedding Retrieval
+chromadb>=0.5
+
+# Dev
+pytest>=8.0
+pytest-asyncio>=0.24
+ruff>=0.8
+mypy>=1.13

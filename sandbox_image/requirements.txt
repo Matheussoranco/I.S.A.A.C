@@ -1,0 +1,3 @@
+# Whitelisted packages available inside the sandbox.
+# Keep this minimal — every addition expands the attack surface.
+numpy>=1.26

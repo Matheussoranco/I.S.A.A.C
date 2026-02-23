@@ -1,0 +1,22 @@
+[
+  {
+    "id": "arc_sample_001",
+    "train": [
+      {
+        "input": [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+        "output": [[0, 0, 0], [0, 0, 1], [0, 0, 0]]
+      },
+      {
+        "input": [[0, 0, 0], [1, 0, 0], [0, 0, 0]],
+        "output": [[0, 0, 0], [0, 0, 0], [1, 0, 0]]
+      }
+    ],
+    "test": [
+      {
+        "input": [[0, 1, 0], [0, 0, 0], [0, 0, 0]],
+        "output": [[0, 0, 1], [0, 0, 0], [0, 0, 0]]
+      }
+    ],
+    "description": "Shift the single non-zero cell one position to the right (with wrapping)."
+  }
+]

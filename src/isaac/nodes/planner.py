@@ -1,0 +1,85 @@
+"""Planner Node — decomposes the task into a Graph-of-Thought plan.
+
+Reads the current ``world_model``, ``hypothesis``, past ``errors``, and
+the Skill Library to produce an ordered list of ``PlanStep`` objects.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from isaac.core.state import IsaacState, PlanStep, WorldModel
+from isaac.llm.prompts import planner_prompt
+
+logger = logging.getLogger(__name__)
+
+
+def planner_node(state: IsaacState) -> dict[str, Any]:
+    """LangGraph node: Planner.
+
+    Generates or refines a multi-step plan.  Increments ``iteration`` on
+    every invocation to prevent infinite loops.
+    """
+    from isaac.config.settings import settings  # noqa: PLC0415
+    from isaac.llm.provider import get_llm  # noqa: PLC0415
+    from isaac.memory.skill_library import SkillLibrary  # noqa: PLC0415
+
+    llm = get_llm()
+    skill_lib = SkillLibrary(settings.skills_dir)
+
+    world_model: WorldModel = state.get("world_model", WorldModel())
+    hypothesis: str = state.get("hypothesis", "")
+    errors = state.get("errors", [])
+    iteration: int = state.get("iteration", 0) + 1
+
+    available_skills = skill_lib.list_names()
+
+    # Call LLM
+    prompt = planner_prompt(world_model, hypothesis, errors, available_skills)
+    response = llm.invoke(prompt)
+    content = response.content if isinstance(response.content, str) else str(response.content)
+
+    # Parse steps
+    steps: list[PlanStep] = []
+    try:
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1]
+            cleaned = cleaned.rsplit("```", 1)[0]
+        parsed = json.loads(cleaned)
+        raw_steps = parsed.get("steps", [])
+        for raw in raw_steps:
+            steps.append(
+                PlanStep(
+                    id=raw["id"],
+                    description=raw["description"],
+                    status="pending",
+                    depends_on=raw.get("depends_on", []),
+                )
+            )
+    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+        logger.error("Planner: failed to parse LLM plan: %s", exc)
+        # Fallback: single generic step
+        steps = [
+            PlanStep(
+                id="s1",
+                description=f"Execute hypothesis directly: {hypothesis[:200]}",
+                status="pending",
+            )
+        ]
+
+    # Mark the first pending step as active
+    for step in steps:
+        if step.status == "pending":
+            step.status = "active"
+            break
+
+    logger.info("Planner: %d steps generated, iteration=%d", len(steps), iteration)
+
+    return {
+        "plan": steps,
+        "iteration": iteration,
+        "current_phase": "planner",
+    }
