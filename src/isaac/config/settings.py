@@ -25,7 +25,7 @@ class LLMSettings(BaseSettings):
 
 
 class SandboxSettings(BaseSettings):
-    """Docker sandbox constraints."""
+    """Docker sandbox constraints for code-execution containers."""
 
     model_config = SettingsConfigDict(env_prefix="ISAAC_SANDBOX_")
 
@@ -38,6 +38,28 @@ class SandboxSettings(BaseSettings):
     tmpfs_size: str = "64m"
 
 
+class UISandboxSettings(BaseSettings):
+    """Docker sandbox constraints for virtual-desktop Computer-Use containers."""
+
+    model_config = SettingsConfigDict(env_prefix="ISAAC_UI_SANDBOX_")
+
+    image: str = "isaac-ui-sandbox:latest"
+    timeout_seconds: int = Field(default=120, ge=10, le=600)
+    memory_limit: str = "1g"
+    cpu_limit: float = Field(default=1.5, ge=0.1, le=8.0)
+    pids_limit: int = Field(default=256, ge=8, le=1024)
+    #: 'none' blocks all network; 'bridge' allows outbound (needed for browser tasks)
+    network: str = "none"
+    allow_browser_network: bool = False
+    vnc_enabled: bool = False
+    vnc_port: int = Field(default=5900, ge=1024, le=65535)
+    screen_width: int = 1280
+    screen_height: int = 720
+    screen_depth: int = 24
+    max_ui_cycles: int = Field(default=20, ge=1, le=100)
+    """Maximum screenshot→action iterations per active PlanStep."""
+
+
 class GraphSettings(BaseSettings):
     """Cognitive-loop tuning knobs."""
 
@@ -45,6 +67,8 @@ class GraphSettings(BaseSettings):
 
     max_retries: int = Field(default=3, ge=1, le=20)
     max_iterations: int = Field(default=10, ge=1, le=100)
+    max_ui_cycles: int = Field(default=20, ge=1, le=100)
+    """Upper bound on ComputerUse screenshot→action loop per step."""
 
 
 class Settings(BaseSettings):
@@ -58,6 +82,7 @@ class Settings(BaseSettings):
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    ui_sandbox: UISandboxSettings = Field(default_factory=UISandboxSettings)
     graph: GraphSettings = Field(default_factory=GraphSettings)
     skills_dir: Path = Path("skills")
 

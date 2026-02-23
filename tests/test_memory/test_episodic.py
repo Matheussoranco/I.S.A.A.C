@@ -33,7 +33,8 @@ class TestEpisodicMemory:
     def test_search(self) -> None:
         mem = EpisodicMemory()
         mem.record(Episode(
-            task="sort an array", hypothesis="use quicksort", code="", result_summary="", success=True
+            task="sort an array", hypothesis="use quicksort", code="",
+            result_summary="", success=True
         ))
         mem.record(Episode(
             task="reverse a string", hypothesis="slice", code="", result_summary="", success=True

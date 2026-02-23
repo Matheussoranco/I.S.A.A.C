@@ -23,13 +23,13 @@ def get_llm() -> BaseChatModel:
     ValueError
         If the configured provider is not ``"openai"`` or ``"anthropic"``.
     """
-    from isaac.config.settings import settings  # noqa: PLC0415
+    from isaac.config.settings import settings
 
     cfg = settings.llm
     provider = cfg.llm_provider.lower()
 
     if provider == "openai":
-        from langchain_openai import ChatOpenAI  # noqa: PLC0415
+        from langchain_openai import ChatOpenAI
 
         kwargs: dict = {
             "model": cfg.model_name,
@@ -41,7 +41,7 @@ def get_llm() -> BaseChatModel:
         return ChatOpenAI(**kwargs)
 
     if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic  # noqa: PLC0415
+        from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
             model=cfg.model_name,  # type: ignore[arg-type]

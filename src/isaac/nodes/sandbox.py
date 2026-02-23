@@ -26,7 +26,7 @@ def sandbox_node(state: IsaacState) -> dict[str, Any]:
     code = state.get("code_buffer", "")
     if not code.strip():
         logger.warning("Sandbox: empty code_buffer — skipping execution.")
-        from isaac.core.state import ExecutionResult  # noqa: PLC0415
+        from isaac.core.state import ExecutionResult
 
         return {
             "execution_logs": [

@@ -5,6 +5,10 @@ to the Planner.
 
 On **success**: marks the active step as ``"done"``, populates
 ``skill_candidate``, routes to Skill Abstraction.
+
+For Computer-Use / UI tasks the node performs a *visual diff*: it compares
+the before/after screenshots of the last ``UIActionResult`` to decide whether
+the GUI action actually achieved its goal.
 """
 
 from __future__ import annotations
@@ -20,8 +24,9 @@ from isaac.core.state import (
     IsaacState,
     PlanStep,
     SkillCandidate,
+    UIActionResult,
 )
-from isaac.llm.prompts import reflection_prompt
+from isaac.llm.prompts import reflection_prompt, reflection_ui_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -41,21 +46,125 @@ def _get_active_step(plan: list[PlanStep]) -> PlanStep | None:
     return None
 
 
-def reflection_node(state: IsaacState) -> dict[str, Any]:
-    """LangGraph node: Reflection / Critic.
+def _parse_reflection_json(content: str, fallback_hypothesis: str) -> dict:
+    """Parse LLM JSON with graceful fallback."""
+    try:
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1]
+            cleaned = cleaned.rsplit("```", 1)[0]
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, IndexError):
+        logger.error("Reflection: failed to parse LLM JSON — treating as failure.")
+        return {
+            "success": False,
+            "diagnosis": f"Unparseable reflection output: {content[:300]}",
+            "revised_hypothesis": fallback_hypothesis,
+        }
 
-    Calls the LLM to analyse the latest sandbox output and determine
-    success or failure.
+
+# ---------------------------------------------------------------------------
+# Visual-diff path (Computer-Use / UI tasks)
+# ---------------------------------------------------------------------------
+
+def _reflect_ui(
+    state: IsaacState,
+    llm: Any,
+    plan: list[PlanStep],
+    active_step: PlanStep | None,
+    errors: list[ErrorEntry],
+    updates: dict[str, Any],
+) -> dict[str, Any]:
+    """Reflection path for `task_mode == "computer_use"`.
+
+    Compares the before/after screenshots of the last UIActionResult to
+    determine whether the GUI action succeeded.
     """
-    from isaac.llm.provider import get_llm  # noqa: PLC0415
+    ui_results: list[UIActionResult] = state.get("ui_results", [])
+    step_desc = active_step.description if active_step else "unknown"
 
-    llm = get_llm()
+    if not ui_results:
+        logger.warning("Reflection (UI): no ui_results found — treating as failure.")
+        parsed = {
+            "success": False,
+            "diagnosis": "No UI action results available for visual diff.",
+            "revised_hypothesis": state.get("hypothesis", ""),
+        }
+    else:
+        latest: UIActionResult = ui_results[-1]
+        prompt = reflection_ui_prompt(
+            step_description=step_desc,
+            action=latest.action,
+            screenshot_before_b64=latest.screenshot_before_b64 or "",
+            screenshot_after_b64=latest.screenshot_after_b64 or "",
+            error=latest.error,
+        )
+        response = llm.invoke(prompt)
+        content = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
+        parsed = _parse_reflection_json(content, state.get("hypothesis", ""))
 
+    if parsed.get("success", False):
+        if active_step:
+            active_step.status = "done"
+        updates["plan"] = plan
+
+        candidate_info = parsed.get("skill_candidate", {})
+        updates["skill_candidate"] = SkillCandidate(
+            name=candidate_info.get("name", "ui_skill"),
+            code=state.get("code_buffer", ""),   # JSON-encoded UIAction trace
+            task_context=step_desc,
+            success_count=1,
+            skill_type="ui",
+            tags=candidate_info.get("tags", ["ui"]),
+        )
+        logger.info("Reflection (UI): step SUCCEEDED — UI skill candidate proposed.")
+    else:
+        attempt = len([e for e in errors if e.node == "reflection"]) + 1
+        corrective = parsed.get("corrective_action", "")
+        message = parsed.get("diagnosis", "Visual diff indicated failure.")
+        if corrective:
+            message = f"{message}  Corrective hint: {corrective}"
+        new_error = ErrorEntry(
+            node="reflection",
+            message=message,
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+            attempt=attempt,
+        )
+        updates["errors"] = [new_error]
+        updates["hypothesis"] = parsed.get(
+            "revised_hypothesis", state.get("hypothesis", "")
+        )
+        if active_step:
+            active_step.status = "failed"
+        updates["plan"] = plan
+        logger.info(
+            "Reflection (UI): step FAILED (attempt %d) — hypothesis revised.",
+            attempt,
+        )
+
+    updates["current_phase"] = "reflection"
+    return updates
+
+
+# ---------------------------------------------------------------------------
+# Code-execution path (default)
+# ---------------------------------------------------------------------------
+
+def _reflect_code(
+    state: IsaacState,
+    llm: Any,
+    plan: list[PlanStep],
+    active_step: PlanStep | None,
+    errors: list[ErrorEntry],
+    updates: dict[str, Any],
+) -> dict[str, Any]:
+    """Reflection path for standard code-execution tasks."""
     log = _latest_log(state)
     code = state.get("code_buffer", "")
-    plan: list[PlanStep] = state.get("plan", [])
-    errors = list(state.get("errors", []))
-    active_step = _get_active_step(plan)
     step_desc = active_step.description if active_step else "unknown"
 
     prompt = reflection_prompt(
@@ -66,32 +175,18 @@ def reflection_node(state: IsaacState) -> dict[str, Any]:
         step_description=step_desc,
     )
     response = llm.invoke(prompt)
-    content = response.content if isinstance(response.content, str) else str(response.content)
-
-    # Parse structured JSON
-    try:
-        cleaned = content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1]
-            cleaned = cleaned.rsplit("```", 1)[0]
-        parsed = json.loads(cleaned)
-    except (json.JSONDecodeError, IndexError):
-        logger.error("Reflection: failed to parse LLM JSON — treating as failure.")
-        parsed = {
-            "success": False,
-            "diagnosis": f"Unparseable reflection output: {content[:300]}",
-            "revised_hypothesis": state.get("hypothesis", ""),
-        }
-
-    updates: dict[str, Any] = {"current_phase": "reflection"}
+    content = (
+        response.content
+        if isinstance(response.content, str)
+        else str(response.content)
+    )
+    parsed = _parse_reflection_json(content, state.get("hypothesis", ""))
 
     if parsed.get("success", False):
-        # Mark active step done
         if active_step:
             active_step.status = "done"
         updates["plan"] = plan
 
-        # Build skill candidate
         candidate_info = parsed.get("skill_candidate", {})
         updates["skill_candidate"] = SkillCandidate(
             name=candidate_info.get("name", "unnamed_skill"),
@@ -99,10 +194,8 @@ def reflection_node(state: IsaacState) -> dict[str, Any]:
             task_context=step_desc,
             success_count=1,
         )
-
         logger.info("Reflection: step SUCCEEDED — skill candidate proposed.")
     else:
-        # Failure path
         attempt = len([e for e in errors if e.node == "reflection"]) + 1
         new_error = ErrorEntry(
             node="reflection",
@@ -115,14 +208,38 @@ def reflection_node(state: IsaacState) -> dict[str, Any]:
         updates["hypothesis"] = parsed.get(
             "revised_hypothesis", state.get("hypothesis", "")
         )
-
         if active_step:
             active_step.status = "failed"
         updates["plan"] = plan
-
         logger.info(
             "Reflection: step FAILED (attempt %d) — hypothesis revised.",
             attempt,
         )
 
+    updates["current_phase"] = "reflection"
     return updates
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+def reflection_node(state: IsaacState) -> dict[str, Any]:
+    """LangGraph node: Reflection / Critic.
+
+    Dispatches to the visual-diff path for Computer-Use tasks, or the
+    standard code-analysis path otherwise.
+    """
+    from isaac.llm.provider import get_llm
+
+    llm = get_llm()
+    plan: list[PlanStep] = state.get("plan", [])
+    errors: list[ErrorEntry] = list(state.get("errors", []))
+    active_step = _get_active_step(plan)
+    updates: dict[str, Any] = {"current_phase": "reflection"}
+
+    task_mode: str = state.get("task_mode", "code")
+    if task_mode == "computer_use":
+        return _reflect_ui(state, llm, plan, active_step, errors, updates)
+
+    return _reflect_code(state, llm, plan, active_step, errors, updates)

@@ -5,7 +5,6 @@ from __future__ import annotations
 from isaac.core.state import (
     ErrorEntry,
     ExecutionResult,
-    IsaacState,
     PlanStep,
     SkillCandidate,
     WorldModel,

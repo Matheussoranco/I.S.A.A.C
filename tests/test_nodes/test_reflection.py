@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from isaac.core.state import ExecutionResult, PlanStep, make_initial_state
-from isaac.nodes.reflection import reflection_node
 from tests.conftest import MockLLM
+
+from isaac.core.state import (
+    ExecutionResult,
+    PlanStep,
+    UIAction,
+    UIActionResult,
+    make_initial_state,
+)
+from isaac.nodes.reflection import reflection_node
 
 
 class TestReflectionNode:
@@ -61,3 +68,68 @@ class TestReflectionNode:
 
         assert "errors" in result
         assert len(result["errors"]) == 1
+
+    # ------------------------------------------------------------------
+    # UI / Computer-Use visual-diff path
+    # ------------------------------------------------------------------
+
+    def _make_ui_state(self, llm_response: str):
+        """Build a state wired for the computer_use task_mode."""
+        state = make_initial_state()
+        state["task_mode"] = "computer_use"
+        state["plan"] = [
+            PlanStep(id="s1", description="click login button", status="active", mode="ui")
+        ]
+        state["ui_results"] = [
+            UIActionResult(
+                action=UIAction(type="click", x=100, y=200, description="click login"),
+                success=True,
+                screenshot_before_b64="before_b64",
+                screenshot_after_b64="after_b64",
+            )
+        ]
+        return state, MockLLM(llm_response)
+
+    def test_ui_success_produces_ui_skill_candidate(self) -> None:
+        state, mock = self._make_ui_state(
+            '{"success": true, "diagnosis": "logged in", '
+            '"skill_candidate": {"name": "login_click", "tags": ["ui", "playwright"]}}'
+        )
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            result = reflection_node(state)
+
+        assert result["plan"][0].status == "done"
+        candidate = result.get("skill_candidate")
+        assert candidate is not None
+        assert candidate.skill_type == "ui"
+        assert candidate.name == "login_click"
+
+    def test_ui_failure_appends_error_with_corrective_hint(self) -> None:
+        state, mock = self._make_ui_state(
+            '{"success": false, "diagnosis": "element not found", '
+            '"revised_hypothesis": "try scrolling first", '
+            '"corrective_action": "scroll down 200px"}'
+        )
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            result = reflection_node(state)
+
+        assert result["plan"][0].status == "failed"
+        assert "errors" in result
+        err = result["errors"][0]
+        assert err.node == "reflection"
+        assert "scroll down" in err.message
+        assert result["hypothesis"] == "try scrolling first"
+
+    def test_ui_no_results_treated_as_failure(self) -> None:
+        """If there are no ui_results, fall back to failure without crashing."""
+        state = make_initial_state()
+        state["task_mode"] = "computer_use"
+        state["plan"] = [PlanStep(id="s1", description="open app", status="active", mode="ui")]
+        state["ui_results"] = []  # empty
+
+        mock = MockLLM('{"success": true}')  # LLM won't even be called in this path
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            result = reflection_node(state)
+
+        assert result["plan"][0].status == "failed"
+        assert "errors" in result

@@ -22,9 +22,9 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     Generates or refines a multi-step plan.  Increments ``iteration`` on
     every invocation to prevent infinite loops.
     """
-    from isaac.config.settings import settings  # noqa: PLC0415
-    from isaac.llm.provider import get_llm  # noqa: PLC0415
-    from isaac.memory.skill_library import SkillLibrary  # noqa: PLC0415
+    from isaac.config.settings import settings
+    from isaac.llm.provider import get_llm
+    from isaac.memory.skill_library import SkillLibrary
 
     llm = get_llm()
     skill_lib = SkillLibrary(settings.skills_dir)
@@ -55,6 +55,7 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
                 PlanStep(
                     id=raw["id"],
                     description=raw["description"],
+                    mode=raw.get("mode", "code"),
                     status="pending",
                     depends_on=raw.get("depends_on", []),
                 )
@@ -62,10 +63,13 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     except (json.JSONDecodeError, KeyError, IndexError) as exc:
         logger.error("Planner: failed to parse LLM plan: %s", exc)
         # Fallback: single generic step
+        task_mode = state.get("task_mode", "code")
+        fallback_mode = "ui" if task_mode == "computer_use" else "code"
         steps = [
             PlanStep(
                 id="s1",
                 description=f"Execute hypothesis directly: {hypothesis[:200]}",
+                mode=fallback_mode,
                 status="pending",
             )
         ]

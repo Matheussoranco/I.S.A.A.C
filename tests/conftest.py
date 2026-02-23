@@ -6,7 +6,6 @@ objects so individual test modules stay focused.
 
 from __future__ import annotations
 
-from dataclasses import field
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -18,10 +17,8 @@ from isaac.core.state import (
     IsaacState,
     PlanStep,
     SkillCandidate,
-    WorldModel,
     make_initial_state,
 )
-
 
 # ---------------------------------------------------------------------------
 # State fixtures

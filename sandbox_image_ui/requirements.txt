@@ -1,0 +1,20 @@
+# I.S.A.A.C. UI Sandbox Python dependencies
+# Installed inside the virtual desktop container
+
+# Browser automation (primary high-level API)
+playwright==1.44.0
+
+# Low-level GUI automation (fallback / direct xdotool wrapper)
+pyautogui==0.9.54
+
+# Image processing for screenshot analysis
+Pillow==10.3.0
+
+# Numerical utilities
+numpy==1.26.4
+
+# Clipboard support
+pyperclip==1.9.0
+
+# X11 Python bindings
+python-xlib==0.33

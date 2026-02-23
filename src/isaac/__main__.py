@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import sys
-
 
 def main() -> int:
     """Bootstrap and run the I.S.A.A.C. cognitive loop."""
-    from isaac.core.graph import build_and_run  # noqa: PLC0415
+    from isaac.core.graph import build_and_run
 
     return build_and_run()
 

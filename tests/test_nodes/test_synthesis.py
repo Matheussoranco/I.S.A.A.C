@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from isaac.core.state import PlanStep, make_initial_state
-from isaac.nodes.synthesis import synthesis_node, _extract_code
 from tests.conftest import MockLLM
+
+from isaac.core.state import PlanStep, make_initial_state
+from isaac.nodes.synthesis import _extract_code, synthesis_node
 
 
 class TestExtractCode:

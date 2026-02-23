@@ -59,7 +59,7 @@ class SecurityPolicy:
 
 def default_policy() -> SecurityPolicy:
     """Build a ``SecurityPolicy`` from the current application settings."""
-    from isaac.config.settings import settings  # noqa: PLC0415
+    from isaac.config.settings import settings
 
     cfg = settings.sandbox
     return SecurityPolicy(
@@ -68,5 +68,26 @@ def default_policy() -> SecurityPolicy:
         cpu_limit=cfg.cpu_limit,
         pids_limit=cfg.pids_limit,
         timeout_seconds=cfg.timeout_seconds,
-        tmpfs={"/tmp": f"rw,noexec,nosuid,size={cfg.tmpfs_size}"},
+        tmpfs={},  # code sandbox uses read-only rootfs; no tmpfs needed
+    )
+
+
+def ui_policy() -> SecurityPolicy:
+    """Build a permissive ``SecurityPolicy`` for virtual-desktop containers.
+
+    UI containers need write access to ``/tmp`` and ``/run`` for X11 sockets,
+    and more memory/CPU for running a browser.  The rootfs is NOT read-only.
+    """
+    from isaac.config.settings import settings
+
+    cfg = settings.ui_sandbox
+    return SecurityPolicy(
+        network_mode="none" if not cfg.allow_browser_network else "bridge",
+        memory_limit=cfg.memory_limit,
+        cpu_limit=cfg.cpu_limit,
+        pids_limit=cfg.pids_limit,
+        timeout_seconds=cfg.timeout_seconds,
+        # UI containers must be writable (Xvfb writes to /tmp/.X11-unix)
+        read_only_rootfs=False,
+        tmpfs={}  # managed by the image itself
     )

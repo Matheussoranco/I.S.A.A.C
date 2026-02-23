@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from isaac.core.state import PlanStep, make_initial_state
-from isaac.nodes.planner import planner_node
 from tests.conftest import MockLLM
+
+from isaac.core.state import make_initial_state
+from isaac.nodes.planner import planner_node
 
 
 class TestPlannerNode:

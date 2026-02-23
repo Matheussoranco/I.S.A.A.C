@@ -34,7 +34,7 @@ class CodeExecutor:
         image: str | None = None,
         policy: SecurityPolicy | None = None,
     ) -> None:
-        from isaac.config.settings import settings  # noqa: PLC0415
+        from isaac.config.settings import settings
 
         self._image = image or settings.sandbox.image
         self._policy = policy or default_policy()

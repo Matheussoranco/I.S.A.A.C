@@ -2,19 +2,32 @@
 
 Call :func:`build_graph` to get a compiled graph, or :func:`build_and_run`
 to execute a full interactive session.
+
+Computer-Use topology
+---------------------
+The graph branches after Synthesis based on active step mode::
+
+    Synthesis ─► ComputerUse (mode=ui)     ─┐
+              └► Sandbox     (mode=code/hybrid) ─► Reflection
 """
 
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 
 from isaac.core.state import IsaacState, make_initial_state
-from isaac.core.transitions import after_reflection, after_skill_abstraction
+from isaac.core.transitions import (
+    NODE_COMPUTER_USE,
+    NODE_SANDBOX,
+    after_reflection,
+    after_skill_abstraction,
+    after_synthesis,
+)
+from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
 from isaac.nodes.perception import perception_node
 from isaac.nodes.planner import planner_node
 from isaac.nodes.reflection import reflection_node
@@ -32,6 +45,7 @@ _PERCEPTION = "perception"
 _PLANNER = "planner"
 _SYNTHESIS = "synthesis"
 _SANDBOX = "sandbox"
+_COMPUTER_USE = "computer_use"
 _REFLECTION = "reflection"
 _SKILL_ABSTRACTION = "skill_abstraction"
 
@@ -47,14 +61,26 @@ def build_graph() -> Any:
     Returns a compiled ``StateGraph`` ready for ``.invoke()`` or
     ``.stream()``.
 
-    Topology::
+    Full topology::
 
-        START ─► Perception ─► Planner ─► Synthesis ─► Sandbox ─► Reflection
-                      ▲                                                │
-                      │          ┌──────── Skill Abstraction ◄─────────┤
-                      │          │                │                    │
-                      │          ▼                ▼                    ▼
-                      └──── Planner (retry)      END               END
+        START ─► Perception ─► Planner ─► Synthesis
+                                              │
+                    ┌─────────────────────────┴──────────────────────┐
+                    │ mode=ui                  │ mode=code/hybrid
+                    ▼                          ▼
+              ComputerUse                  Sandbox
+                    │                          │
+                    └───────────────┬──────────┘
+                                    ▼
+                               Reflection
+                                    │
+           ┌───────────────────────┬┴────────────────────────┐
+           ▼ success               ▼ retry                   ▼ max errors
+    SkillAbstraction            Planner                      END
+           │
+       ┌───┴─────────────┐
+       ▼ pending         ▼ complete
+     Planner             END
     """
     graph = StateGraph(IsaacState)
 
@@ -63,17 +89,30 @@ def build_graph() -> Any:
     graph.add_node(_PLANNER, planner_node)
     graph.add_node(_SYNTHESIS, synthesis_node)
     graph.add_node(_SANDBOX, sandbox_node)
+    graph.add_node(_COMPUTER_USE, computer_use_node)
     graph.add_node(_REFLECTION, reflection_node)
     graph.add_node(_SKILL_ABSTRACTION, skill_abstraction_node)
 
-    # Linear edges
+    # Linear entry path
     graph.set_entry_point(_PERCEPTION)
     graph.add_edge(_PERCEPTION, _PLANNER)
     graph.add_edge(_PLANNER, _SYNTHESIS)
-    graph.add_edge(_SYNTHESIS, _SANDBOX)
+
+    # Synthesis → ComputerUse OR Sandbox (based on active step mode)
+    graph.add_conditional_edges(
+        _SYNTHESIS,
+        after_synthesis,
+        {
+            NODE_COMPUTER_USE: _COMPUTER_USE,
+            NODE_SANDBOX: _SANDBOX,
+        },
+    )
+
+    # Both execution paths converge on Reflection
+    graph.add_edge(_COMPUTER_USE, _REFLECTION)
     graph.add_edge(_SANDBOX, _REFLECTION)
 
-    # Conditional edges
+    # Reflection → SkillAbstraction | Planner | END
     graph.add_conditional_edges(
         _REFLECTION,
         after_reflection,
@@ -83,6 +122,8 @@ def build_graph() -> Any:
             END: END,
         },
     )
+
+    # SkillAbstraction → Planner | END
     graph.add_conditional_edges(
         _SKILL_ABSTRACTION,
         after_skill_abstraction,
@@ -159,8 +200,19 @@ def build_and_run() -> int:
                     if latest.stderr.strip():
                         print(f"  ─ stderr: {latest.stderr.strip()[:300]}")
 
+                # Print UI-mode summary
+                ui_results = result.get("ui_results", [])
+                if ui_results:
+                    print(f"  ─ ui_actions_executed: {len(ui_results)}")
+                    print(f"  ─ ui_cycle: {result.get('ui_cycle', 0)}")
+                    last_ui = ui_results[-1]
+                    status = "✓" if last_ui.success else "✗"
+                    desc = last_ui.action.description[:80]
+                    print(f"  ─ last_ui_action: [{status}] {last_ui.action.type} — {desc}")
+
+                mode = result.get("task_mode", "code")
                 phase = result.get("current_phase", "")
-                print(f"  ─ phase: {phase}\n")
+                print(f"  ─ mode: {mode}  phase: {phase}\n")
 
             except Exception as exc:
                 logger.exception("Graph execution failed.")
@@ -168,5 +220,8 @@ def build_and_run() -> int:
 
     except KeyboardInterrupt:
         print("\nShutting down.")
+    finally:
+        # Tear down the UI container if one was started
+        shutdown_ui_executor()
 
     return 0
