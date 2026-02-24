@@ -109,7 +109,7 @@ class CodeTool(IsaacTool):
             return ToolResult(
                 success=result.exit_code == 0,
                 output=result.stdout,
-                error=result.stderr if result.exit_code != 0 else None,
+                error=result.stderr if result.exit_code != 0 else "",
             )
         except Exception as exc:
             logger.error("Code execution failed: %s", exc)

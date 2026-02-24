@@ -49,7 +49,8 @@ class TestReflectionNode:
             '{"success": false, "diagnosis": "ValueError raised", '
             '"revised_hypothesis": "handle errors"}'
         )
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_llm", return_value=mock), \
+             patch("isaac.nodes.refinement.attempt_refinement", return_value=None):
             result = reflection_node(state)
 
         assert "errors" in result
@@ -64,7 +65,8 @@ class TestReflectionNode:
         state["execution_logs"] = [ExecutionResult()]
 
         mock = MockLLM("not json!!!")
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_llm", return_value=mock), \
+             patch("isaac.nodes.refinement.attempt_refinement", return_value=None):
             result = reflection_node(state)
 
         assert "errors" in result
@@ -179,7 +181,8 @@ class TestReflectionNode:
             '{"success": false, "diagnosis": "ValueError", '
             '"revised_hypothesis": "handle errors"}'
         )
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_llm", return_value=mock), \
+             patch("isaac.nodes.refinement.attempt_refinement", return_value=None):
             reflection_node(state)
 
         mem = get_episodic_memory()

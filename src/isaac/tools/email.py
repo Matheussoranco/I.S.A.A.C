@@ -88,12 +88,12 @@ class EmailReadTool(IsaacTool):
                         for part in msg.walk():
                             if part.get_content_type() == "text/plain":
                                 payload = part.get_payload(decode=True)
-                                if payload:
+                                if isinstance(payload, bytes):
                                     body = payload.decode("utf-8", errors="replace")[:500]
                                 break
                     else:
                         payload = msg.get_payload(decode=True)
-                        if payload:
+                        if isinstance(payload, bytes):
                             body = payload.decode("utf-8", errors="replace")[:500]
 
                     messages.append(

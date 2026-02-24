@@ -27,7 +27,7 @@ chromadb>=0.5
 typer>=0.12
 
 # Web search (no API key required)
-duckduckgo-search>=6.0
+ddgs>=0.1     # renamed from duckduckgo-search
 
 # Telegram gateway
 python-telegram-bot>=21.0

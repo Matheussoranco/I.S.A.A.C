@@ -124,7 +124,7 @@ class WorldModelKG:
 
     def subgraph(self, node_ids: list[str]) -> nx.DiGraph:
         """Return the induced subgraph for the given nodes."""
-        return self._graph.subgraph(node_ids).copy()
+        return nx.DiGraph(self._graph.subgraph(node_ids))
 
     def shortest_path(self, source: str, target: str) -> list[str]:
         """Shortest path between two nodes, or empty list if unreachable."""

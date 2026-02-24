@@ -169,7 +169,21 @@ class SecurityPolicy:
         """Convert to keyword arguments for ``docker.containers.run()``."""
         sec_opts = list(self.security_opts)
         if self.seccomp_profile_path:
-            sec_opts.append(f"seccomp={self.seccomp_profile_path}")
+            import platform as _platform
+            if _platform.system() == "Windows":
+                # Seccomp is a Linux kernel feature; Docker Desktop on Windows
+                # runs containers in a VM that has seccomp but cannot accept a
+                # Windows host-side file path.  Pass the profile content inline.
+                try:
+                    import json as _json
+                    from pathlib import Path as _Path
+                    content = _Path(self.seccomp_profile_path).read_text(encoding="utf-8")
+                    # Minify to a single line — Docker API expects inline JSON
+                    sec_opts.append(f"seccomp={_json.dumps(_json.loads(content))}")
+                except Exception:
+                    logger.debug("Seccomp inline load failed — skipping on Windows.")
+            else:
+                sec_opts.append(f"seccomp={self.seccomp_profile_path}")
 
         return {
             "network_mode": self.network_mode,

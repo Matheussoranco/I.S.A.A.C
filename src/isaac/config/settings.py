@@ -12,6 +12,11 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Resolve .env relative to this file so it is found regardless of CWD.
+# Layout: src/isaac/config/settings.py → src/isaac/config → src/isaac → src → project_root
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class LLMSettings(BaseSettings):
     """LLM provider configuration.
@@ -21,7 +26,12 @@ class LLMSettings(BaseSettings):
     When tier-specific fields are blank, they fall back to the default model.
     """
 
-    model_config = SettingsConfigDict(env_prefix="ISAAC_")
+    model_config = SettingsConfigDict(
+        env_prefix="ISAAC_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        protected_namespaces=("settings_",),
+    )
 
     llm_provider: Literal["openai", "anthropic"] = "openai"
     model_name: str = "gpt-4o"
@@ -42,7 +52,11 @@ class LLMSettings(BaseSettings):
 class SandboxSettings(BaseSettings):
     """Docker sandbox constraints for code-execution containers."""
 
-    model_config = SettingsConfigDict(env_prefix="ISAAC_SANDBOX_")
+    model_config = SettingsConfigDict(
+        env_prefix="ISAAC_SANDBOX_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+    )
 
     image: str = "isaac-sandbox:latest"
     timeout_seconds: int = Field(default=30, ge=1, le=300)
@@ -56,7 +70,11 @@ class SandboxSettings(BaseSettings):
 class UISandboxSettings(BaseSettings):
     """Docker sandbox constraints for virtual-desktop Computer-Use containers."""
 
-    model_config = SettingsConfigDict(env_prefix="ISAAC_UI_SANDBOX_")
+    model_config = SettingsConfigDict(
+        env_prefix="ISAAC_UI_SANDBOX_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+    )
 
     image: str = "isaac-ui-sandbox:latest"
     timeout_seconds: int = Field(default=120, ge=10, le=600)
@@ -78,7 +96,11 @@ class UISandboxSettings(BaseSettings):
 class GraphSettings(BaseSettings):
     """Cognitive-loop tuning knobs."""
 
-    model_config = SettingsConfigDict(env_prefix="ISAAC_")
+    model_config = SettingsConfigDict(
+        env_prefix="ISAAC_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+    )
 
     max_retries: int = Field(default=3, ge=1, le=20)
     max_iterations: int = Field(default=10, ge=1, le=100)
@@ -90,7 +112,7 @@ class Settings(BaseSettings):
     """Top-level settings aggregator."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )

@@ -1,4 +1,15 @@
 {
   "version": "0.1.0",
-  "skills": {}
+  "skills": {
+    "generate_localized_greeting": {
+      "name": "generate_localized_greeting",
+      "input_schema": {},
+      "output_schema": {},
+      "task_context": "Generate a friendly greeting response in Portuguese to acknowledge the user's 'Olá!' and invite them to state their request or task",
+      "success_count": 2,
+      "skill_type": "code",
+      "tags": [],
+      "file": "generate_localized_greeting.py"
+    }
+  }
 }

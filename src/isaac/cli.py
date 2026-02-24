@@ -47,6 +47,7 @@ def _setup_logging(verbose: bool = False) -> None:
 
 
 if typer is not None:
+    assert app is not None
 
     @app.command()
     def run(

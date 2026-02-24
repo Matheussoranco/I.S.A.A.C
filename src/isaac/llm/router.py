@@ -87,7 +87,7 @@ class LLMRouter:
 
         if self._ollama_available:
             logger.info("Ollama is available at %s.", self._ollama_base_url)
-        return self._ollama_available
+        return bool(self._ollama_available)
 
     @property
     def ollama_available(self) -> bool:

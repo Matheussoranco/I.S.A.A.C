@@ -103,6 +103,10 @@ class ToolRegistry:
         """Return schemas for all registered tools."""
         return [t.to_schema() for t in self._tools.values()]
 
+    def list_all(self) -> list["IsaacTool"]:
+        """Return all registered tool instances."""
+        return list(self._tools.values())
+
     def list_names(self) -> list[str]:
         """Return names of all registered tools."""
         return list(self._tools.keys())

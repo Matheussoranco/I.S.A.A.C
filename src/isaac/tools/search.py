@@ -50,13 +50,16 @@ class WebSearchTool(IsaacTool):
     # ------------------------------------------------------------------
 
     async def _ddg_search(self, query: str, max_results: int) -> ToolResult:
-        """Search via the ``duckduckgo-search`` package."""
+        """Search via the ``ddgs`` (formerly ``duckduckgo-search``) package."""
         try:
-            from duckduckgo_search import DDGS  # type: ignore[import-untyped]
+            try:
+                from ddgs import DDGS  # type: ignore[import-untyped]  # new name
+            except ImportError:
+                from duckduckgo_search import DDGS  # type: ignore[import-untyped]  # old name
         except ImportError:
             return ToolResult(
                 success=False,
-                error="duckduckgo-search package is not installed.",
+                error="ddgs package is not installed. Run: pip install ddgs",
             )
 
         try:

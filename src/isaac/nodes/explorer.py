@@ -88,8 +88,7 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str]:
         from isaac.arc.grid_ops import (
             extract_objects,
             detect_symmetry,
-            colour_histogram,
-            grid_dimensions,
+            extract_colours,
         )
         from isaac.arc.dsl import PRIMITIVES, compose
     except ImportError as exc:
@@ -103,10 +102,10 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str]:
         prefix = f"[Train {i}]"
 
         # Grid dimensions
-        in_dims = grid_dimensions(input_grid)
+        in_dims = input_grid.shape
         observations.append(f"{prefix} Input: {in_dims[0]}x{in_dims[1]}")
         if output_grid.size > 0:
-            out_dims = grid_dimensions(output_grid)
+            out_dims = output_grid.shape
             observations.append(f"{prefix} Output: {out_dims[0]}x{out_dims[1]}")
 
             if in_dims == out_dims:
@@ -115,10 +114,10 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str]:
                 observations.append(f"{prefix} Different dimensions → resize/crop/pad suspected.")
 
         # Colour analysis
-        in_hist = colour_histogram(input_grid)
+        in_hist = extract_colours(input_grid)
         observations.append(f"{prefix} Input colours: {dict(in_hist)}")
         if output_grid.size > 0:
-            out_hist = colour_histogram(output_grid)
+            out_hist = extract_colours(output_grid)
             observations.append(f"{prefix} Output colours: {dict(out_hist)}")
 
             # New colours in output?
@@ -239,7 +238,7 @@ def _store_exploration_facts(observations: list[str]) -> None:
                 mm.store_fact(
                     subject="exploration",
                     predicate="observed",
-                    obj=obs[:200],
+                    object=obs[:200],
                     confidence=0.7,
                 )
     except Exception as exc:

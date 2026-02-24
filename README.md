@@ -40,7 +40,7 @@ START ─► Guard ─► Perception ─► Explorer ─► Planner ─► Synth
 - **CodeAgent Paradigm**: The LLM generates pure Python — no JSON/XML tool calling. Code is injected into the sandbox, never executed on the host.
 - **Ollama-First LLM Routing**: Prefers local Ollama models for privacy and speed. Falls back to OpenAI/Anthropic only when necessary.
 - **Neuro-Symbolic Reasoning**: Structured state schema separates perception from representation. The `WorldModel` carries symbolic observations via a knowledge graph.
-- **Three-Layer Memory**: Episodic (session experiences), Semantic (knowledge graph with transitive inference), and Procedural (versioned skill library with success tracking).
+- **Five-Layer Memory**: Episodic (session experiences), Semantic (fact store with transitive inference), WorldModel KG (NetworkX DiGraph), Skill Library (versioned procedural store), and a unified ContextManager for cross-layer recall.
 - **Cumulative Learning**: A persistent Skill Library stores generalised programs. The agent composes existing skills to solve novel tasks, reducing LLM calls over time.
 - **Security-First**: Hash-chained audit log, capability tokens, prompt injection guard, I/O sanitization, seccomp sandboxing.
 - **ARC-AGI Foundations**: Perception/representation separation + compositional Skill Library enable program synthesis for geometric/logical puzzles.
@@ -51,13 +51,26 @@ START ─► Guard ─► Perception ─► Explorer ─► Planner ─► Synth
 I.S.A.A.C/
 ├── src/isaac/                  # Main package
 │   ├── core/                   # State schema, graph builder, transitions
-│   ├── nodes/                  # 10 cognitive graph nodes
+│   ├── nodes/                  # 10 cognitive graph nodes + refinement helper
 │   │   ├── guard.py            # Prompt injection detection
-│   │   ├── explorer.py         # Active exploration (ARC + web)
-│   │   ├── got_planner.py      # Graph-of-Thought DAG planner
-│   │   ├── refinement.py       # Synthesis→Sandbox tight loop
+│   │   ├── perception.py       # Input parsing, world model construction
+│   │   ├── explorer.py         # Active exploration (ARC structural + web search)
+│   │   ├── planner.py          # Task decomposition dispatcher
+│   │   ├── got_planner.py      # Graph-of-Thought DAG plan builder
+│   │   ├── synthesis.py        # Pure-Python code generation
+│   │   ├── sandbox.py          # Docker code execution node
+│   │   ├── computer_use.py     # GUI automation via virtual desktop
+│   │   ├── reflection.py       # Result analysis + refinement loop dispatch
+│   │   ├── refinement.py       # Synthesis→Sandbox tight inner loop (called by Reflection)
+│   │   ├── skill_abstraction.py # Generalise code into Skill Library
 │   │   └── approval.py         # Human approval workflow
-│   ├── memory/                 # Episodic, semantic KG, procedural, world model KG
+│   ├── memory/                 # Five-layer memory system
+│   │   ├── episodic.py         # Session experiences ring buffer
+│   │   ├── semantic.py         # Fact store with transitive inference
+│   │   ├── world_model_kg.py   # NetworkX knowledge graph (DiGraph)
+│   │   ├── skill_library.py    # Versioned procedural skill store
+│   │   ├── context_manager.py  # Unified recall across all layers
+│   │   └── manager.py         # MemoryManager singleton facade
 │   ├── sandbox/                # Docker security, manager, code executor
 │   ├── llm/                    # Provider factory, LLM router, prompt templates
 │   ├── tools/                  # Secure tool ecosystem (browser, file, search, email, calendar, code)
@@ -81,7 +94,7 @@ I.S.A.A.C/
 
 ### Prerequisites
 
-- Python ≥ 3.11
+- Python ≥ 3.10
 - Docker Engine running
 - An API key for OpenAI or Anthropic (optional — Ollama works offline)
 - [Ollama](https://ollama.ai/) (recommended for local inference)
@@ -119,17 +132,21 @@ python -m isaac run
 # Telegram bot + heartbeat scheduler
 python -m isaac serve
 
-# View audit log
-python -m isaac audit show --last 20
+# View last N audit entries
+python -m isaac audit --last 20
 
 # Verify audit chain integrity
-python -m isaac audit verify
+python -m isaac audit --verify
 
 # List registered tools
 python -m isaac tools
 
 # Query memory
-python -m isaac memory query "search term"
+python -m isaac memory "search term"
+
+# Manage capability tokens
+python -m isaac tokens list
+python -m isaac tokens issue --tool web_search
 ```
 
 ### Docker Compose
@@ -167,6 +184,11 @@ The `IsaacState` TypedDict flows through all graph nodes:
 | `errors` | `list[ErrorEntry]` | append | Failure stack (prevents loops) |
 | `iteration` | `int` | replace | Cycle counter (hard-capped) |
 | `current_phase` | `str` | replace | Active node name |
+| `task_mode` | `TaskMode` | replace | `"code"` \| `"computer_use"` \| `"none"` |
+| `ui_actions` | `list[UIAction]` | append | Pending GUI actions from Synthesis |
+| `ui_results` | `list[UIActionResult]` | append | Screenshot+outcome from ComputerUse |
+| `ui_cycle` | `int` | replace | Screenshot→action loop counter |
+| `pending_approvals` | `list[PendingApproval]` | append | High-risk actions awaiting human sign-off |
 
 ## Sandbox Security
 

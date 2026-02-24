@@ -271,9 +271,9 @@ def guard_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Log to audit
     try:
-        from isaac.security.audit import get_audit_logger
+        from isaac.security.audit import get_audit_log
 
-        audit = get_audit_logger()
+        audit = get_audit_log()
         audit.log(
             node_name="guard",
             action_type="injection_scan",
