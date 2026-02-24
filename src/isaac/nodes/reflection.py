@@ -230,6 +230,30 @@ def _reflect_code(
     else:
         attempt = len([e for e in errors if e.node == "reflection"]) + 1
         diagnosis = parsed.get("diagnosis", "Unknown failure")
+
+        # ── Refinement loop: try tight Synthesis→Sandbox fix first ──
+        try:
+            from isaac.nodes.refinement import attempt_refinement
+
+            refined = attempt_refinement(state, diagnosis)
+            if refined is not None:
+                # Refinement succeeded — record episode and return
+                episodic.record(Episode(
+                    task=step_desc,
+                    hypothesis=state.get("hypothesis", ""),
+                    code=refined.get("code_buffer", ""),
+                    result_summary="Refined successfully after inner loop.",
+                    success=True,
+                    node="reflection_refinement",
+                    iteration=state.get("iteration", 0),
+                ))
+                logger.info("Reflection: refinement loop SUCCEEDED — skipping Planner re-plan.")
+                refined["current_phase"] = "reflection"
+                return refined
+        except Exception as exc:
+            logger.debug("Refinement loop unavailable: %s", exc)
+
+        # ── Fallback: escalate to Planner ──
         new_error = ErrorEntry(
             node="reflection",
             message=diagnosis,

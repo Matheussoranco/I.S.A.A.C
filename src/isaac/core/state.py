@@ -173,6 +173,31 @@ class ErrorEntry:
     attempt: int = 0
 
 
+@dataclass
+class PendingApproval:
+    """A tool invocation waiting for human approval before execution.
+
+    Created when a tool with ``requires_approval=True`` (risk ≥ 4) is
+    attempted.  The graph pauses at the AwaitApproval node until the
+    operator resolves the approval.
+    """
+
+    tool_name: str
+    """Name of the tool awaiting approval."""
+    tool_args: dict[str, Any] = field(default_factory=dict)
+    """Keyword arguments the tool was called with."""
+    reason: str = ""
+    """Why the agent wants to invoke this tool."""
+    risk_level: int = 0
+    """Risk level (1–5) of the tool."""
+    approved: bool | None = None
+    """``None`` = pending, ``True`` = approved, ``False`` = rejected."""
+    resolved_by: str = ""
+    """Who resolved — e.g. ``telegram:<user_id>`` or ``cli``."""
+    created_at: str = ""
+    """ISO-8601 timestamp of when the approval was created."""
+
+
 # ---------------------------------------------------------------------------
 # Reducers
 # ---------------------------------------------------------------------------
@@ -244,6 +269,9 @@ class IsaacState(TypedDict, total=False):
     ui_results:  Annotated[list[UIActionResult], _append_list]
     ui_cycle:    Annotated[int, _replace]
 
+    # ── Approval Workflow ──────────────────────────────────────────────────
+    pending_approvals: Annotated[list[PendingApproval], _append_list]
+
 
 def make_initial_state() -> IsaacState:
     """Return a fully initialised blank state for a new cognitive cycle."""
@@ -262,4 +290,5 @@ def make_initial_state() -> IsaacState:
         ui_actions=[],
         ui_results=[],
         ui_cycle=0,
+        pending_approvals=[],
     )

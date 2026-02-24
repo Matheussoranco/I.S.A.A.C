@@ -2,38 +2,47 @@
 
 **Intelligent System for Autonomous Action and Cognition**
 
-A neuro-symbolic autonomous agent built on [LangGraph](https://github.com/langchain-ai/langgraph) with Docker-sandboxed execution and a cumulative Skill Library for ARC-AGI program synthesis.
+A neuro-symbolic autonomous agent built on [LangGraph](https://github.com/langchain-ai/langgraph) with Docker-sandboxed execution, a cumulative Skill Library, and a full security stack for ARC-AGI program synthesis and general-purpose autonomy.
 
 ---
 
 ## Architecture Overview
 
-I.S.A.A.C. models reasoning as an explicit cyclic state graph — not generic while-loops. Six cognitive nodes operate on a strict `TypedDict` state contract:
+I.S.A.A.C. models reasoning as an explicit cyclic state graph — not generic while-loops. Ten cognitive nodes operate on a strict `TypedDict` state contract:
 
 ```
-START ─► Perception ─► Planner ─► Synthesis ─► Sandbox ─► Reflection
-              ▲                                                │
-              │          ┌──── Skill Abstraction ◄─────────────┤
-              │          │            │                         │
-              │          ▼            ▼                         ▼
-              └──── Planner        END                       END
+START ─► Guard ─► Perception ─► Explorer ─► Planner ─► Synthesis
+                                                          │
+                    ┌────── Skill Abstraction ◄────┐      ▼
+                    │             │                 │   Sandbox / ComputerUse
+                    ▼             ▼                 │      │
+                 Planner        END            Reflection ◄┘
+                                                   │
+                                              AwaitApproval
 ```
 
 | Node | Responsibility |
 |---|---|
+| **Guard** | Detect prompt injection and sanitize input before processing |
 | **Perception** | Parse input, extract observations, build initial hypothesis |
-| **Planner** | Decompose task into dependency-aware steps (Graph-of-Thought) |
+| **Explorer** | Active exploration — ARC structural analysis + web search |
+| **Planner** | Decompose task into a dependency-aware DAG (Graph-of-Thought) |
 | **Synthesis** | Generate pure Python code (CodeAgent — no JSON tool calls) |
 | **Sandbox** | Execute code in ephemeral Docker container (zero host access) |
-| **Reflection** | Analyse results, diagnose failures, revise hypothesis |
+| **ComputerUse** | GUI automation via virtual desktop (Xvfb + Playwright) |
+| **Reflection** | Analyse results, attempt refinement loop, or escalate to Planner |
 | **Skill Abstraction** | Generalise successful code into reusable library entries |
+| **AwaitApproval** | Pause for human approval on high-risk tool invocations |
 
 ## Core Design Principles
 
-- **Execution Isolation**: All environment interactions run in ephemeral, unprivileged Docker containers (`--network=none`, `--cap-drop=ALL`, `--read-only`).
+- **Execution Isolation**: All environment interactions run in ephemeral, unprivileged Docker containers (`--network=none`, `--cap-drop=ALL`, `--read-only`, seccomp profile).
 - **CodeAgent Paradigm**: The LLM generates pure Python — no JSON/XML tool calling. Code is injected into the sandbox, never executed on the host.
-- **Neuro-Symbolic Reasoning**: Structured state schema separates perception from representation. The `WorldModel` carries symbolic observations, not raw data.
+- **Ollama-First LLM Routing**: Prefers local Ollama models for privacy and speed. Falls back to OpenAI/Anthropic only when necessary.
+- **Neuro-Symbolic Reasoning**: Structured state schema separates perception from representation. The `WorldModel` carries symbolic observations via a knowledge graph.
+- **Three-Layer Memory**: Episodic (session experiences), Semantic (knowledge graph with transitive inference), and Procedural (versioned skill library with success tracking).
 - **Cumulative Learning**: A persistent Skill Library stores generalised programs. The agent composes existing skills to solve novel tasks, reducing LLM calls over time.
+- **Security-First**: Hash-chained audit log, capability tokens, prompt injection guard, I/O sanitization, seccomp sandboxing.
 - **ARC-AGI Foundations**: Perception/representation separation + compositional Skill Library enable program synthesis for geometric/logical puzzles.
 
 ## Project Structure
@@ -42,14 +51,28 @@ START ─► Perception ─► Planner ─► Synthesis ─► Sandbox ─► Re
 I.S.A.A.C/
 ├── src/isaac/                  # Main package
 │   ├── core/                   # State schema, graph builder, transitions
-│   ├── nodes/                  # 6 cognitive graph nodes
-│   ├── memory/                 # Episodic memory, world model, skill library
+│   ├── nodes/                  # 10 cognitive graph nodes
+│   │   ├── guard.py            # Prompt injection detection
+│   │   ├── explorer.py         # Active exploration (ARC + web)
+│   │   ├── got_planner.py      # Graph-of-Thought DAG planner
+│   │   ├── refinement.py       # Synthesis→Sandbox tight loop
+│   │   └── approval.py         # Human approval workflow
+│   ├── memory/                 # Episodic, semantic KG, procedural, world model KG
 │   ├── sandbox/                # Docker security, manager, code executor
-│   ├── llm/                    # Provider factory, prompt templates
-│   └── config/                 # Pydantic settings (env-driven)
-├── sandbox_image/              # Docker build context for sandbox containers
+│   ├── llm/                    # Provider factory, LLM router, prompt templates
+│   ├── tools/                  # Secure tool ecosystem (browser, file, search, email, calendar, code)
+│   ├── interfaces/             # Telegram gateway
+│   ├── scheduler/              # APScheduler heartbeat + background jobs
+│   ├── security/               # Audit log, capability tokens, sanitizer
+│   ├── config/                 # Pydantic settings (env-driven)
+│   ├── arc/                    # ARC-AGI DSL, grid ops, evaluator
+│   └── cli.py                  # Typer CLI entry point
+├── sandbox_image/              # Dockerfile for code execution sandbox
+├── sandbox_image_ui/           # Dockerfile for virtual desktop sandbox
 ├── skills/                     # Persistent skill library (JSON + .py)
 ├── tests/                      # Full test suite with mocked LLM/Docker
+├── docker-compose.yml          # Full-stack deployment
+├── Dockerfile                  # Agent container image
 ├── pyproject.toml              # PEP 621 metadata + tooling config
 └── requirements.txt            # Flat dependency list
 ```
@@ -60,7 +83,8 @@ I.S.A.A.C/
 
 - Python ≥ 3.11
 - Docker Engine running
-- An API key for OpenAI or Anthropic
+- An API key for OpenAI or Anthropic (optional — Ollama works offline)
+- [Ollama](https://ollama.ai/) (recommended for local inference)
 
 ### Setup
 
@@ -81,14 +105,44 @@ pip install -e ".[dev]"
 cp .env.example .env
 # Edit .env with your API key and model preferences
 
-# Build the sandbox image
+# Build the sandbox images
 docker build -t isaac-sandbox:latest sandbox_image/
+docker build -t isaac-ui-sandbox:latest sandbox_image_ui/
 ```
 
 ### Run
 
 ```bash
-python -m isaac
+# Interactive REPL mode
+python -m isaac run
+
+# Telegram bot + heartbeat scheduler
+python -m isaac serve
+
+# View audit log
+python -m isaac audit show --last 20
+
+# Verify audit chain integrity
+python -m isaac audit verify
+
+# List registered tools
+python -m isaac tools
+
+# Query memory
+python -m isaac memory query "search term"
+```
+
+### Docker Compose
+
+```bash
+# Build all images
+docker compose build
+
+# Start the agent (with optional Ollama)
+docker compose --profile ollama up -d
+
+# View logs
+docker compose logs -f isaac
 ```
 
 ### Run Tests

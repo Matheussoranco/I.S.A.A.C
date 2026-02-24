@@ -1,0 +1,167 @@
+# I.S.A.A.C. Docker Compose — full-stack deployment
+#
+# Usage:
+#   docker compose up -d              # start all services
+#   docker compose up isaac            # start agent only (+ deps)
+#   docker compose build               # (re)build all images
+#   docker compose --profile ollama up # include local Ollama
+#   docker compose --profile chromadb up # include ChromaDB
+#   docker compose logs -f isaac       # follow agent logs
+#
+# The sandbox images (isaac-sandbox, isaac-ui-sandbox) are built here
+# but NOT run as long-lived services — they are spawned ephemerally by
+# the Docker SDK inside the agent at runtime.
+
+version: "3.9"
+
+# ==========================================================================
+# Networks
+# ==========================================================================
+networks:
+  isaac-internal:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: isaac-br
+    labels:
+      project: isaac
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+# ==========================================================================
+# Volumes
+# ==========================================================================
+volumes:
+  isaac-data:
+    labels:
+      project: isaac
+  ollama-models:
+    labels:
+      project: isaac
+  chromadb-data:
+    labels:
+      project: isaac
+
+# ==========================================================================
+# Services
+# ==========================================================================
+services:
+
+  # --------------------------------------------------------------------------
+  # isaac — main cognitive agent
+  # --------------------------------------------------------------------------
+  isaac:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: isaac-agent:latest
+    container_name: isaac-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Override Ollama URL to point to the companion container
+      - ISAAC_OLLAMA_BASE_URL=http://ollama:11434
+      # Allow sandbox containers to be spawned via Docker socket
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      # Persistent agent data (memory, audit log, workspace)
+      - isaac-data:/root/.isaac
+      # Docker socket for spawning sandbox containers
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Skills directory (live-reload)
+      - ./skills:/app/skills
+    networks:
+      - isaac-internal
+    depends_on:
+      ollama:
+        condition: service_started
+        required: false
+      chromadb:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import isaac; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # --------------------------------------------------------------------------
+  # sandbox — code execution image (build-only, spawned at runtime)
+  # --------------------------------------------------------------------------
+  sandbox:
+    build:
+      context: ./sandbox_image
+      dockerfile: Dockerfile
+    image: isaac-sandbox:latest
+    profiles:
+      - build-only
+    # This service is never 'up' — it exists solely so
+    # `docker compose build` prepares the sandbox image.
+    entrypoint: ["echo", "sandbox image built"]
+
+  # --------------------------------------------------------------------------
+  # ui-sandbox — virtual desktop image (build-only, spawned at runtime)
+  # --------------------------------------------------------------------------
+  ui-sandbox:
+    build:
+      context: ./sandbox_image_ui
+      dockerfile: Dockerfile
+    image: isaac-ui-sandbox:latest
+    profiles:
+      - build-only
+    entrypoint: ["echo", "ui-sandbox image built"]
+
+  # --------------------------------------------------------------------------
+  # ollama — local LLM inference (optional, activated via --profile ollama)
+  # --------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: isaac-ollama
+    restart: unless-stopped
+    profiles:
+      - ollama
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - isaac-internal
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  # chromadb — vector store for episodic memory (optional)
+  # --------------------------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: isaac-chromadb
+    restart: unless-stopped
+    profiles:
+      - chromadb
+    volumes:
+      - chromadb-data:/chroma/chroma
+    networks:
+      - isaac-internal
+    ports:
+      - "8000:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

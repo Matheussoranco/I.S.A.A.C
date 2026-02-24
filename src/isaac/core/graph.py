@@ -3,12 +3,30 @@
 Call :func:`build_graph` to get a compiled graph, or :func:`build_and_run`
 to execute a full interactive session.
 
-Computer-Use topology
----------------------
-The graph branches after Synthesis based on active step mode::
+Full topology
+-------------
+::
 
-    Synthesis ─► ComputerUse (mode=ui)     ─┐
-              └► Sandbox     (mode=code/hybrid) ─► Reflection
+    START ─► Guard ─► Perception ─► Explorer ─► Planner ─► Synthesis
+                                                               │
+                          ┌────────────────────────────────────┴────────────────┐
+                          │ mode=ui                              │ mode=code/hybrid
+                          ▼                                      ▼
+                    ComputerUse                              Sandbox
+                          │                                      │
+                          └────────────────┬─────────────────────┘
+                                           ▼
+                                      Reflection
+                                           │
+              ┌───────────────────────┬────┴────────────────────────┐
+              ▼ success               ▼ retry                       ▼ max errors
+       SkillAbstraction            Planner                         END
+              │
+          ┌───┴─────────────┐
+          ▼ pending         ▼ complete
+        Planner             END
+
+AwaitApproval is inserted dynamically when pending_approvals exist.
 """
 
 from __future__ import annotations
@@ -27,7 +45,10 @@ from isaac.core.transitions import (
     after_skill_abstraction,
     after_synthesis,
 )
+from isaac.nodes.approval import await_approval_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
+from isaac.nodes.explorer import explorer_node
+from isaac.nodes.guard import guard_node
 from isaac.nodes.perception import perception_node
 from isaac.nodes.planner import planner_node
 from isaac.nodes.reflection import reflection_node
@@ -42,13 +63,16 @@ logger = logging.getLogger(__name__)
 # Node name constants
 # ---------------------------------------------------------------------------
 
+_GUARD = "guard"
 _PERCEPTION = "perception"
+_EXPLORER = "explorer"
 _PLANNER = "planner"
 _SYNTHESIS = "synthesis"
 _SANDBOX = "sandbox"
 _COMPUTER_USE = "computer_use"
 _REFLECTION = "reflection"
 _SKILL_ABSTRACTION = "skill_abstraction"
+_AWAIT_APPROVAL = "await_approval"
 
 
 # ---------------------------------------------------------------------------
@@ -86,17 +110,22 @@ def build_graph() -> Any:
     graph = StateGraph(IsaacState)
 
     # Register nodes
+    graph.add_node(_GUARD, guard_node)
     graph.add_node(_PERCEPTION, perception_node)
+    graph.add_node(_EXPLORER, explorer_node)
     graph.add_node(_PLANNER, planner_node)
     graph.add_node(_SYNTHESIS, synthesis_node)
     graph.add_node(_SANDBOX, sandbox_node)
     graph.add_node(_COMPUTER_USE, computer_use_node)
     graph.add_node(_REFLECTION, reflection_node)
     graph.add_node(_SKILL_ABSTRACTION, skill_abstraction_node)
+    graph.add_node(_AWAIT_APPROVAL, await_approval_node)
 
-    # Linear entry path
-    graph.set_entry_point(_PERCEPTION)
-    graph.add_edge(_PERCEPTION, _PLANNER)
+    # Linear entry path: Guard → Perception → Explorer → Planner → Synthesis
+    graph.set_entry_point(_GUARD)
+    graph.add_edge(_GUARD, _PERCEPTION)
+    graph.add_edge(_PERCEPTION, _EXPLORER)
+    graph.add_edge(_EXPLORER, _PLANNER)
     graph.add_edge(_PLANNER, _SYNTHESIS)
 
     # Synthesis → ComputerUse OR Sandbox (based on active step mode)
@@ -157,6 +186,26 @@ def build_and_run() -> int:
         level=logging.INFO,
         format="%(asctime)s  %(name)-30s  %(levelname)-7s  %(message)s",
     )
+
+    # Register tools and start background services
+    try:
+        from isaac.tools import register_all_tools
+        register_all_tools()
+    except Exception:
+        pass
+
+    try:
+        from isaac.scheduler.heartbeat import start_scheduler, stop_scheduler
+        start_scheduler()
+    except Exception:
+        stop_scheduler = lambda: None  # noqa: E731
+
+    # Audit system startup
+    try:
+        from isaac.security.audit import audit
+        audit("system", "startup")
+    except Exception:
+        pass
 
     compiled = build_graph()
     state = make_initial_state()
@@ -227,5 +276,16 @@ def build_and_run() -> int:
     finally:
         # Tear down the UI container if one was started
         shutdown_ui_executor()
+        # Stop background scheduler
+        try:
+            stop_scheduler()
+        except Exception:
+            pass
+        # Audit system shutdown
+        try:
+            from isaac.security.audit import audit
+            audit("system", "shutdown")
+        except Exception:
+            pass
 
     return 0

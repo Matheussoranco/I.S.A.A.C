@@ -105,6 +105,34 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 
+    # Ollama-first LLM routing
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_light_model: str = "qwen2.5-coder:7b"
+    ollama_heavy_model: str = "qwen2.5-coder:7b"
+    llm_fallback_provider: str = ""
+    """Fallback provider ('openai' | 'anthropic') when Ollama is unavailable."""
+
+    # Telegram gateway
+    telegram_bot_token: str = ""
+    telegram_allowed_users: str = ""
+    """Comma-separated list of allowed Telegram user IDs."""
+
+    # Heartbeat scheduler
+    heartbeat_interval_minutes: int = Field(default=15, ge=1, le=1440)
+
+    # Security
+    guard_suspicion_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    """PromptInjectionGuard threshold (0.0–1.0). Above this → sanitize/reject."""
+
+    # Isaac workspace
+    isaac_home: Path = Path.home() / ".isaac"
+    """Root directory for Isaac persistent data (memory, audit, workspace)."""
+
 
 # Module-level singleton — import and use directly.
 settings = Settings()
+
+
+def get_settings() -> Settings:
+    """Return the module-level Settings singleton."""
+    return settings
