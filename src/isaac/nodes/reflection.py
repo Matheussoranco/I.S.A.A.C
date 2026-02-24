@@ -226,6 +226,30 @@ def _reflect_code(
             node="reflection",
             iteration=state.get("iteration", 0),
         ))
+
+        # Store in long-term memory
+        try:
+            from isaac.memory.long_term import get_long_term_memory
+            ltm = get_long_term_memory()
+            summary = parsed.get("summary", f"Completed: {step_desc}")
+            ltm.remember(
+                content=f"Task succeeded: {step_desc}. {summary}",
+                type="skill_outcome",
+                importance=0.7,
+            )
+        except Exception:
+            logger.debug("Long-term memory store skipped.", exc_info=True)
+
+        # Update user profile
+        try:
+            from isaac.memory.user_profile import get_user_profile
+            profile = get_user_profile()
+            profile.update_after_session(
+                inferred_tags=[step_desc.split()[0].lower()] if step_desc else None,
+            )
+        except Exception:
+            logger.debug("User profile update skipped.", exc_info=True)
+
         logger.info("Reflection: step SUCCEEDED — skill candidate proposed.")
     else:
         attempt = len([e for e in errors if e.node == "reflection"]) + 1

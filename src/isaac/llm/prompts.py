@@ -35,129 +35,128 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# System personas
+# Soul preamble — injected into every system message
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PERCEPTION = SystemMessage(
-    content=(
-        "You are the Perception module of I.S.A.A.C., a neuro-symbolic autonomous agent. "
-        "Your role is to parse the user's request, extract structured observations about "
-        "the environment, and produce an initial hypothesis for solving the task. "
-        "If a screenshot is provided, analyse the GUI state (visible elements, active window, "
-        "URL if a browser is visible) and include them in your observations. "
-        "Set 'task_mode' to 'computer_use' when the task requires GUI interaction or when "
-        "a screenshot is provided; set it to 'code' for pure computation tasks; "
-        "'hybrid' when both are needed. "
-        "Respond ONLY with valid JSON matching the requested schema."
-    )
+
+def _soul_preamble() -> str:
+    """Return the SOUL identity preamble for system prompts."""
+    try:
+        from isaac.identity.soul import soul_system_prompt
+        return soul_system_prompt() + "\n\n"
+    except Exception:
+        return ""
+
+
+def _sys(role_content: str) -> SystemMessage:
+    """Build a SystemMessage with the SOUL preamble prepended."""
+    return SystemMessage(content=_soul_preamble() + role_content)
+
+
+# ---------------------------------------------------------------------------
+# System personas (role-specific content; soul preamble added lazily via _sys)
+# ---------------------------------------------------------------------------
+
+_PERCEPTION_CONTENT = (
+    "You are the Perception module of I.S.A.A.C., a neuro-symbolic autonomous agent. "
+    "Your role is to parse the user's request, extract structured observations about "
+    "the environment, and produce an initial hypothesis for solving the task. "
+    "If a screenshot is provided, analyse the GUI state (visible elements, active window, "
+    "URL if a browser is visible) and include them in your observations. "
+    "Set 'task_mode' to 'computer_use' when the task requires GUI interaction or when "
+    "a screenshot is provided; set it to 'code' for pure computation tasks; "
+    "'hybrid' when both are needed. "
+    "Respond ONLY with valid JSON matching the requested schema."
 )
 
-_SYSTEM_PLANNER = SystemMessage(
-    content=(
-        "You are the Planner module of I.S.A.A.C. Given a world model, hypothesis, "
-        "past errors, and available skills, decompose the task into an ordered list of "
-        "atomic, dependency-aware steps.  Each step must be concrete enough for a code "
-        "synthesiser or UI automation engine to implement in a single execution cycle. "
-        "For each step, set 'mode' to:\n"
-        "  - 'code'   → pure Python computation (no GUI required)\n"
-        "  - 'ui'     → GUI interaction via mouse/keyboard (no code execution)\n"
-        "  - 'hybrid' → Playwright/PyAutoGUI script running inside the virtual desktop\n"
-        "Respond ONLY with valid JSON matching the requested schema."
-    )
+_PLANNER_CONTENT = (
+    "You are the Planner module of I.S.A.A.C. Given a world model, hypothesis, "
+    "past errors, and available skills, decompose the task into an ordered list of "
+    "atomic, dependency-aware steps.  Each step must be concrete enough for a code "
+    "synthesiser or UI automation engine to implement in a single execution cycle. "
+    "For each step, set 'mode' to:\n"
+    "  - 'code'   → pure Python computation (no GUI required)\n"
+    "  - 'ui'     → GUI interaction via mouse/keyboard (no code execution)\n"
+    "  - 'hybrid' → Playwright/PyAutoGUI script running inside the virtual desktop\n"
+    "Respond ONLY with valid JSON matching the requested schema."
 )
 
-_SYSTEM_SYNTHESIS = SystemMessage(
-    content=(
-        "You are the Synthesis module of I.S.A.A.C. Given a single plan step and the "
-        "current world model, generate a self-contained Python script that accomplishes "
-        "the step.  The script will run inside an isolated sandbox with NO network.  "
-        "Print results to stdout.  Import only from the Python standard library and numpy. "
-        "Do NOT use tool-calling JSON — output ONLY a fenced Python code block."
-    )
+_SYNTHESIS_CONTENT = (
+    "You are the Synthesis module of I.S.A.A.C. Given a single plan step and the "
+    "current world model, generate a self-contained Python script that accomplishes "
+    "the step.  The script will run inside an isolated sandbox with NO network.  "
+    "Print results to stdout.  Import only from the Python standard library and numpy. "
+    "Do NOT use tool-calling JSON — output ONLY a fenced Python code block."
 )
 
-_SYSTEM_SYNTHESIS_UI = SystemMessage(
-    content=(
-        "You are the Synthesis module of I.S.A.A.C. operating in UI mode. "
-        "Given a plan step, the current screen screenshot, and detected UI elements, "
-        "emit a JSON array of UIActions to accomplish the step. "
-        "Each action must have: 'type', 'x', 'y' (when applicable), "
-        "'text' or 'key' (when applicable), and a 'description' explaining intent. "
-        "Think in absolute screen pixels.  Be precise — off-by-one clicks fail. "
-        "Respond ONLY with a valid JSON array: [{\"type\": ..., ...}, ...]"
-    )
+_SYNTHESIS_UI_CONTENT = (
+    "You are the Synthesis module of I.S.A.A.C. operating in UI mode. "
+    "Given a plan step, the current screen screenshot, and detected UI elements, "
+    "emit a JSON array of UIActions to accomplish the step. "
+    "Each action must have: 'type', 'x', 'y' (when applicable), "
+    "'text' or 'key' (when applicable), and a 'description' explaining intent. "
+    "Think in absolute screen pixels.  Be precise — off-by-one clicks fail. "
+    "Respond ONLY with a valid JSON array: [{\"type\": ..., ...}, ...]"
 )
 
-_SYSTEM_SYNTHESIS_HYBRID = SystemMessage(
-    content=(
-        "You are the Synthesis module of I.S.A.A.C. operating in hybrid mode. "
-        "Generate a self-contained Python script using Playwright that automates the "
-        "given UI task inside a virtual Chromium browser running on DISPLAY=:99. "
-        "The script runs as a standalone program — include the main() call. "
-        "Use sync_playwright. The Chromium CDP endpoint is on port 9222 if already open; "
-        "otherwise launch a new browser with: "
-        "p.chromium.launch(headless=False, args=['--no-sandbox']). "
-        "Print a summary to stdout on completion. "
-        "Respond ONLY with a fenced Python code block."
-    )
+_SYNTHESIS_HYBRID_CONTENT = (
+    "You are the Synthesis module of I.S.A.A.C. operating in hybrid mode. "
+    "Generate a self-contained Python script using Playwright that automates the "
+    "given UI task inside a virtual Chromium browser running on DISPLAY=:99. "
+    "The script runs as a standalone program — include the main() call. "
+    "Use sync_playwright. The Chromium CDP endpoint is on port 9222 if already open; "
+    "otherwise launch a new browser with: "
+    "p.chromium.launch(headless=False, args=['--no-sandbox']). "
+    "Print a summary to stdout on completion. "
+    "Respond ONLY with a fenced Python code block."
 )
 
-_SYSTEM_COMPUTER_USE = SystemMessage(
-    content=(
-        "You are the ComputerUse controller of I.S.A.A.C. "
-        "You receive a screenshot of the current desktop and a pending UIAction queue. "
-        "Decide ONE next UIAction to execute. "
-        "If the screenshot shows the step is already complete, emit: "
-        "{\"done\": true, \"summary\": \"...\"}. "
-        "Otherwise emit: {\"done\": false, \"action\": {<UIAction fields>}}. "
-        "Be conservative — prefer explicit waits after navigation events. "
-        "Respond ONLY with valid JSON."
-    )
+_COMPUTER_USE_CONTENT = (
+    "You are the ComputerUse controller of I.S.A.A.C. "
+    "You receive a screenshot of the current desktop and a pending UIAction queue. "
+    "Decide ONE next UIAction to execute. "
+    "If the screenshot shows the step is already complete, emit: "
+    "{\"done\": true, \"summary\": \"...\"}. "
+    "Otherwise emit: {\"done\": false, \"action\": {<UIAction fields>}}. "
+    "Be conservative — prefer explicit waits after navigation events. "
+    "Respond ONLY with valid JSON."
 )
 
-_SYSTEM_REFLECTION = SystemMessage(
-    content=(
-        "You are the Reflection / Critic module of I.S.A.A.C. Analyse the execution logs "
-        "from the sandbox run.  Determine whether the step succeeded or failed.  If the step "
-        "failed, diagnose the root cause and propose a revised hypothesis.  If it succeeded, "
-        "summarise what was achieved and propose a skill candidate for generalisation. "
-        "Respond ONLY with valid JSON matching the requested schema."
-    )
+_REFLECTION_CONTENT = (
+    "You are the Reflection / Critic module of I.S.A.A.C. Analyse the execution logs "
+    "from the sandbox run.  Determine whether the step succeeded or failed.  If the step "
+    "failed, diagnose the root cause and propose a revised hypothesis.  If it succeeded, "
+    "summarise what was achieved and propose a skill candidate for generalisation. "
+    "Respond ONLY with valid JSON matching the requested schema."
 )
 
-_SYSTEM_REFLECTION_UI = SystemMessage(
-    content=(
-        "You are the Reflection / Critic module of I.S.A.A.C. operating in Computer-Use mode. "
-        "You will receive: the step description, a before screenshot, an after screenshot, "
-        "and the UIAction that was executed. "
-        "Determine whether the action produced the expected visual change. "
-        "If successful, propose a Playwright macro skill for this interaction. "
-        "If failed, diagnose what went wrong (wrong coordinates, element not loaded, etc.) "
-        "and propose a corrective action. "
-        "Respond ONLY with valid JSON matching the requested schema."
-    )
+_REFLECTION_UI_CONTENT = (
+    "You are the Reflection / Critic module of I.S.A.A.C. operating in Computer-Use mode. "
+    "You will receive: the step description, a before screenshot, an after screenshot, "
+    "and the UIAction that was executed. "
+    "Determine whether the action produced the expected visual change. "
+    "If successful, propose a Playwright macro skill for this interaction. "
+    "If failed, diagnose what went wrong (wrong coordinates, element not loaded, etc.) "
+    "and propose a corrective action. "
+    "Respond ONLY with valid JSON matching the requested schema."
 )
 
-_SYSTEM_SKILL_ABSTRACTION = SystemMessage(
-    content=(
-        "You are the Skill Abstraction module of I.S.A.A.C. Given a concrete Python script "
-        "that successfully solved a task, generalise it into a reusable, parameterised "
-        "function.  The function must have clear type hints, a docstring, and handle edge "
-        "cases.  It should be importable as a standalone module.  "
-        "Respond ONLY with a fenced Python code block."
-    )
+_SKILL_ABSTRACTION_CONTENT = (
+    "You are the Skill Abstraction module of I.S.A.A.C. Given a concrete Python script "
+    "that successfully solved a task, generalise it into a reusable, parameterised "
+    "function.  The function must have clear type hints, a docstring, and handle edge "
+    "cases.  It should be importable as a standalone module.  "
+    "Respond ONLY with a fenced Python code block."
 )
 
-_SYSTEM_SKILL_ABSTRACTION_UI = SystemMessage(
-    content=(
-        "You are the Skill Abstraction module of I.S.A.A.C. operating in UI mode. "
-        "You will receive a sequence of UIActions that successfully accomplished a task, "
-        "plus before/after screenshots. "
-        "Generalise this interaction trace into a reusable Python function using Playwright. "
-        "The function must accept parameters for variable parts (e.g. credentials, URLs). "
-        "Include: sync_playwright context manager, type hints, docstring, error handling. "
-        "Respond ONLY with a fenced Python code block."
-    )
+_SKILL_ABSTRACTION_UI_CONTENT = (
+    "You are the Skill Abstraction module of I.S.A.A.C. operating in UI mode. "
+    "You will receive a sequence of UIActions that successfully accomplished a task, "
+    "plus before/after screenshots. "
+    "Generalise this interaction trace into a reusable Python function using Playwright. "
+    "The function must accept parameters for variable parts (e.g. credentials, URLs). "
+    "Include: sync_playwright context manager, type hints, docstring, error handling. "
+    "Respond ONLY with a fenced Python code block."
 )
 
 
@@ -169,7 +168,7 @@ _SYSTEM_SKILL_ABSTRACTION_UI = SystemMessage(
 def perception_prompt(user_input: str, world_model: WorldModel) -> list[BaseMessage]:
     """Build the prompt for the Perception node (text-only input)."""
     return [
-        _SYSTEM_PERCEPTION,
+        _sys(_PERCEPTION_CONTENT),
         HumanMessage(
             content=(
                 f"## User input\n{user_input}\n\n"
@@ -220,7 +219,7 @@ def perception_multimodal_prompt(
             "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
         },
     ]
-    return [_SYSTEM_PERCEPTION, HumanMessage(content=content)]
+    return [_sys(_PERCEPTION_CONTENT), HumanMessage(content=content)]
 
 
 def planner_prompt(
@@ -252,7 +251,7 @@ def planner_prompt(
             f"\n## Recent experience (episodic memory)\n{episodic_context}\n"
         )
     return [
-        _SYSTEM_PLANNER,
+        _sys(_PLANNER_CONTENT),
         HumanMessage(
             content=(
                 f"## Hypothesis\n{hypothesis}\n\n"
@@ -278,7 +277,7 @@ def synthesis_prompt(
 ) -> list[BaseMessage]:
     """Build the prompt for the Synthesis node."""
     return [
-        _SYSTEM_SYNTHESIS,
+        _sys(_SYNTHESIS_CONTENT),
         HumanMessage(
             content=(
                 f"## Current step\n"
@@ -305,7 +304,7 @@ def reflection_prompt(
 ) -> list[BaseMessage]:
     """Build the prompt for the Reflection node."""
     return [
-        _SYSTEM_REFLECTION,
+        _sys(_REFLECTION_CONTENT),
         HumanMessage(
             content=(
                 f"## Executed code\n```python\n{code}\n```\n\n"
@@ -331,7 +330,7 @@ def skill_abstraction_prompt(
 ) -> list[BaseMessage]:
     """Build the prompt for the Skill Abstraction node (code mode)."""
     return [
-        _SYSTEM_SKILL_ABSTRACTION,
+        _sys(_SKILL_ABSTRACTION_CONTENT),
         HumanMessage(
             content=(
                 f"## Concrete code that solved the task\n```python\n{concrete_code}\n```\n\n"
@@ -380,7 +379,7 @@ def synthesis_ui_prompt(
             "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
         },
     ]
-    return [_SYSTEM_SYNTHESIS_UI, HumanMessage(content=content)]
+    return [_sys(_SYNTHESIS_UI_CONTENT), HumanMessage(content=content)]
 
 
 def synthesis_hybrid_prompt(
@@ -407,7 +406,7 @@ def synthesis_hybrid_prompt(
             "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
         },
     ]
-    return [_SYSTEM_SYNTHESIS_HYBRID, HumanMessage(content=content)]
+    return [_sys(_SYNTHESIS_HYBRID_CONTENT), HumanMessage(content=content)]
 
 
 def computer_use_prompt(
@@ -445,7 +444,7 @@ def computer_use_prompt(
             "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
         },
     ]
-    return [_SYSTEM_COMPUTER_USE, HumanMessage(content=content)]
+    return [_sys(_COMPUTER_USE_CONTENT), HumanMessage(content=content)]
 
 
 def reflection_ui_prompt(
@@ -491,7 +490,7 @@ def reflection_ui_prompt(
             "image_url": {"url": f"data:image/png;base64,{screenshot_after_b64}"},
         },
     ]
-    return [_SYSTEM_REFLECTION_UI, HumanMessage(content=content)]
+    return [_sys(_REFLECTION_UI_CONTENT), HumanMessage(content=content)]
 
 
 def skill_abstraction_ui_prompt(
@@ -538,4 +537,4 @@ def skill_abstraction_ui_prompt(
             "image_url": {"url": f"data:image/png;base64,{screenshot_after_b64}"},
         },
     ]
-    return [_SYSTEM_SKILL_ABSTRACTION_UI, HumanMessage(content=content)]
+    return [_sys(_SKILL_ABSTRACTION_UI_CONTENT), HumanMessage(content=content)]

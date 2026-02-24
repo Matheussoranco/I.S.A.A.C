@@ -275,8 +275,9 @@ def guard_node(state: dict[str, Any]) -> dict[str, Any]:
 
         audit = get_audit_log()
         audit.log(
-            node_name="guard",
-            action_type="injection_scan",
+            "security",
+            "injection_scan",
+            actor="guard",
             details={
                 "suspicion_score": result.suspicion_score,
                 "flagged_patterns": result.flagged_patterns,

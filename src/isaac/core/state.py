@@ -272,6 +272,9 @@ class IsaacState(TypedDict, total=False):
     # ── Approval Workflow ──────────────────────────────────────────────────
     pending_approvals: Annotated[list[PendingApproval], _append_list]
 
+    # ── Connector execution context ────────────────────────────────────────
+    connector_results: Annotated[list[dict[str, Any]], _append_list]
+
 
 def make_initial_state() -> IsaacState:
     """Return a fully initialised blank state for a new cognitive cycle."""
@@ -291,4 +294,5 @@ def make_initial_state() -> IsaacState:
         ui_results=[],
         ui_cycle=0,
         pending_approvals=[],
+        connector_results=[],
     )

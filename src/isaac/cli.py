@@ -155,6 +155,93 @@ if typer is not None:
             )
 
     @app.command()
+    def cron(
+        action: str = typer.Argument("list", help="Action: list, add, remove, pause, resume, start, stop, status."),
+        name: str = typer.Option("", "--name", help="Task name (for add)."),
+        schedule: str = typer.Option("0 * * * *", "--schedule", "-s", help="Cron expression (for add)."),
+        command: str = typer.Option("", "--command", "-c", help="Command string (for add)."),
+        task_id: str = typer.Option("", "--id", help="Task ID (for remove/pause/resume)."),
+    ) -> None:
+        """Manage background cron tasks."""
+        _setup_logging()
+        from isaac.background.cron_engine import (
+            add_task,
+            is_cron_running,
+            list_tasks,
+            pause_task,
+            remove_task,
+            resume_task,
+            start_cron_daemon,
+            stop_cron_daemon,
+        )
+
+        if action == "list":
+            tasks = list_tasks()
+            if not tasks:
+                typer.echo("No cron tasks.")
+                return
+            for t in tasks:
+                status = "enabled" if t["enabled"] else "PAUSED"
+                typer.echo(
+                    f"  {t['id']}  [{status}]  {t['schedule']}  "
+                    f"{t['name'] or t['command'][:40]}  "
+                    f"last={t['last_run'] or 'never'}  result={t['last_status'] or '-'}"
+                )
+        elif action == "add":
+            if not command:
+                typer.echo("Provide --command (-c).")
+                raise typer.Exit(1)
+            task = add_task(name=name or command[:30], schedule=schedule, command=command)
+            typer.echo(f"Created task: {task.id} ({task.name})")
+        elif action == "remove":
+            if not task_id:
+                typer.echo("Provide --id.")
+                raise typer.Exit(1)
+            ok = remove_task(task_id)
+            typer.echo("Removed." if ok else "Task not found.")
+        elif action == "pause":
+            if not task_id:
+                typer.echo("Provide --id.")
+                raise typer.Exit(1)
+            ok = pause_task(task_id)
+            typer.echo("Paused." if ok else "Task not found.")
+        elif action == "resume":
+            if not task_id:
+                typer.echo("Provide --id.")
+                raise typer.Exit(1)
+            ok = resume_task(task_id)
+            typer.echo("Resumed." if ok else "Task not found.")
+        elif action == "start":
+            start_cron_daemon()
+            typer.echo("Cron daemon started.")
+        elif action == "stop":
+            stop_cron_daemon()
+            typer.echo("Cron daemon stopped.")
+        elif action == "status":
+            running = is_cron_running()
+            typer.echo(f"Cron daemon: {'RUNNING' if running else 'STOPPED'}")
+            tasks = list_tasks()
+            typer.echo(f"Tasks: {len(tasks)} total, {sum(1 for t in tasks if t['enabled'])} enabled")
+        else:
+            typer.echo(f"Unknown action: {action}")
+
+    @app.command()
+    def connectors() -> None:
+        """List all registered connectors and their availability."""
+        _setup_logging()
+        from isaac.skills.connectors.registry import get_registry
+
+        reg = get_registry()
+        if not reg:
+            typer.echo("No connectors found.")
+            return
+
+        for name, connector in sorted(reg.items()):
+            avail = "✓" if connector.is_available() else "✗"
+            env = ", ".join(connector.requires_env) if connector.requires_env else "none"
+            typer.echo(f"  [{avail}] {name:15s}  env={env:30s}  {connector.description[:50]}")
+
+    @app.command()
     def tokens(
         action: str = typer.Argument("list", help="Action: list, issue, revoke, cleanup."),
         tool_name: str = typer.Option("*", "--tool", help="Tool name for issue/revoke."),

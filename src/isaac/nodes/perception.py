@@ -90,6 +90,26 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
 
     world_model: WorldModel = state.get("world_model", WorldModel())
 
+    # -- Long-term memory recall -------------------------------------------
+    ltm_context = ""
+    try:
+        from isaac.memory.long_term import get_long_term_memory
+        ltm = get_long_term_memory()
+        ltm_context = ltm.to_context_string(user_text, top_k=3)
+    except Exception:
+        logger.debug("Long-term memory recall skipped.", exc_info=True)
+
+    # -- User profile context -----------------------------------------------
+    profile_context = ""
+    try:
+        from isaac.memory.user_profile import get_user_profile
+        profile = get_user_profile()
+        profile.record_interaction()
+        profile.save()
+        profile_context = profile.to_context_string()
+    except Exception:
+        logger.debug("User profile context skipped.", exc_info=True)
+
     # -- Choose prompt based on modality ------------------------------------
     if screenshot_b64:
         prompt = perception_multimodal_prompt(user_text, world_model, screenshot_b64)
@@ -144,6 +164,15 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
             cursor_x=existing_gui.cursor_x,
             cursor_y=existing_gui.cursor_y,
         )
+
+    # -- Enrich hypothesis with long-term memory context ------------------
+    context_parts: list[str] = []
+    if ltm_context:
+        context_parts.append(ltm_context)
+    if profile_context:
+        context_parts.append(f"## User profile\n{profile_context}")
+    if context_parts and hypothesis:
+        hypothesis = hypothesis + "\n\n" + "\n\n".join(context_parts)
 
     logger.info(
         "Perception: %d observations, mode=%s, hypothesis=%s",

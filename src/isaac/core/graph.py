@@ -47,6 +47,7 @@ from isaac.core.transitions import (
 )
 from isaac.nodes.approval import await_approval_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
+from isaac.nodes.connector_execution import connector_execution_node
 from isaac.nodes.explorer import explorer_node
 from isaac.nodes.guard import guard_node
 from isaac.nodes.perception import perception_node
@@ -72,6 +73,7 @@ _SANDBOX = "sandbox"
 _COMPUTER_USE = "computer_use"
 _REFLECTION = "reflection"
 _SKILL_ABSTRACTION = "skill_abstraction"
+_CONNECTOR_EXEC = "connector_execution"
 _AWAIT_APPROVAL = "await_approval"
 
 
@@ -119,6 +121,7 @@ def build_graph() -> Any:
     graph.add_node(_COMPUTER_USE, computer_use_node)
     graph.add_node(_REFLECTION, reflection_node)
     graph.add_node(_SKILL_ABSTRACTION, skill_abstraction_node)
+    graph.add_node(_CONNECTOR_EXEC, connector_execution_node)
     graph.add_node(_AWAIT_APPROVAL, await_approval_node)
 
     # Linear entry path: Guard → Perception → Explorer → Planner → Synthesis
@@ -126,7 +129,8 @@ def build_graph() -> Any:
     graph.add_edge(_GUARD, _PERCEPTION)
     graph.add_edge(_PERCEPTION, _EXPLORER)
     graph.add_edge(_EXPLORER, _PLANNER)
-    graph.add_edge(_PLANNER, _SYNTHESIS)
+    graph.add_edge(_PLANNER, _CONNECTOR_EXEC)
+    graph.add_edge(_CONNECTOR_EXEC, _SYNTHESIS)
 
     # Synthesis → ComputerUse OR Sandbox (based on active step mode)
     graph.add_conditional_edges(

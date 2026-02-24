@@ -150,6 +150,42 @@ class Settings(BaseSettings):
     isaac_home: Path = Path.home() / ".isaac"
     """Root directory for Isaac persistent data (memory, audit, workspace)."""
 
+    # ── Identity & Soul ─────────────────────────────────────────────────
+    agent_name: str = "I.S.A.A.C."
+    """Display name of the agent."""
+    soul_path: str = ""
+    """Path to a custom soul JSON file (overrides built-in SOUL)."""
+
+    # ── Long-term Memory ────────────────────────────────────────────────
+    memory_db_path: str = ""
+    """SQLite DB path for long-term memory (default: ~/.isaac/long_term_memory.db)."""
+    user_profile_path: str = ""
+    """JSON file path for user profile (default: ~/.isaac/user_profile.json)."""
+    memory_consolidation_interval: int = Field(default=50, ge=5, le=1000)
+    """Number of interactions between automatic memory consolidation runs."""
+
+    # ── Connectors ──────────────────────────────────────────────────────
+    allowed_paths: list[str] = Field(default_factory=lambda: [str(Path.home())])
+    """Directories accessible by the FileSystemConnector."""
+    shell_allowed_commands: list[str] = Field(default_factory=list)
+    """Commands the ShellConnector may execute (empty = use default set)."""
+    connector_audit_log: str = ""
+    """Path for connector audit log (default: ~/.isaac/connector_audit.log)."""
+
+    # Connector env-vars (optional — loaded from environment)
+    github_token: str = ""
+    email_imap_host: str = ""
+    email_user: str = ""
+    email_password: str = ""
+    email_imap_port: int = 993
+    obsidian_vault_path: str = ""
+
+    # ── Background / Cron ───────────────────────────────────────────────
+    cron_poll_seconds: int = Field(default=30, ge=5, le=600)
+    """Seconds between cron daemon poll cycles."""
+    cron_enabled: bool = False
+    """Whether to auto-start the cron daemon on boot."""
+
 
 # Module-level singleton — import and use directly.
 settings = Settings()

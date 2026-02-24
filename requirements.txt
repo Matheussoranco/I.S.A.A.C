@@ -38,6 +38,18 @@ apscheduler>=3.10
 # Browser automation (optional — used inside UI sandbox)
 playwright>=1.44
 
+# ── v0.2.0 additions ──────────────────────────────────
+
+# Web fetch & scrape (connectors)
+httpx>=0.27
+beautifulsoup4>=4.12
+
+# Calendar connector
+icalendar>=5.0
+
+# Background cron scheduling
+croniter>=2.0
+
 # CalDAV calendar integration (optional)
 caldav>=1.3
 

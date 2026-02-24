@@ -10,6 +10,16 @@
       "skill_type": "code",
       "tags": [],
       "file": "generate_localized_greeting.py"
+    },
+    "refined_generate_a_localized_greeting": {
+      "name": "refined_generate_a_localized_greeting",
+      "input_schema": {},
+      "output_schema": {},
+      "task_context": "Generate a localized greeting response in Portuguese using the 'generate_localized_greeting' skill, acknowledging the user and establishing I.S.A.A.C.'s identity",
+      "success_count": 2,
+      "skill_type": "code",
+      "tags": [],
+      "file": "refined_generate_a_localized_greeting.py"
     }
   }
 }
