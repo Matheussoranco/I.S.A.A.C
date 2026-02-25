@@ -63,9 +63,15 @@ _PERCEPTION_CONTENT = (
     "the environment, and produce an initial hypothesis for solving the task. "
     "If a screenshot is provided, analyse the GUI state (visible elements, active window, "
     "URL if a browser is visible) and include them in your observations. "
-    "Set 'task_mode' to 'computer_use' when the task requires GUI interaction or when "
-    "a screenshot is provided; set it to 'code' for pure computation tasks; "
-    "'hybrid' when both are needed. "
+    "Set 'task_mode' to one of:\n"
+    "  - 'direct' : simple greetings, casual conversation, knowledge questions, "
+    "or anything that can be answered immediately without code, tools, or planning.\n"
+    "  - 'code' : tasks that require writing and executing Python code.\n"
+    "  - 'computer_use' : tasks that require GUI interaction or when a screenshot is provided.\n"
+    "  - 'hybrid' : tasks needing both code execution and GUI interaction.\n"
+    "IMPORTANT: Use 'direct' for greetings, chitchat, factual questions, explanations, "
+    "and any request that does NOT require running code or interacting with a GUI. "
+    "Most conversational messages should be 'direct'. "
     "Respond ONLY with valid JSON matching the requested schema."
 )
 
@@ -178,7 +184,7 @@ def perception_prompt(user_input: str, world_model: WorldModel) -> list[BaseMess
                 f"Constraints: {json.dumps(world_model.constraints)}\n\n"
                 "Respond with JSON:\n"
                 '{"observations": ["..."], "hypothesis": "...", '
-                '"task_mode": "code|computer_use|hybrid"}'
+                '"task_mode": "direct|code|computer_use|hybrid"}'
             )
         ),
     ]

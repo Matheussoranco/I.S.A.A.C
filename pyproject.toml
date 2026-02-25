@@ -39,6 +39,8 @@ dependencies = [
     "httpx>=0.27",
     "beautifulsoup4>=4.12",
     "croniter>=2.0",
+    "rich>=13.0",
+    "prompt-toolkit>=3.0",
 ]
 
 [project.optional-dependencies]

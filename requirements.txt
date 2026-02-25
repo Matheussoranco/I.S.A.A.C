@@ -50,6 +50,10 @@ icalendar>=5.0
 # Background cron scheduling
 croniter>=2.0
 
+# Rich terminal UI
+rich>=13.0
+prompt-toolkit>=3.0
+
 # CalDAV calendar integration (optional)
 caldav>=1.3
 

@@ -265,7 +265,7 @@ def guard_node(state: dict[str, Any]) -> dict[str, Any]:
 
     guard = PromptInjectionGuard(
         threshold=settings.guard_suspicion_threshold,
-        use_llm=True,
+        use_llm=False,
     )
     result = guard.analyse(user_text)
 

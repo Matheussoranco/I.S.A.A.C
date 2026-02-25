@@ -20,6 +20,16 @@
       "skill_type": "code",
       "tags": [],
       "file": "refined_generate_a_localized_greeting.py"
+    },
+    "refined_call_generate_localized_greeti": {
+      "name": "refined_call_generate_localized_greeti",
+      "input_schema": {},
+      "output_schema": {},
+      "task_context": "Call generate_localized_greeting skill to produce a greeting for the input 'Ola!', which appears to be Portuguese/Spanish for 'Hello'",
+      "success_count": 2,
+      "skill_type": "code",
+      "tags": [],
+      "file": "refined_call_generate_localized_greeti.py"
     }
   }
 }

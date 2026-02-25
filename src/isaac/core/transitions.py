@@ -22,6 +22,8 @@ NODE_PLANNER = "planner"
 NODE_SKILL_ABSTRACTION = "skill_abstraction"
 NODE_COMPUTER_USE = "computer_use"
 NODE_SANDBOX = "sandbox"
+NODE_DIRECT_RESPONSE = "direct_response"
+NODE_EXPLORER = "explorer"
 END = "__end__"
 
 
@@ -44,6 +46,25 @@ def _get_active_step(plan: list[PlanStep]) -> PlanStep | None:
         if step.status == "active":
             return step
     return None
+
+
+# ---------------------------------------------------------------------------
+# Edge: Perception → {DirectResponse | Explorer}
+# ---------------------------------------------------------------------------
+
+
+def after_perception(state: IsaacState) -> str:
+    """Route after Perception based on task_mode.
+
+    * ``task_mode == 'direct'`` → ``direct_response`` (fast single-call path)
+    * anything else             → ``explorer`` (full pipeline)
+    """
+    task_mode = state.get("task_mode", "code")
+    if task_mode == "direct":
+        logger.info("Transition: Perception → DirectResponse (task_mode=direct).")
+        return NODE_DIRECT_RESPONSE
+    logger.info("Transition: Perception → Explorer (task_mode=%s).", task_mode)
+    return NODE_EXPLORER
 
 
 # ---------------------------------------------------------------------------

@@ -52,19 +52,28 @@ if typer is not None:
     @app.command()
     def run(
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
+        classic: bool = typer.Option(False, "--classic", help="Use the classic plain-text REPL."),
     ) -> None:
         """Start the interactive cognitive loop (REPL)."""
         _setup_logging(verbose)
-        from isaac.core.graph import build_and_run
-        from isaac.scheduler.heartbeat import start_scheduler, stop_scheduler
-        from isaac.tools import register_all_tools
 
-        register_all_tools()
-        start_scheduler()
-        try:
-            code = build_and_run()
-        finally:
-            stop_scheduler()
+        if classic:
+            # Legacy plain-text REPL
+            from isaac.core.graph import build_and_run
+            from isaac.scheduler.heartbeat import start_scheduler, stop_scheduler
+            from isaac.tools import register_all_tools
+
+            register_all_tools()
+            start_scheduler()
+            try:
+                code = build_and_run()
+            finally:
+                stop_scheduler()
+            raise typer.Exit(code)
+
+        # Rich terminal UI (default)
+        from isaac.interfaces.repl import run_repl
+        code = run_repl()
         raise typer.Exit(code)
 
     @app.command()
@@ -287,7 +296,11 @@ def main() -> int:
         app()
         return 0
     else:
-        # Fallback for environments without Typer
+        # Fallback for environments without Typer — use Rich REPL
         _setup_logging()
-        from isaac.core.graph import build_and_run
-        return build_and_run()
+        try:
+            from isaac.interfaces.repl import run_repl
+            return run_repl()
+        except ImportError:
+            from isaac.core.graph import build_and_run
+            return build_and_run()

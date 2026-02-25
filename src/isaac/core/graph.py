@@ -32,6 +32,7 @@ AwaitApproval is inserted dynamically when pending_approvals exist.
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -40,7 +41,10 @@ from langgraph.graph import END, StateGraph
 from isaac.core.state import IsaacState, make_initial_state
 from isaac.core.transitions import (
     NODE_COMPUTER_USE,
+    NODE_DIRECT_RESPONSE,
+    NODE_EXPLORER,
     NODE_SANDBOX,
+    after_perception,
     after_reflection,
     after_skill_abstraction,
     after_synthesis,
@@ -48,6 +52,7 @@ from isaac.core.transitions import (
 from isaac.nodes.approval import await_approval_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
 from isaac.nodes.connector_execution import connector_execution_node
+from isaac.nodes.direct_response import direct_response_node
 from isaac.nodes.explorer import explorer_node
 from isaac.nodes.guard import guard_node
 from isaac.nodes.perception import perception_node
@@ -74,6 +79,7 @@ _COMPUTER_USE = "computer_use"
 _REFLECTION = "reflection"
 _SKILL_ABSTRACTION = "skill_abstraction"
 _CONNECTOR_EXEC = "connector_execution"
+_DIRECT_RESPONSE = "direct_response"
 _AWAIT_APPROVAL = "await_approval"
 
 
@@ -122,12 +128,27 @@ def build_graph() -> Any:
     graph.add_node(_REFLECTION, reflection_node)
     graph.add_node(_SKILL_ABSTRACTION, skill_abstraction_node)
     graph.add_node(_CONNECTOR_EXEC, connector_execution_node)
+    graph.add_node(_DIRECT_RESPONSE, direct_response_node)
     graph.add_node(_AWAIT_APPROVAL, await_approval_node)
 
-    # Linear entry path: Guard → Perception → Explorer → Planner → Synthesis
+    # Entry: Guard → Perception → {DirectResponse | Explorer}
     graph.set_entry_point(_GUARD)
     graph.add_edge(_GUARD, _PERCEPTION)
-    graph.add_edge(_PERCEPTION, _EXPLORER)
+
+    # Conditional edge: simple queries go to DirectResponse (fast-path)
+    graph.add_conditional_edges(
+        _PERCEPTION,
+        after_perception,
+        {
+            NODE_DIRECT_RESPONSE: _DIRECT_RESPONSE,
+            NODE_EXPLORER: _EXPLORER,
+        },
+    )
+
+    # DirectResponse → END (no further processing needed)
+    graph.add_edge(_DIRECT_RESPONSE, END)
+
+    # Full pipeline continues: Explorer → Planner → ...
     graph.add_edge(_EXPLORER, _PLANNER)
     graph.add_edge(_PLANNER, _CONNECTOR_EXEC)
     graph.add_edge(_CONNECTOR_EXEC, _SYNTHESIS)
@@ -191,6 +212,16 @@ def build_and_run() -> int:
         format="%(asctime)s  %(name)-30s  %(levelname)-7s  %(message)s",
     )
 
+    # Force UTF-8 on Windows so Unicode characters work in the terminal
+    if sys.platform == "win32":
+        import io
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+        )
+        sys.stderr = io.TextIOWrapper(
+            sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+        )
+
     # Register tools and start background services
     try:
         from isaac.tools import register_all_tools
@@ -235,41 +266,70 @@ def build_and_run() -> int:
             # Compress history if it's grown too large
             state["messages"] = compress_messages(state.get("messages", []))
 
-            # Run the graph
+            # Run the graph with streaming progress
             try:
-                result = compiled.invoke(dict(state))
-                # Update local state with graph output
+                result: dict[str, Any] = {}
+                seen_phases: set[str] = set()
+                is_direct = False
+
+                for event in compiled.stream(dict(state)):
+                    # event is {node_name: state_update}
+                    for node_name, node_output in event.items():
+                        if isinstance(node_output, dict):
+                            result.update(node_output)
+
+                            phase = node_output.get("current_phase", "")
+                            if phase == "direct_response":
+                                is_direct = True
+
+                            # Show progress for non-direct paths
+                            if not is_direct and phase and phase not in seen_phases:
+                                seen_phases.add(phase)
+                                _phase_label = phase.replace("_", " ").title()
+                                sys.stdout.write(
+                                    f"\r  > {_phase_label}..."
+                                    f"{'': <40}"
+                                )
+                                sys.stdout.flush()
+
+                if not is_direct and seen_phases:
+                    sys.stdout.write("\r" + " " * 60 + "\r")
+                    sys.stdout.flush()
+
+                # Merge result back into state
                 state.update(result)  # type: ignore[arg-type]
 
                 # Print final response
                 msgs = result.get("messages", [])
-                for msg in msgs:
-                    if isinstance(msg, AIMessage):
-                        print(f"\n[I.S.A.A.C.] {msg.content}\n")
+                # DirectResponse already streams to stdout — skip reprinting
+                if not is_direct:
+                    for msg in msgs:
+                        if isinstance(msg, AIMessage):
+                            print(f"\n\033[1;36m[I.S.A.A.C.]\033[0m {msg.content}\n")
 
                 # Print execution summary
                 logs = result.get("execution_logs", [])
                 if logs:
                     latest = logs[-1]
-                    print(f"  ─ exit_code: {latest.exit_code}")
+                    print(f"  - exit_code: {latest.exit_code}")
                     if latest.stdout.strip():
-                        print(f"  ─ stdout: {latest.stdout.strip()[:500]}")
+                        print(f"  - stdout: {latest.stdout.strip()[:500]}")
                     if latest.stderr.strip():
-                        print(f"  ─ stderr: {latest.stderr.strip()[:300]}")
+                        print(f"  - stderr: {latest.stderr.strip()[:300]}")
 
                 # Print UI-mode summary
                 ui_results = result.get("ui_results", [])
                 if ui_results:
-                    print(f"  ─ ui_actions_executed: {len(ui_results)}")
-                    print(f"  ─ ui_cycle: {result.get('ui_cycle', 0)}")
+                    print(f"  - ui_actions_executed: {len(ui_results)}")
+                    print(f"  - ui_cycle: {result.get('ui_cycle', 0)}")
                     last_ui = ui_results[-1]
-                    status = "✓" if last_ui.success else "✗"
+                    status = "OK" if last_ui.success else "FAIL"
                     desc = last_ui.action.description[:80]
-                    print(f"  ─ last_ui_action: [{status}] {last_ui.action.type} — {desc}")
+                    print(f"  - last_ui_action: [{status}] {last_ui.action.type} - {desc}")
 
                 mode = result.get("task_mode", "code")
-                phase = result.get("current_phase", "")
-                print(f"  ─ mode: {mode}  phase: {phase}\n")
+                final_phase = result.get("current_phase", "")
+                print(f"  - mode: {mode}  phase: {final_phase}\n")
 
             except Exception as exc:
                 logger.exception("Graph execution failed.")
