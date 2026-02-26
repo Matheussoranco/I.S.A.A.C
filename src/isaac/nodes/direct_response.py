@@ -58,9 +58,9 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
     Streams the LLM response token-by-token.  When the Rich terminal UI
     is active it streams through that; otherwise falls back to raw stdout.
     """
-    from isaac.llm.provider import get_llm
+    from isaac.llm.provider import get_direct_response_llm
 
-    llm = get_llm("fast")
+    llm = get_direct_response_llm()
 
     # Extract user text
     messages = state.get("messages", [])

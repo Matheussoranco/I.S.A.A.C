@@ -30,6 +30,26 @@
       "skill_type": "code",
       "tags": [],
       "file": "refined_call_generate_localized_greeti.py"
+    },
+    "python_sorting_demonstration": {
+      "name": "python_sorting_demonstration",
+      "input_schema": {},
+      "output_schema": {},
+      "task_context": "Write a Python script that demonstrates list sorting using the built-in sort() method and sorted() function, with example usage",
+      "success_count": 2,
+      "skill_type": "code",
+      "tags": [],
+      "file": "python_sorting_demonstration.py"
+    },
+    "refined_invoke_generate_localized_gree": {
+      "name": "refined_invoke_generate_localized_gree",
+      "input_schema": {},
+      "output_schema": {},
+      "task_context": "Invoke generate_localized_greeting skill to craft a Portuguese response acknowledging the user's inverted greeting and clarifying I.S.A.A.C.'s role as the assistant",
+      "success_count": 2,
+      "skill_type": "code",
+      "tags": [],
+      "file": "refined_invoke_generate_localized_gree.py"
     }
   }
 }

@@ -213,6 +213,20 @@ def run_repl() -> int:
     compiled = build_graph()
     state: dict[str, Any] = dict(make_initial_state())
 
+    # -- Background model pre-warm (load weights into VRAM before first query)
+    def _prewarm() -> None:
+        try:
+            from isaac.llm.provider import get_direct_response_llm
+            llm = get_direct_response_llm()
+            # Minimal prompt — just enough to trigger model load, no output needed
+            for _ in llm.stream("hi"):
+                break
+        except Exception:
+            pass
+
+    import threading as _threading
+    _threading.Thread(target=_prewarm, daemon=True, name="isaac-prewarm").start()
+
     # -- prompt_toolkit session --------------------------------------------
     prompt_session = _make_prompt_session()
 

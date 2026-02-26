@@ -73,17 +73,31 @@ def get_soul() -> dict[str, Any]:
         return dict(SOUL)
 
 
+# Module-level cache — built once, reused forever
+_SOUL_PROMPT_CACHE: str = ""
+
+
 def soul_system_prompt() -> str:
     """Build a system-prompt preamble from the active SOUL.
 
-    This string is prepended to every LLM system message so that
-    I.S.A.A.C. always knows who he is.
+    Result is cached after the first call to avoid repeated file I/O
+    and string construction on every LLM invocation.
     """
+    global _SOUL_PROMPT_CACHE  # noqa: PLW0603
+    if _SOUL_PROMPT_CACHE:
+        return _SOUL_PROMPT_CACHE
     soul = get_soul()
-    return (
-        f"You are {soul['name']} — {soul['full_name']}.\n"
+    _SOUL_PROMPT_CACHE = (
+        f"You are {soul['name']} \u2014 {soul['full_name']}.\n"
         f"Version: {soul['version']}. Tagline: \"{soul['tagline']}\"\n\n"
         f"Personality:\n{soul['personality']}\n\n"
         "Always respond in character.  If someone asks your name or who you "
         "are, answer from this identity.  Never claim to be a generic assistant."
     )
+    return _SOUL_PROMPT_CACHE
+
+
+def invalidate_soul_cache() -> None:
+    """Invalidate the cached soul prompt (call after loading a custom soul)."""
+    global _SOUL_PROMPT_CACHE  # noqa: PLW0603
+    _SOUL_PROMPT_CACHE = ""

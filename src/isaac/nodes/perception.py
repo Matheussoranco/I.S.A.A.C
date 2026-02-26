@@ -1,14 +1,12 @@
 """Perception Node — parses user input and syncs the world model.
 
-Reads the latest user message, invokes the LLM with the perception prompt,
-and produces:
-* Updated ``world_model.observations`` (and ``gui_state`` when multimodal)
-* An initial ``hypothesis``
-* A ``task_mode`` (``"code"``, ``"computer_use"``, or ``"hybrid"``)
+FAST PATH: ``fast_classify()`` is called first (zero LLM cost).  When it
+returns confidence ≥ 0.85 the full LLM roundtrip is skipped entirely —
+typical conversational messages are classified in < 1 ms.
 
-The node auto-detects multimodal input: if the ``HumanMessage.content`` is a
-list containing an ``image_url`` block, it switches to the multimodal prompt
-and sets up ``world_model.gui_state`` from the screenshot.
+FALL-THROUGH: ambiguous inputs still go to the LLM, but the call is capped
+at 200 tokens (``max_tokens=200`` / ``num_predict=200``) so the model cannot
+generate a novel that we discard anyway.
 """
 
 from __future__ import annotations
@@ -22,6 +20,7 @@ from langchain_core.messages import HumanMessage
 from isaac.core.state import GUIState, IsaacState, WorldModel
 from isaac.llm.prompts import perception_multimodal_prompt, perception_prompt
 from isaac.memory.world_model import merge_observations
+from isaac.nodes.classifier import classify_hypothesis, fast_classify
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +67,9 @@ def _extract_user_parts(message: HumanMessage) -> tuple[str, str]:
 def perception_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: Perception.
 
-    Extracts observations and a preliminary hypothesis from the user request,
-    updating the ``world_model``, ``hypothesis``, and ``task_mode`` fields.
+    Fast path: uses ``fast_classify()`` (< 1 ms) for obvious inputs.
+    Fall-through: invokes LLM with a 200-token cap for ambiguous inputs.
     """
-    from isaac.llm.provider import get_llm
-
-    llm = get_llm("fast")
-
     # -- Extract latest user message ----------------------------------------
     messages = state.get("messages", [])
     user_text = ""
@@ -90,14 +85,40 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
 
     world_model: WorldModel = state.get("world_model", WorldModel())
 
-    # -- Long-term memory recall -------------------------------------------
+    # === FAST PATH: heuristic classifier (zero LLM cost) ===================
+    if not screenshot_b64:
+        task_mode_hint, confidence = fast_classify(user_text)
+        if task_mode_hint is not None and confidence >= 0.85:
+            hypothesis = classify_hypothesis(user_text, task_mode_hint)
+            logger.debug(
+                "Perception (fast): mode=%s conf=%.2f input=%r",
+                task_mode_hint, confidence, user_text[:60],
+            )
+            return {
+                "world_model": world_model,
+                "hypothesis": hypothesis,
+                "task_mode": task_mode_hint,
+                "plan": [],
+                "iteration": 0,
+                "ui_actions": [],
+                "ui_results": [],
+                "ui_cycle": 0,
+                "current_phase": "perception",
+            }
+    # =======================================================================
+
+    # -- LLM path: only reached for ambiguous or multimodal inputs -----------
+    from isaac.llm.provider import get_perception_llm
+    llm = get_perception_llm()
+
+    # -- Long-term memory recall (skip for obviously-direct queries) --------
     ltm_context = ""
     try:
         from isaac.memory.long_term import get_long_term_memory
         ltm = get_long_term_memory()
         ltm_context = ltm.to_context_string(user_text, top_k=3)
     except Exception:
-        logger.debug("Long-term memory recall skipped.", exc_info=True)
+        pass
 
     # -- User profile context -----------------------------------------------
     profile_context = ""
@@ -108,7 +129,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         profile.save()
         profile_context = profile.to_context_string()
     except Exception:
-        logger.debug("User profile context skipped.", exc_info=True)
+        pass
 
     # -- Choose prompt based on modality ------------------------------------
     if screenshot_b64:
@@ -140,14 +161,12 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         logger.error("Perception: failed to parse LLM response as JSON.")
         observations = [f"Raw LLM response: {content[:500]}"]
         hypothesis = content[:200]
-        # If a screenshot was provided, default to computer_use mode
         if screenshot_b64:
             task_mode = "computer_use"
 
     # -- Update world model -------------------------------------------------
     updated_world = merge_observations(world_model, observations)
 
-    # Populate / refresh GUIState when in visual mode
     if screenshot_b64 or task_mode in ("computer_use", "hybrid"):
         existing_gui = updated_world.gui_state or GUIState()
         updated_world.gui_state = GUIState(
@@ -165,7 +184,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
             cursor_y=existing_gui.cursor_y,
         )
 
-    # -- Enrich hypothesis with long-term memory context ------------------
+    # -- Enrich hypothesis with context ------------------------------------
     context_parts: list[str] = []
     if ltm_context:
         context_parts.append(ltm_context)
@@ -175,17 +194,15 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         hypothesis = hypothesis + "\n\n" + "\n\n".join(context_parts)
 
     logger.info(
-        "Perception: %d observations, mode=%s, hypothesis=%s",
-        len(observations),
-        task_mode,
-        hypothesis[:80],
+        "Perception (LLM): %d observations, mode=%s",
+        len(observations), task_mode,
     )
 
     return {
         "world_model": updated_world,
         "hypothesis": hypothesis,
         "task_mode": task_mode,
-        "plan": [],    # Reset plan for new perception cycle
+        "plan": [],
         "iteration": 0,
         "ui_actions": [],
         "ui_results": [],
