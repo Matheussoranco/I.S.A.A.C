@@ -43,7 +43,9 @@ from isaac.core.transitions import (
     NODE_COMPUTER_USE,
     NODE_DIRECT_RESPONSE,
     NODE_EXPLORER,
+    NODE_PERCEPTION,
     NODE_SANDBOX,
+    after_guard,
     after_perception,
     after_reflection,
     after_skill_abstraction,
@@ -131,9 +133,16 @@ def build_graph() -> Any:
     graph.add_node(_DIRECT_RESPONSE, direct_response_node)
     graph.add_node(_AWAIT_APPROVAL, await_approval_node)
 
-    # Entry: Guard → Perception → {DirectResponse | Explorer}
+    # Entry: Guard → {Perception | END} → {DirectResponse | Explorer}
     graph.set_entry_point(_GUARD)
-    graph.add_edge(_GUARD, _PERCEPTION)
+    graph.add_conditional_edges(
+        _GUARD,
+        after_guard,
+        {
+            NODE_PERCEPTION: _PERCEPTION,
+            END: END,
+        },
+    )
 
     # Conditional edge: simple queries go to DirectResponse (fast-path)
     graph.add_conditional_edges(
@@ -229,11 +238,14 @@ def build_and_run() -> int:
     except Exception:
         pass
 
+    stop_scheduler = lambda: None  # noqa: E731
     try:
-        from isaac.scheduler.heartbeat import start_scheduler, stop_scheduler
+        from isaac.scheduler.heartbeat import start_scheduler
+        from isaac.scheduler.heartbeat import stop_scheduler as _stop_sched
+        stop_scheduler = _stop_sched
         start_scheduler()
     except Exception:
-        stop_scheduler = lambda: None  # noqa: E731
+        pass
 
     # Audit system startup
     try:

@@ -24,6 +24,7 @@ NODE_COMPUTER_USE = "computer_use"
 NODE_SANDBOX = "sandbox"
 NODE_DIRECT_RESPONSE = "direct_response"
 NODE_EXPLORER = "explorer"
+NODE_PERCEPTION = "perception"
 END = "__end__"
 
 
@@ -46,6 +47,24 @@ def _get_active_step(plan: list[PlanStep]) -> PlanStep | None:
         if step.status == "active":
             return step
     return None
+
+
+# ---------------------------------------------------------------------------
+# Edge: Guard → {Perception | END}
+# ---------------------------------------------------------------------------
+
+
+def after_guard(state: IsaacState) -> str:
+    """Route after the Guard node.
+
+    * ``guard_blocked=True`` → ``__end__``  (input flagged as injection attack)
+    * otherwise              → ``perception`` (normal path)
+    """
+    if state.get("guard_blocked", False):
+        logger.warning("Transition: Guard → END (prompt injection detected — input blocked).")
+        return END
+    logger.info("Transition: Guard → Perception.")
+    return NODE_PERCEPTION
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +135,7 @@ def after_reflection(state: IsaacState) -> str:
         logger.info("Transition: Reflection → Skill Abstraction (success).")
         return NODE_SKILL_ABSTRACTION
 
-    n_errors = _count_reflection_errors(state)
+    n_errors = _count_reflection_errors(state) + _count_computer_use_errors(state)
     if n_errors >= max_retries:
         logger.warning(
             "Transition: %d errors >= max_retries (%d) — terminating.",

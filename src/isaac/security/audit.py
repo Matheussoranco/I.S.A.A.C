@@ -93,7 +93,12 @@ class AuditLog:
                     last = json.loads(lines[-1])
                     self._prev_hash = last.get("entry_hash", _GENESIS_HASH)
         except Exception as exc:
-            logger.debug("Failed to resume audit chain: %s", exc)
+            logger.warning(
+                "Audit chain resume failed — hash chain reset to genesis. "
+                "Log may have been truncated or corrupted. Error: %s",
+                exc,
+            )
+            self._prev_hash = _GENESIS_HASH
 
     def log(
         self,

@@ -268,7 +268,9 @@ class IsaacState(TypedDict, total=False):
     ui_actions:  Annotated[list[UIAction], _append_list]
     ui_results:  Annotated[list[UIActionResult], _append_list]
     ui_cycle:    Annotated[int, _replace]
-
+    # ── Guard ───────────────────────────────────────────────────────────────
+    guard_blocked:   Annotated[bool, _replace]
+    """Set to True by the Guard node when a prompt-injection attempt is detected."""
     # ── Approval Workflow ──────────────────────────────────────────────────
     pending_approvals: Annotated[list[PendingApproval], _append_list]
 
@@ -293,6 +295,7 @@ def make_initial_state() -> IsaacState:
         ui_actions=[],
         ui_results=[],
         ui_cycle=0,
+        guard_blocked=False,
         pending_approvals=[],
         connector_results=[],
     )

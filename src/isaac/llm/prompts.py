@@ -234,12 +234,16 @@ def planner_prompt(
     errors: list[ErrorEntry],
     available_skills: list[str],
     episodic_context: str = "",
+    completed_descriptions: list[str] | None = None,
 ) -> list[BaseMessage]:
     """Build the prompt for the Planner node.
 
     Steps now include a ``mode`` field: 'code', 'ui', or 'hybrid'.
     Episodic context (if available) gives the LLM visibility into recent
     successes and failures so it can avoid repeating mistakes.
+
+    ``completed_descriptions`` surfaces already-finished step descriptions so
+    the LLM knows what work has been done and only plans the *remaining* work.
     """
     error_summaries = [
         {"node": e.node, "message": e.message, "attempt": e.attempt}
@@ -256,6 +260,12 @@ def planner_prompt(
         episodic_section = (
             f"\n## Recent experience (episodic memory)\n{episodic_context}\n"
         )
+    completed_section = ""
+    if completed_descriptions:
+        done_list = "\n".join(f"  - {d}" for d in completed_descriptions)
+        completed_section = (
+            f"\n## Already completed steps (do NOT repeat these)\n{done_list}\n"
+        )
     return [
         _sys(_PLANNER_CONTENT),
         HumanMessage(
@@ -267,6 +277,7 @@ def planner_prompt(
                 + f"\n## Past errors\n{json.dumps(error_summaries)}\n\n"
                 f"## Available skills\n{json.dumps(available_skills)}\n"
                 + episodic_section
+                + completed_section
                 + "\nRespond with JSON:\n"
                 '{"steps": [{"id": "s1", "description": "...", '
                 '"mode": "code|ui|hybrid", "depends_on": []}]}'

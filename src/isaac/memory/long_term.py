@@ -43,7 +43,31 @@ class LongTermMemory:
         self._conn: sqlite3.Connection = sqlite3.connect(str(self._db_path))
         self._conn.row_factory = sqlite3.Row
         self._interaction_count: int = 0
+        self._closed: bool = False
         self._init_db()
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Close the underlying SQLite connection and release the file handle."""
+        if not self._closed:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            finally:
+                self._closed = True
+
+    def __del__(self) -> None:
+        self.close()
+
+    def __enter__(self) -> "LongTermMemory":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     def _init_db(self) -> None:
         """Create tables and FTS5 virtual table if they don't exist."""

@@ -31,6 +31,7 @@ class LLMSettings(BaseSettings):
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         protected_namespaces=("settings_",),
+        extra="ignore",
     )
 
     llm_provider: Literal["openai", "anthropic"] = "openai"
@@ -56,6 +57,7 @@ class SandboxSettings(BaseSettings):
         env_prefix="ISAAC_SANDBOX_",
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     image: str = "isaac-sandbox:latest"
@@ -74,6 +76,7 @@ class UISandboxSettings(BaseSettings):
         env_prefix="ISAAC_UI_SANDBOX_",
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     image: str = "isaac-ui-sandbox:latest"
@@ -100,6 +103,7 @@ class GraphSettings(BaseSettings):
         env_prefix="ISAAC_",
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     max_retries: int = Field(default=3, ge=1, le=20)
@@ -121,7 +125,8 @@ class Settings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     ui_sandbox: UISandboxSettings = Field(default_factory=UISandboxSettings)
     graph: GraphSettings = Field(default_factory=GraphSettings)
-    skills_dir: Path = Path("skills")
+    skills_dir: Path = Field(default_factory=lambda: Path.home() / ".isaac" / "skills")
+    """Persistent skill library directory (absolute, anchored to isaac_home)."""
 
     # API keys (read from env without prefix)
     openai_api_key: str = ""

@@ -36,12 +36,19 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     errors = state.get("errors", [])
     iteration: int = state.get("iteration", 0) + 1
 
+    # Preserve steps already marked 'done' from previous rounds — the
+    # LLM only needs to (re-)plan the remaining work.
+    existing_plan: list[PlanStep] = state.get("plan", [])
+    completed_steps: list[PlanStep] = [s for s in existing_plan if s.status == "done"]
+    completed_descriptions = [s.description for s in completed_steps]
+
     available_skills = skill_lib.list_names()
     episodic_context = episodic.summarise_recent(5)
 
     # Call LLM
     prompt = planner_prompt(
         world_model, hypothesis, errors, available_skills, episodic_context,
+        completed_descriptions=completed_descriptions,
     )
     response = llm.invoke(prompt)
     content = response.content if isinstance(response.content, str) else str(response.content)
@@ -79,22 +86,29 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
             )
         ]
 
+    # Merge completed (preserved) steps with newly generated pending steps.
+    # completed_steps keep their 'done' status; new steps start as 'pending'.
+    all_steps = completed_steps + steps
+
     # Mark the first dependency-satisfied pending step as active
-    for step in steps:
+    for step in all_steps:
         if step.status == "pending":
             # Check if all dependencies are satisfied (done)
             deps_ok = all(
-                any(s.id == dep and s.status == "done" for s in steps)
+                any(s.id == dep and s.status == "done" for s in all_steps)
                 for dep in step.depends_on
             ) if step.depends_on else True
             if deps_ok:
                 step.status = "active"
                 break
 
-    logger.info("Planner: %d steps generated, iteration=%d", len(steps), iteration)
+    logger.info(
+        "Planner: %d total steps (%d preserved done, %d new), iteration=%d",
+        len(all_steps), len(completed_steps), len(steps), iteration,
+    )
 
     return {
-        "plan": steps,
+        "plan": all_steps,
         "iteration": iteration,
         "current_phase": "planner",
     }

@@ -12,6 +12,7 @@ use and falls back gracefully if unavailable.
 from __future__ import annotations
 
 import logging
+import time
 from enum import Enum
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -50,6 +51,9 @@ class LLMRouter:
         Provider name (``"openai"`` or ``"anthropic"``) for API fallback.
     """
 
+    _HEALTH_TTL_SECONDS: float = 60.0
+    """Re-check Ollama availability at most once every 60 s."""
+
     def __init__(
         self,
         ollama_base_url: str = "http://localhost:11434",
@@ -62,12 +66,22 @@ class LLMRouter:
         self._heavy_model = heavy_model
         self._fallback_provider = fallback_provider
         self._ollama_available: bool | None = None  # lazy check
+        self._last_health_check: float = 0.0  # epoch seconds
 
     # -- Health check -------------------------------------------------------
 
     def _check_ollama_health(self) -> bool:
-        """Ping Ollama to verify it is running and responsive."""
-        if self._ollama_available is not None:
+        """Ping Ollama to verify it is running and responsive.
+
+        Result is cached for ``_HEALTH_TTL_SECONDS`` seconds so that a
+        transient restart is detected within one TTL cycle rather than
+        never (the old permanent-cache behaviour).
+        """
+        now = time.monotonic()
+        if (
+            self._ollama_available is not None
+            and (now - self._last_health_check) < self._HEALTH_TTL_SECONDS
+        ):
             return self._ollama_available
 
         import urllib.request
@@ -85,6 +99,7 @@ class LLMRouter:
             )
             self._ollama_available = False
 
+        self._last_health_check = time.monotonic()
         if self._ollama_available:
             logger.info("Ollama is available at %s.", self._ollama_base_url)
         return bool(self._ollama_available)

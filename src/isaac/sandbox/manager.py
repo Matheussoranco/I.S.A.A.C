@@ -55,10 +55,9 @@ def _build_xdotool_command(action: UIAction) -> list[str]:  # type: ignore[name-
         return ["xdotool", "key", action.key or "Return"]
     if t == "scroll":
         btn = "4" if action.scroll_direction in ("up", "left") else "5"
-        cmds: list[str] = []
-        for _ in range(action.scroll_amount):
-            cmds += ["xdotool", "click", btn, ";"]
-        return cmds[:-1]  # strip trailing semicolon token
+        # Use xdotool's built-in --repeat flag; avoids embedding shell
+        # metacharacters (";") as argv tokens which Docker exec ignores.
+        return ["xdotool", "click", "--repeat", str(max(1, action.scroll_amount)), btn]
     if t == "drag":
         return [
             "xdotool", "mousemove", "--sync", str(action.x), str(action.y),

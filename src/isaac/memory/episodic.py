@@ -186,9 +186,22 @@ class EpisodicMemory:
             if kw in ep.task.lower() or kw in ep.hypothesis.lower()
         ]
 
-    def summarise_recent(self, n: int = 5) -> str:
-        """Return a concise text summary of recent episodes for prompt injection."""
-        episodes = self.recent(n)
+    def summarise_recent(self, n: int = 5, session_id: str = "") -> str:
+        """Return a concise text summary of recent episodes for prompt injection.
+
+        Parameters
+        ----------
+        n:
+            Maximum number of episodes to include.
+        session_id:
+            When provided, only episodes belonging to this session are considered.
+            This prevents cross-session context bleed in concurrent server deployments.
+        """
+        if session_id:
+            pool = [ep for ep in self._episodes if ep.session_id == session_id]
+        else:
+            pool = self._episodes
+        episodes = pool[-n:]
         if not episodes:
             return "No prior episodes."
         lines: list[str] = []
