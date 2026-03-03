@@ -87,18 +87,18 @@ class LLMRouter:
         ):
             return self._ollama_available
 
-        import urllib.request
-        import urllib.error
+        import httpx
 
         try:
             url = f"{self._ollama_base_url}/api/tags"
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                self._ollama_available = resp.status == 200
-        except (urllib.error.URLError, OSError, TimeoutError):
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.get(url)
+                self._ollama_available = resp.status_code == 200
+        except httpx.RequestError as e:
             logger.warning(
-                "Ollama is not available at %s — will use fallback provider.",
+                "Ollama is not available at %s — will use fallback provider. (%s)",
                 self._ollama_base_url,
+                e,
             )
             self._ollama_available = False
 

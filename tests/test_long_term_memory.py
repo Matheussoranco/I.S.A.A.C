@@ -80,7 +80,7 @@ class TestUserProfile:
 
         reset_user_profile()
         self.path = tmp_path / "profile.json"
-        self.profile = UserProfile(path=self.path)
+        self.profile = UserProfile(profile_path=self.path)
 
     def test_set_preference(self) -> None:
         self.profile.set_preference("theme", "dark")
@@ -107,7 +107,7 @@ class TestUserProfile:
 
         from isaac.memory.user_profile import UserProfile
 
-        reloaded = UserProfile(path=self.path)
+        reloaded = UserProfile(profile_path=self.path)
         assert reloaded.preferences["lang"] == "pt-BR"
         assert "coder" in reloaded.tags
 

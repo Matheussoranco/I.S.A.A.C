@@ -116,13 +116,20 @@ class MemoryManager:
 
         # Semantic: knowledge graph facts
         try:
-            words = query.lower().split()
+            # SOTA Embedding-based semantic search
             all_facts: list[dict[str, Any]] = []
-            for word in words[:5]:  # Query first 5 words as entities
+            if hasattr(self.semantic, "search_similar_facts"):
+                facts_semantic = self.semantic.search_similar_facts(query, top_k=k*2)
+                all_facts.extend(f.to_dict() if hasattr(f, "to_dict") else f for f in facts_semantic)
+            
+            # Fallback/additive word exact match query
+            words = query.lower().split()
+            for word in words[:3]:
                 facts = self.semantic.query_facts(subject=word)
                 all_facts.extend(f.to_dict() for f in facts[:k])
                 facts_obj = self.semantic.query_facts(object=word)
                 all_facts.extend(f.to_dict() for f in facts_obj[:k])
+
             # Deduplicate
             seen: set[str] = set()
             unique_facts: list[dict[str, Any]] = []

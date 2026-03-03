@@ -18,9 +18,11 @@ class TestPerceptionNode:
 
         mock = MockLLM(
             '{"observations": ["user wants to create a file"], '
-            '"hypothesis": "write hello world to a file"}'
+            '"hypothesis": "write hello world to a file", '
+            '"task_mode": "code"}'
         )
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_perception_llm", return_value=mock), \
+             patch("isaac.nodes.perception.fast_classify", return_value=(None, 0.0)):
             result = perception_node(state)
 
         assert result["current_phase"] == "perception"

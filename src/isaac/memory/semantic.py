@@ -32,6 +32,7 @@ class Fact:
     confidence: float = 1.0
     timestamp: str = ""
     source: str = ""
+    vector_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary."""
@@ -42,6 +43,7 @@ class Fact:
             "confidence": self.confidence,
             "timestamp": self.timestamp,
             "source": self.source,
+            "vector_id": self.vector_id,
         }
 
 
@@ -59,6 +61,15 @@ class SemanticMemory:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._graph: nx.DiGraph = nx.DiGraph()
         self._conn: sqlite3.Connection | None = None
+        
+        # Setup ChromaDB
+        import chromadb
+        chroma_path = self._db_path.parent / "chroma_db"
+        self._chroma_client = chromadb.PersistentClient(path=str(chroma_path))
+        self._chroma_collection = self._chroma_client.get_or_create_collection(
+            name="semantic_facts",
+        )
+
         self._init_db()
         self._load_from_db()
 
@@ -138,7 +149,49 @@ class SemanticMemory:
                 (subject, predicate, object, confidence, ts, source),
             )
             self._conn.commit()
+
+        if hasattr(self, "_chroma_collection") and self._chroma_collection is not None:
+            fact_str = f"{subject} {predicate} {object}"
+            fact_id = f"{subject}_{predicate}_{object}".replace(" ", "_").replace("/", "_")
+            self._chroma_collection.upsert(
+                documents=[fact_str],
+                metadatas=[{
+                    "subject": subject, 
+                    "predicate": predicate, 
+                    "object": object, 
+                }],
+                ids=[fact_id]
+            )
+
         logger.debug("SemanticMemory: added fact (%s, %s, %s).", subject, predicate, object)
+
+    def search_similar_facts(self, query: str, top_k: int = 5) -> list[Fact]:
+        """Search for facts semantically similar to the given query.
+        
+        Uses the underlying Chroma database to retrieve related knowledge graph facts.
+        """
+        if not hasattr(self, "_chroma_collection") or self._chroma_collection is None:
+            logger.warning("Chroma collection not initialized. Cannot perform semantic search.")
+            return []
+            
+        results = self._chroma_collection.query(
+            query_texts=[query],
+            n_results=top_k
+        )
+        
+        matches = []
+        if results and "metadatas" in results and results["metadatas"]:
+            metadata_batch = results["metadatas"][0]
+            for meta in metadata_batch:
+                matches.append(
+                    Fact(
+                        subject=str(meta.get("subject", "")),
+                        predicate=str(meta.get("predicate", "")),
+                        object=str(meta.get("object", "")),
+                    )
+                )
+                
+        return matches
 
     # -- Read ---------------------------------------------------------------
 

@@ -45,13 +45,44 @@ class CodeExecutor:
 
         Lifecycle
         ---------
-        1. Write ``code`` to a temporary file on the host.
-        2. Bind-mount the file read-only at ``/input/task.py``.
-        3. Create and start an ephemeral container.
-        4. Wait for completion (or timeout).
-        5. Capture stdout / stderr / exit code.
-        6. Destroy the container and clean up temp files.
+        1. Validate `code` with `ast.parse` to catch immediate errors.
+        2. Write ``code`` to a temporary file on the host.
+        3. Bind-mount the file read-only at ``/input/task.py``.
+        4. Create and start an ephemeral container.
+        5. Wait for completion (or timeout).
+        6. Capture stdout / stderr / exit code.
+        7. Destroy the container and clean up temp files.
         """
+        import ast
+        try:
+            tree = ast.parse(code)
+            # Basic AST walk to reject out-of-scope modules
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name in ("socket", "os"):
+                            return ExecutionResult(
+                                stdout="",
+                                stderr=f"SecurityError: Import of module '{alias.name}' is blocked.",
+                                exit_code=1,
+                                duration_ms=0.0
+                            )
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module in ("socket", "os"):
+                        return ExecutionResult(
+                            stdout="",
+                            stderr=f"SecurityError: Import from module '{node.module}' is blocked.",
+                            exit_code=1,
+                            duration_ms=0.0
+                        )
+        except SyntaxError as e:
+            return ExecutionResult(
+                stdout="",
+                stderr=f"SyntaxError: {e.msg} at line {e.lineno}",
+                exit_code=1,
+                duration_ms=0.0
+            )
+
         tmp_dir = tempfile.mkdtemp(prefix="isaac_sandbox_")
         task_file = Path(tmp_dir) / "task.py"
         task_file.write_text(code, encoding="utf-8")

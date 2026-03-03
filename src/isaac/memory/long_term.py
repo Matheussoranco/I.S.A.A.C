@@ -52,13 +52,15 @@ class LongTermMemory:
 
     def close(self) -> None:
         """Close the underlying SQLite connection and release the file handle."""
-        if not self._closed:
-            try:
+        if getattr(self, "_closed", True):
+            return
+        try:
+            if hasattr(self, "_conn"):
                 self._conn.close()
-            except Exception:
-                pass
-            finally:
-                self._closed = True
+        except Exception:
+            pass
+        finally:
+            self._closed = True
 
     def __del__(self) -> None:
         self.close()
@@ -342,10 +344,6 @@ class LongTermMemory:
         for m in memories:
             lines.append(f"  [{m['type']}] {m['content'][:200]}")
         return "## Long-term memories\n" + "\n".join(lines)
-
-    def close(self) -> None:
-        """Close the SQLite connection."""
-        self._conn.close()
 
 
 # ---------------------------------------------------------------------------

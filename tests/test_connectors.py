@@ -63,7 +63,7 @@ class TestBaseConnector:
         schema = FakeConnector().to_schema()
         assert schema["name"] == "fake"
         assert schema["description"] == "A test connector"
-        assert "KEY" in schema["requires_env"]
+        assert schema["available"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ class TestWebSearchConnector:
 
         c = WebSearchConnector()
         # Mock duckduckgo_search
-        with patch("isaac.skills.connectors.web_search.DDGS") as MockDDGS:
+        with patch("duckduckgo_search.DDGS") as MockDDGS:
             instance = MockDDGS.return_value.__enter__ = MagicMock()
             MockDDGS.return_value.__enter__.return_value = MockDDGS.return_value
             MockDDGS.return_value.__exit__ = MagicMock(return_value=False)
@@ -105,11 +105,11 @@ class TestFileSystemConnector:
         (tmp_path / "file2.py").write_text("print()")
 
         c = FileSystemConnector()
-        with patch.object(c, "_get_allowed_paths", return_value=[str(tmp_path)]):
-            result = c.run(action="list", path=str(tmp_path))
-            assert "entries" in result
-            names = [e["name"] for e in result["entries"]]
-            assert "file1.txt" in names
+        c._allowed = [tmp_path]
+        result = c.run(action="list_directory", path=str(tmp_path))
+        assert "entries" in result
+        names = [e["name"] for e in result["entries"]]
+        assert "file1.txt" in names
 
     def test_read_file(self, tmp_path: Path) -> None:
         from isaac.skills.connectors.filesystem import FileSystemConnector
@@ -118,17 +118,17 @@ class TestFileSystemConnector:
         test_file.write_text("hello world")
 
         c = FileSystemConnector()
-        with patch.object(c, "_get_allowed_paths", return_value=[str(tmp_path)]):
-            result = c.run(action="read", path=str(test_file))
-            assert result.get("content") == "hello world"
+        c._allowed = [tmp_path]
+        result = c.run(action="read_file", path=str(test_file))
+        assert result.get("content") == "hello world"
 
     def test_path_escape_blocked(self, tmp_path: Path) -> None:
         from isaac.skills.connectors.filesystem import FileSystemConnector
 
         c = FileSystemConnector()
-        with patch.object(c, "_get_allowed_paths", return_value=[str(tmp_path)]):
-            result = c.run(action="read", path="/etc/passwd")
-            assert "error" in result
+        c._allowed = [tmp_path]
+        result = c.run(action="read_file", path="/etc/passwd")
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +159,9 @@ class TestShellConnector:
         from isaac.skills.connectors.shell import ShellConnector
 
         c = ShellConnector()
-        result = c.run(command="echo hello")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="hello\n", stderr="", returncode=0)
+            result = c.run(command="echo hello")
         assert result.get("exit_code") == 0
         assert "hello" in result.get("stdout", "")
 

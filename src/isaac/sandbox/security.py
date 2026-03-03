@@ -216,13 +216,13 @@ def default_policy() -> SecurityPolicy:
         logger.debug("Seccomp profile generation skipped: %s", exc)
 
     return SecurityPolicy(
-        network_mode=cfg.network,
+        network_mode="none",
         memory_limit=cfg.memory_limit,
         cpu_limit=cfg.cpu_limit,
         pids_limit=cfg.pids_limit,
         timeout_seconds=cfg.timeout_seconds,
         seccomp_profile_path=seccomp_path,
-        tmpfs={},  # code sandbox uses read-only rootfs; no tmpfs needed
+        tmpfs={"/tmp": "rw,size=128m"},  # allow a writable temp stage for AST operations
     )
 
 
