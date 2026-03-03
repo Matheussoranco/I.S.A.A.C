@@ -5,7 +5,27 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from isaac.core.state import ErrorEntry, PlanStep, SkillCandidate, make_initial_state
-from isaac.core.transitions import after_reflection, after_skill_abstraction
+from isaac.core.transitions import after_guard, after_reflection, after_skill_abstraction
+
+
+class TestAfterGuard:
+    def test_clean_input_routes_to_perception(self) -> None:
+        state = make_initial_state()
+        state["guard_blocked"] = False
+        assert after_guard(state) == "perception"
+
+    def test_blocked_input_routes_to_end(self) -> None:
+        state = make_initial_state()
+        state["guard_blocked"] = True
+        assert after_guard(state) == "__end__"
+
+    def test_missing_guard_blocked_defaults_to_perception(self) -> None:
+        """guard_blocked defaults to False in make_initial_state, so missing
+        the key must still route to Perception (total=False TypedDict)."""
+        state = make_initial_state()
+        # Remove the key to simulate a partial state update from an older node
+        state.pop("guard_blocked", None)  # type: ignore[misc]
+        assert after_guard(state) == "perception"
 
 
 class TestAfterReflection:

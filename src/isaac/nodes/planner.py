@@ -43,7 +43,8 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     completed_descriptions = [s.description for s in completed_steps]
 
     available_skills = skill_lib.list_names()
-    episodic_context = episodic.summarise_recent(5)
+    session_id: str = state.get("session_id", "")
+    episodic_context = episodic.summarise_recent(5, session_id=session_id)
 
     # Call LLM
     prompt = planner_prompt(

@@ -66,7 +66,10 @@ class LLMRouter:
         self._heavy_model = heavy_model
         self._fallback_provider = fallback_provider
         self._ollama_available: bool | None = None  # lazy check
-        self._last_health_check: float = 0.0  # epoch seconds
+        # Initialise to now so any manual assignment of _ollama_available in
+        # tests (or right after construction) is treated as a fresh cache entry
+        # rather than an immediately-stale one.
+        self._last_health_check: float = time.monotonic()
 
     # -- Health check -------------------------------------------------------
 

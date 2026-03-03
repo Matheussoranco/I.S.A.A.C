@@ -87,7 +87,7 @@ class MemoryManager:
 
     # -- Unified recall -----------------------------------------------------
 
-    def recall(self, query: str, k: int = 5) -> RecallResult:
+    def recall(self, query: str, k: int = 5, session_id: str = "") -> RecallResult:
         """Query all memory layers and return unified context.
 
         Parameters
@@ -96,6 +96,9 @@ class MemoryManager:
             Natural language query to search across all layers.
         k:
             Maximum number of results per layer.
+        session_id:
+            When provided, episodic recall is scoped to the given session so
+            concurrent server sessions don’t bleed into each other’s context.
 
         Returns
         -------
@@ -106,7 +109,7 @@ class MemoryManager:
 
         # Episodic: recent experience
         try:
-            result.episodic_context = self.episodic.summarise_recent(k)
+            result.episodic_context = self.episodic.summarise_recent(k, session_id=session_id)
         except Exception:
             logger.warning("MemoryManager: episodic recall failed.", exc_info=True)
             result.episodic_context = "No episodic context available."

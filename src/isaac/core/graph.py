@@ -254,8 +254,10 @@ def build_and_run() -> int:
     except Exception:
         pass
 
+    import uuid
     compiled = build_graph()
     state = make_initial_state()
+    state["session_id"] = str(uuid.uuid4())
 
     print("I.S.A.A.C. — Intelligent System for Autonomous Action and Cognition")
     print("Type your task below.  Press Ctrl+C to exit.\n")
