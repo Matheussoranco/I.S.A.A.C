@@ -185,6 +185,17 @@ class Settings(BaseSettings):
     email_imap_port: int = 993
     obsidian_vault_path: str = ""
 
+    # Email — SMTP (outbound)
+    email_smtp_host: str = ""
+    email_smtp_port: int = 587
+    email_smtp_user: str = ""
+    email_smtp_password: str = ""
+
+    # CalDAV
+    caldav_url: str = ""
+    caldav_username: str = ""
+    caldav_password: str = ""
+
     # ── Background / Cron ───────────────────────────────────────────────
     cron_poll_seconds: int = Field(default=30, ge=5, le=600)
     """Seconds between cron daemon poll cycles."""

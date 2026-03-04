@@ -134,21 +134,32 @@ def _notify_operator(approval: PendingApproval) -> None:
 
 
 def _execute_approved_tool(approval: PendingApproval) -> str:
-    """Execute the approved tool and return a summary string."""
-    try:
-        from isaac.tools.base import get_tool_registry
+    """Execute the approved tool and return a summary string.
 
-        registry = get_tool_registry()
-        tool = registry.get(approval.tool_name)
+    Always runs in a fresh thread + event loop so we never call
+    ``asyncio.run()`` inside LangGraph's already-running event loop.
+    """
+    import concurrent.futures
 
-        if tool is None:
-            return f"Tool '{approval.tool_name}' not found in registry."
+    def _run() -> str:
+        try:
+            from isaac.tools.base import get_tool_registry
 
-        result = asyncio.run(tool.execute(**approval.tool_args))
-        if result.success:
-            return f"Tool '{approval.tool_name}' executed: {result.output}"
-        else:
-            return f"Tool '{approval.tool_name}' failed: {result.error}"
-    except Exception as exc:
-        logger.error("Failed to execute approved tool '%s': %s", approval.tool_name, exc)
-        return f"Execution error: {exc}"
+            registry = get_tool_registry()
+            tool = registry.get(approval.tool_name)
+
+            if tool is None:
+                return f"Tool '{approval.tool_name}' not found in registry."
+
+            result = asyncio.run(tool.execute(**approval.tool_args))
+            if result.success:
+                return f"Tool '{approval.tool_name}' executed: {result.output}"
+            else:
+                return f"Tool '{approval.tool_name}' failed: {result.error}"
+        except Exception as exc:
+            logger.error("Failed to execute approved tool '%s': %s", approval.tool_name, exc)
+            return f"Execution error: {exc}"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_run)
+        return future.result(timeout=120)

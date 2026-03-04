@@ -61,14 +61,23 @@ class SemanticMemory:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._graph: nx.DiGraph = nx.DiGraph()
         self._conn: sqlite3.Connection | None = None
-        
-        # Setup ChromaDB
-        import chromadb
-        chroma_path = self._db_path.parent / "chroma_db"
-        self._chroma_client = chromadb.PersistentClient(path=str(chroma_path))
-        self._chroma_collection = self._chroma_client.get_or_create_collection(
-            name="semantic_facts",
-        )
+
+        # ChromaDB — optional; if unavailable we fall back to exact-match only
+        self._chroma_client: Any = None
+        self._chroma_collection: Any = None
+        try:
+            import chromadb  # type: ignore[import-untyped]
+            chroma_path = self._db_path.parent / "chroma_db"
+            self._chroma_client = chromadb.PersistentClient(path=str(chroma_path))
+            self._chroma_collection = self._chroma_client.get_or_create_collection(
+                name="semantic_facts",
+            )
+            logger.debug("SemanticMemory: ChromaDB initialised at %s.", chroma_path)
+        except Exception as exc:
+            logger.warning(
+                "SemanticMemory: ChromaDB unavailable (%s) — falling back to in-memory exact-match only.",
+                exc,
+            )
 
         self._init_db()
         self._load_from_db()

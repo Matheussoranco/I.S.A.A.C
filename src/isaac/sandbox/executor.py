@@ -57,10 +57,21 @@ class CodeExecutor:
         try:
             tree = ast.parse(code)
             # Basic AST walk to reject out-of-scope modules
+            # Modules that must never be imported — even inside Docker,
+            # the host-side pre-check catches obvious injections early.
+            _BLOCKED_MODULES = frozenset({
+                "os", "socket", "subprocess", "ctypes", "importlib",
+                "sys", "multiprocessing", "pty", "fcntl", "signal",
+                "resource", "platform", "shutil", "tempfile", "glob",
+                "builtins", "imp", "runpy", "code", "codeop",
+                "posix", "nt", "mmap", "select", "selectors",
+                "threading", "_thread", "concurrent",
+            })
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        if alias.name in ("socket", "os"):
+                        top = alias.name.split(".")[0]
+                        if top in _BLOCKED_MODULES:
                             return ExecutionResult(
                                 stdout="",
                                 stderr=f"SecurityError: Import of module '{alias.name}' is blocked.",
@@ -68,7 +79,8 @@ class CodeExecutor:
                                 duration_ms=0.0
                             )
                 elif isinstance(node, ast.ImportFrom):
-                    if node.module in ("socket", "os"):
+                    top = (node.module or "").split(".")[0]
+                    if top in _BLOCKED_MODULES:
                         return ExecutionResult(
                             stdout="",
                             stderr=f"SecurityError: Import from module '{node.module}' is blocked.",

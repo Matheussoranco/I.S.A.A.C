@@ -274,6 +274,13 @@ def build_and_run() -> int:
             if user_input.lower() in {"exit", "quit"}:
                 break
 
+            # Sanitize user input before it enters the cognitive graph
+            try:
+                from isaac.security.sanitizer import sanitize_input
+                user_input = sanitize_input(user_input)
+            except Exception:
+                pass
+
             # Append the user message
             state["messages"] = [HumanMessage(content=user_input)]
 

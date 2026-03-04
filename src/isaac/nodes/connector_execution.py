@@ -125,6 +125,28 @@ def connector_execution_node(state: IsaacState) -> dict[str, Any]:
             logger.debug("ConnectorExecution: '%s' detected but not available.", connector_name)
             continue
 
+        # Capability token enforcement: ensure a valid token exists for this
+        # connector before execution. Auto-issue one if absent (audit-logged).
+        try:
+            from isaac.security.capabilities import get_token_store
+            store = get_token_store()
+            active_tokens = store.list_active()
+            token_ok = any(t.matches(connector_name) for t in active_tokens)
+            if not token_ok:
+                # Auto-issue a short-lived token (will appear in audit log)
+                store.issue(
+                    connector_name,
+                    ttl_hours=1,
+                    issued_by="connector_execution_node",
+                    max_uses=10,
+                )
+                logger.info(
+                    "ConnectorExecution: auto-issued capability token for '%s'.",
+                    connector_name,
+                )
+        except Exception as cap_exc:
+            logger.warning("ConnectorExecution: capability check skipped: %s", cap_exc)
+
         kwargs = _extract_kwargs_from_description(connector_name, active.description)
         logger.info("ConnectorExecution: invoking '%s' with %s", connector_name, kwargs)
         result = run_connector(connector_name, **kwargs)

@@ -138,7 +138,20 @@ def _handle_slash_command(cmd: str, ui: TerminalUI, state: IsaacState) -> bool:
         return True
 
     if cmd == "/compact":
-        ui.print_info("Compact mode toggled (not yet implemented).")
+        msgs = state.get("messages", [])
+        if not msgs:
+            ui.print_info("Nothing to compact — message history is empty.")
+            return True
+        try:
+            compressed = compress_messages(msgs)
+            state["messages"] = compressed
+            saved = len(msgs) - len(compressed)
+            ui.print_info(
+                f"Conversation compacted: {len(msgs)} → {len(compressed)} messages "
+                f"({saved} condensed into context summary)."
+            )
+        except Exception as exc:
+            ui.print_warning(f"Compact failed: {exc}")
         return True
 
     ui.print_warning(f"Unknown command: {cmd}.  Type /help for options.")
@@ -252,6 +265,13 @@ def run_repl() -> int:
 
             if user_input.lower() in {"exit", "quit"}:
                 break
+
+            # Sanitize user input before it enters the cognitive graph
+            try:
+                from isaac.security.sanitizer import sanitize_input
+                user_input = sanitize_input(user_input)
+            except Exception:
+                pass
 
             # -- Append user message ----------------------------------------
             state["messages"] = [HumanMessage(content=user_input)]

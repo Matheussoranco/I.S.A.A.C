@@ -2,12 +2,16 @@
 
 **Intelligent System for Autonomous Action and Cognition**
 
+[![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.1.0--beta-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v0.1.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+
 A neuro-symbolic autonomous agent built on [LangGraph](https://github.com/langchain-ai/langgraph) with Docker-sandboxed execution, a cumulative Skill Library, and a full security stack for ARC-AGI program synthesis and general-purpose autonomy.
 
 ---
 
 ## Architecture Overview
-
 I.S.A.A.C. models reasoning as an explicit cyclic state graph — not generic while-loops. Ten cognitive nodes operate on a strict `TypedDict` state contract:
 
 ```

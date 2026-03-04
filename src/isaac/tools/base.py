@@ -55,8 +55,11 @@ class IsaacTool(ABC):
             cls.requires_approval = True
 
     @abstractmethod
-    def execute(self, **kwargs: Any) -> ToolResult:
+    async def execute(self, **kwargs: Any) -> ToolResult:
         """Execute the tool with the given arguments.
+
+        All concrete subclasses must implement this as ``async def`` so
+        they can be uniformly awaited by the approval and connector nodes.
 
         Parameters
         ----------

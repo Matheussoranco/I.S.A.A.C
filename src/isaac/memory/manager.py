@@ -57,6 +57,7 @@ class MemoryManager:
         self._episodic: Any = None
         self._semantic: Any = None
         self._procedural: Any = None
+        self._kg: Any = None
 
     # -- Lazy access --------------------------------------------------------
 
@@ -84,6 +85,15 @@ class MemoryManager:
             from isaac.memory.procedural import ProceduralMemory
             self._procedural = ProceduralMemory(skills_dir=self._skills_dir)
         return self._procedural
+
+    @property
+    def kg(self) -> Any:
+        """World-model knowledge graph (NetworkX + SQLite)."""
+        if self._kg is None:
+            from isaac.memory.world_model_kg import WorldModelKG
+            persist_dir = self._isaac_home / "memory"
+            self._kg = WorldModelKG(persist_dir=persist_dir)
+        return self._kg
 
     # -- Unified recall -----------------------------------------------------
 
@@ -148,6 +158,14 @@ class MemoryManager:
         except Exception:
             logger.warning("MemoryManager: procedural recall failed.", exc_info=True)
 
+        # World-model KG: add entity/relation context
+        kg_context = ""
+        try:
+            if self.kg.node_count > 0:
+                kg_context = self.kg.to_context_string(max_nodes=30)
+        except Exception:
+            logger.warning("MemoryManager: KG recall failed.", exc_info=True)
+
         # Build combined context string
         parts: list[str] = []
         if result.episodic_context and result.episodic_context != "No prior episodes.":
@@ -158,6 +176,8 @@ class MemoryManager:
                 for f in result.semantic_facts
             )
             parts.append(f"## Known Facts\n{facts_str}")
+        if kg_context:
+            parts.append(f"## World Model\n{kg_context}")
         if result.relevant_skills:
             parts.append(f"## Relevant Skills\n  {', '.join(result.relevant_skills)}")
 
@@ -198,6 +218,13 @@ class MemoryManager:
     ) -> None:
         """Store a fact in semantic memory."""
         self.semantic.add_fact(subject, predicate, object, confidence, source)
+
+    def sync_kg_from_world_model(self, world_model: Any) -> None:
+        """Sync the WorldModelKG from the flat WorldModel dataclass."""
+        try:
+            self.kg.sync_from_world_model(world_model)
+        except Exception:
+            logger.warning("MemoryManager: KG sync failed.", exc_info=True)
 
     def close(self) -> None:
         """Close all memory layer connections."""

@@ -36,6 +36,13 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     errors = state.get("errors", [])
     iteration: int = state.get("iteration", 0) + 1
 
+    # Sync WorldModel into the knowledge graph so Planner/Reflection can query it
+    try:
+        from isaac.memory.manager import get_memory_manager
+        get_memory_manager().sync_kg_from_world_model(world_model)
+    except Exception:
+        logger.debug("Planner: KG sync failed — continuing.", exc_info=True)
+
     # Preserve steps already marked 'done' from previous rounds — the
     # LLM only needs to (re-)plan the remaining work.
     existing_plan: list[PlanStep] = state.get("plan", [])
@@ -91,25 +98,26 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     # completed_steps keep their 'done' status; new steps start as 'pending'.
     all_steps = completed_steps + steps
 
-    # Mark the first dependency-satisfied pending step as active
-    for step in all_steps:
-        if step.status == "pending":
-            # Check if all dependencies are satisfied (done)
-            deps_ok = all(
-                any(s.id == dep and s.status == "done" for s in all_steps)
-                for dep in step.depends_on
-            ) if step.depends_on else True
-            if deps_ok:
-                step.status = "active"
-                break
+    # Build a Graph-of-Thought DAG and activate all dependency-satisfied steps
+    # simultaneously (fan-out parallelism when multiple steps are independent).
+    from isaac.nodes.got_planner import PlanDAG
+    dag = PlanDAG(steps=all_steps)
+    activated = dag.activate_ready()
+
+    # Expose DAG context string in the state for Synthesis/Reflection to use
+    dag_context = dag.to_context_string()
+    critical_path = dag.critical_path()
 
     logger.info(
-        "Planner: %d total steps (%d preserved done, %d new), iteration=%d",
-        len(all_steps), len(completed_steps), len(steps), iteration,
+        "Planner: %d total steps (%d preserved done, %d new), "
+        "%d activated now, critical_path=%s, iteration=%d",
+        len(all_steps), len(completed_steps), len(steps),
+        len(activated), critical_path, iteration,
     )
 
     return {
         "plan": all_steps,
         "iteration": iteration,
         "current_phase": "planner",
+        "dag_context": dag_context,
     }

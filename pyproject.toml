@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isaac"
-version = "0.2.0"
+version = "0.1.0"
 description = "Intelligent System for Autonomous Action and Cognition — neuro-symbolic autonomous agent"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.10"
-authors = [{ name = "Matheus Soran" }]
+authors = [{ name = "Matheus Soranço", email = "matheussoranco@gmail.com" }]
 keywords = ["agent", "agi", "neuro-symbolic", "langgraph", "code-agent"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
