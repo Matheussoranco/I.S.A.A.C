@@ -64,12 +64,114 @@ def _get_active_step(plan: list[PlanStep]) -> PlanStep | None:
     return None
 
 
+def _arc_synthesis(
+    state: IsaacState,
+    llm: Any,
+    world_model: WorldModel,
+    hypothesis: str,
+) -> dict[str, Any] | None:
+    """Try to solve an ARC task using the full neuro-symbolic synthesis engine.
+
+    Returns a state update dict if successful, or None to fall through to
+    the generic synthesis path.
+    """
+    resources = world_model.resources
+    if not resources.get("_arc_task"):
+        return None
+
+    train_pairs_raw = resources.get("train", [])
+    if not train_pairs_raw:
+        return None
+
+    try:
+        import numpy as np
+        from isaac.arc.evaluator import ArcTask, ArcPair
+        from isaac.arc.solver import synthesise
+
+        train_pairs = [
+            ArcPair(
+                input=np.array(p["input"], dtype=int),
+                output=np.array(p.get("output", []), dtype=int),
+            )
+            for p in train_pairs_raw
+            if p.get("output")
+        ]
+        test_pairs_raw = resources.get("test", [])
+        test_pairs = [
+            ArcPair(
+                input=np.array(p["input"], dtype=int),
+                output=np.array(p.get("output", p["input"]), dtype=int),
+            )
+            for p in test_pairs_raw
+        ]
+
+        task = ArcTask(
+            id=resources.get("task_id", "arc_task"),
+            train=train_pairs,
+            test=test_pairs,
+            description=hypothesis,
+        )
+
+        # Use remaining time from world_model constraints or defaults
+        result = synthesise(
+            task,
+            llm=llm,
+            time_budget_s=25.0,
+            beam_width=30,
+            max_depth=3,
+            max_refine_iterations=4,
+        )
+
+        if isinstance(result.program, str) and result.program not in ("unsolved", ""):
+            code = result.program
+        elif isinstance(result.program, list) and result.program:
+            # DSL program — wrap in executable Python
+            from isaac.arc.dsl import apply_program
+            import json as _json
+            ops_json = _json.dumps(result.program)
+            code = (
+                f"import numpy as np\n"
+                f"import sys, json\n"
+                f"sys.path.insert(0, '/app/src')\n"
+                f"from isaac.arc.dsl import apply_program\n\n"
+                f"test_inputs = {[p.input.tolist() for p in test_pairs]!r}\n"
+                f"ops = {ops_json}\n"
+                f"for i, inp in enumerate(test_inputs):\n"
+                f"    grid = np.array(inp, dtype=int)\n"
+                f"    out = apply_program(ops, grid)\n"
+                f"    print(f'Test {{i+1}} output:')\n"
+                f"    print(out.tolist())\n"
+            )
+        else:
+            code = (
+                "import sys\n"
+                "print('ARC solver could not find a solution within compute budget.')\n"
+                "sys.exit(1)\n"
+            )
+
+        train_acc = result.method
+        logger.info(
+            "ARC synthesis: method=%s, code_len=%d chars",
+            result.method, len(code),
+        )
+        return {"code_buffer": code, "current_phase": "synthesis"}
+
+    except Exception as exc:
+        logger.warning("ARC synthesis path failed: %s — falling back to generic.", exc)
+        return None
+
+
 def synthesis_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: Synthesis.
 
     Reads the active ``PlanStep``, determines execution mode, and produces
     either a code string (``code_buffer``) or a ``UIAction`` list
     (``ui_actions``) depending on ``PlanStep.mode``.
+
+    ARC-aware: when ``world_model.resources["_arc_task"]`` is set, routes
+    through the full neuro-symbolic synthesis engine (analogy + beam search +
+    object-level synthesis + LLM + self-refinement) instead of generic code
+    synthesis.
     """
     from isaac.config.settings import settings
     from isaac.llm.provider import get_llm
@@ -93,7 +195,13 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
 
     mode = active_step.mode
 
-    # ── 'code' mode — existing CodeAgent behaviour ─────────────────────────
+    # ── ARC fast-path: full neurosymbolic synthesis engine ─────────────────
+    if mode == "code":
+        arc_result = _arc_synthesis(state, llm, world_model, hypothesis)
+        if arc_result is not None:
+            return arc_result
+
+    # ── 'code' mode — generic CodeAgent behaviour ──────────────────────────
     if mode == "code":
         prompt = synthesis_prompt(active_step, world_model, hypothesis, available_skills)
         response = llm.invoke(prompt)

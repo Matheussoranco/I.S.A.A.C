@@ -233,13 +233,43 @@ def solve_with_dsl(task: ArcTask) -> TaskResult:
 
 
 def build_arc_prompt(task: ArcTask) -> str:
-    """Format an ARC task into a text prompt for the LLM-based solver."""
+    """Format an ARC task into a text prompt for the LLM-based solver.
+
+    Enriched with:
+    - Prior analysis (objects, topology, symmetry)
+    - Analogy engine findings (cross-pair hypotheses)
+    - Chain-of-thought instruction
+    """
     lines: list[str] = []
     lines.append("## ARC Task")
     if task.description:
         lines.append(f"Description: {task.description}")
     lines.append("")
 
+    # ── Prior + analogy context ──────────────────────────────────────────
+    try:
+        from isaac.arc.priors import full_prior_analysis, describe_prior_analysis
+        from isaac.arc.analogy import run_analogy_engine, format_analogy_for_prompt
+
+        train_dicts = [
+            {"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train
+        ]
+        analogy = run_analogy_engine(train_dicts)
+        lines.append(format_analogy_for_prompt(analogy))
+        lines.append("")
+
+        if task.train:
+            pa = full_prior_analysis(task.train[0].input)
+            obs = describe_prior_analysis(pa)
+            if obs:
+                lines.append("## Prior analysis (first training input):")
+                for o in obs[:8]:
+                    lines.append(f"  {o}")
+                lines.append("")
+    except Exception:
+        pass
+
+    # ── Training examples ────────────────────────────────────────────────
     for i, pair in enumerate(task.train):
         lines.append(f"### Training Example {i + 1}")
         lines.append("Input:")
@@ -247,12 +277,11 @@ def build_arc_prompt(task: ArcTask) -> str:
         lines.append("Output:")
         lines.append(format_grid_for_prompt(pair.output))
 
-        # Add structural analysis
         diff = grid_diff(pair.input, pair.output)
         lines.append(f"Shape changed: {diff['shape_changed']}")
         lines.append(f"Cells changed: {diff['n_changed_cells']}")
         lines.append(f"Colour changes: added={diff['colour_changes']['added']}, "
-                      f"removed={diff['colour_changes']['removed']}")
+                     f"removed={diff['colour_changes']['removed']}")
         lines.append("")
 
     for i, pair in enumerate(task.test):
@@ -261,10 +290,13 @@ def build_arc_prompt(task: ArcTask) -> str:
         lines.append("")
 
     lines.append(
-        "Write a Python function `solve(grid: np.ndarray) -> np.ndarray` that "
-        "transforms the input grid to produce the output grid. "
-        "The function should work for all training examples and the test input. "
-        "Use only numpy. Respond with a fenced ```python``` code block."
+        "## Your task\n"
+        "Reason step by step:\n"
+        "1. What is the transformation rule inferred from the examples?\n"
+        "2. Does it hold for ALL training pairs?\n"
+        "3. Implement it as: `def solve(grid: np.ndarray) -> np.ndarray:`\n\n"
+        "Use only numpy and the Python standard library.\n"
+        "Respond ONLY with a fenced ```python``` code block."
     )
     return "\n".join(lines)
 
@@ -359,8 +391,11 @@ def solve_with_llm(
 
 def evaluate(
     tasks: list[ArcTask],
-    solver: str = "hybrid",
+    solver: str = "synthesis",
     llm: Any | None = None,
+    time_budget_per_task_s: float = 30.0,
+    beam_width: int = 30,
+    max_depth: int = 3,
 ) -> EvalReport:
     """Run evaluation across all tasks.
 
@@ -369,11 +404,18 @@ def evaluate(
     tasks:
         List of ARC tasks to evaluate.
     solver:
-        ``"dsl"`` — DSL search only.
+        ``"synthesis"`` — full multi-strategy synthesis engine (default, best).
+        ``"dsl"`` — DSL search only (fast, limited).
         ``"llm"`` — LLM solver only.
-        ``"hybrid"`` — try DSL first, then LLM for unsolved.
+        ``"hybrid"`` — DSL first, then LLM for unsolved.
     llm:
         Optional LLM instance.  If ``None``, auto-loads from settings.
+    time_budget_per_task_s:
+        Per-task compute budget for the synthesis engine.
+    beam_width:
+        Beam width for DSL beam search.
+    max_depth:
+        Maximum program depth in beam search.
 
     Returns
     -------
@@ -385,9 +427,24 @@ def evaluate(
 
     for task in tasks:
         logger.info("Evaluating task %s (%d train, %d test)...",
-                     task.id, len(task.train), len(task.test))
+                    task.id, len(task.train), len(task.test))
 
-        if solver == "dsl":
+        if solver == "synthesis":
+            try:
+                from isaac.arc.solver import synthesise
+                result = synthesise(
+                    task,
+                    llm=llm,
+                    time_budget_s=time_budget_per_task_s,
+                    beam_width=beam_width,
+                    max_depth=max_depth,
+                )
+            except Exception as exc:
+                logger.warning("Synthesis engine failed for %s: %s", task.id, exc)
+                result = solve_with_dsl(task)
+                if not result.correct:
+                    result = solve_with_llm(task, llm)
+        elif solver == "dsl":
             result = solve_with_dsl(task)
         elif solver == "llm":
             result = solve_with_llm(task, llm)
@@ -401,9 +458,10 @@ def evaluate(
         if result.correct:
             report.correct += 1
             logger.info("  ✓ %s solved in %.1fms via %s",
-                         task.id, result.solve_time_ms, result.method)
+                        task.id, result.solve_time_ms, result.method)
         else:
-            logger.info("  ✗ %s unsolved (%.1fms)", task.id, result.solve_time_ms)
+            logger.info("  ✗ %s unsolved (%.1fms, method=%s)",
+                        task.id, result.solve_time_ms, result.method)
 
     report.total_time_ms = (time.perf_counter() - t_start) * 1000
     report.accuracy = report.correct / report.total_tasks if report.total_tasks else 0.0

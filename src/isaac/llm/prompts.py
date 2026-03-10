@@ -13,6 +13,11 @@ Computer-Use additions
 * ``computer_use_prompt``          — vision loop: screenshot + pending actions → next action
 * ``reflection_ui_prompt``         — compare before/after screenshots for success/fail
 * ``skill_abstraction_ui_prompt``  — generalise UIAction trace into Playwright function
+
+ARC-AGI additions
+-----------------
+* ``arc_synthesis_prompt``         — chain-of-thought ARC program synthesis with prior context
+* ``arc_planner_prompt``           — ARC-specific planning with analogy context
 """
 
 from __future__ import annotations
@@ -555,3 +560,137 @@ def skill_abstraction_ui_prompt(
         },
     ]
     return [_sys(_SKILL_ABSTRACTION_UI_CONTENT), HumanMessage(content=content)]
+
+
+# ---------------------------------------------------------------------------
+# ARC-AGI prompt builders (neuro-symbolic, Chollet-aligned)
+# ---------------------------------------------------------------------------
+
+
+_ARC_SYNTHESIS_CONTENT = (
+    "You are an expert ARC-AGI solver operating as the Synthesis module of I.S.A.A.C. "
+    "Your task is to write a Python function `solve(grid: np.ndarray) -> np.ndarray` "
+    "that correctly transforms any input grid to its corresponding output grid, "
+    "generalising from the provided training examples.\n\n"
+    "REASONING PROTOCOL (follow strictly):\n"
+    "1. OBSERVE: Study each training pair carefully. Note grid dimensions, colours, "
+    "   object positions, counts, symmetries.\n"
+    "2. ABSTRACT: Identify what CHANGES between input and output across ALL pairs — "
+    "   not just one. Look for the minimal rule that explains all examples.\n"
+    "3. HYPOTHESISE: Form a concrete transformation hypothesis. Use the analogy "
+    "   engine findings and prior analysis provided below.\n"
+    "4. VERIFY mentally: Does your hypothesis work for EVERY training pair?\n"
+    "5. IMPLEMENT: Write clean numpy code implementing exactly that rule.\n\n"
+    "CORE KNOWLEDGE PRIORS to apply:\n"
+    "  - Objects: contiguous same-coloured regions are meaningful units\n"
+    "  - Topology: enclosed regions, borders, adjacency matter\n"
+    "  - Symmetry: reflection, rotation, translation are common operations\n"
+    "  - Counting: object counts, sizes, and ranks often encode information\n"
+    "  - Geometry: rectangles, lines, diagonals are fundamental shapes\n\n"
+    "IMPLEMENTATION RULES:\n"
+    "  - Function signature: `def solve(grid: np.ndarray) -> np.ndarray:`\n"
+    "  - Import only: numpy (as np), collections, itertools\n"
+    "  - Use scipy only if absolutely necessary (prefer numpy)\n"
+    "  - Handle edge cases (empty grid, no objects, etc.)\n"
+    "  - The function must be self-contained\n\n"
+    "Respond ONLY with a fenced ```python``` code block."
+)
+
+_ARC_PLANNER_CONTENT = (
+    "You are the Planner module of I.S.A.A.C. solving an ARC-AGI task. "
+    "You have been given structured observations from the Explorer node including "
+    "prior analysis (objects, topology, symmetry) and analogy engine findings "
+    "(cross-pair transformation hypotheses).\n\n"
+    "Your job: decompose the synthesis task into concrete steps that the Synthesis "
+    "node can implement. Each step must be actionable and testable.\n\n"
+    "For ARC tasks, typical plan structures are:\n"
+    "  1. Single step: 'Apply transformation X' (if analogy found a clear rule)\n"
+    "  2. Two steps: 'Extract objects → Apply rule per object'\n"
+    "  3. Three steps: 'Analyse structure → Compute mapping → Apply mapping'\n\n"
+    "IMPORTANT: Keep plans minimal. One well-chosen step beats three vague steps. "
+    "Respond ONLY with valid JSON matching the requested schema."
+)
+
+
+def arc_synthesis_prompt(
+    task_description: str,
+    training_examples: list[dict],
+    analogy_context: str,
+    prior_observations: list[str],
+    failed_attempts: list[str] | None = None,
+) -> list["BaseMessage"]:
+    """Build an ARC-specific synthesis prompt with chain-of-thought structure.
+
+    Parameters
+    ----------
+    task_description:
+        High-level task description or hypothesis.
+    training_examples:
+        List of dicts with 'input_str' and 'output_str' (formatted grids).
+    analogy_context:
+        Output of ``format_analogy_for_prompt()``.
+    prior_observations:
+        Output of ``describe_prior_analysis()``.
+    failed_attempts:
+        Previously tried solve() functions that failed (for refinement).
+    """
+    examples_text = "\n".join(
+        f"### Training Example {i + 1}\nInput:\n{ex.get('input_str', '')}\n"
+        f"Output:\n{ex.get('output_str', '')}\n"
+        for i, ex in enumerate(training_examples)
+    )
+
+    prior_text = "\n".join(f"  {obs}" for obs in (prior_observations or []))
+
+    failed_text = ""
+    if failed_attempts:
+        failed_text = (
+            "\n## Previously attempted solutions (FAILED on training data — do NOT repeat):\n"
+            + "\n---\n".join(f"```python\n{a}\n```" for a in failed_attempts[-2:])
+            + "\n"
+        )
+
+    content = (
+        f"## Task hypothesis\n{task_description}\n\n"
+        f"## Training examples\n{examples_text}\n"
+        f"## Prior analysis (core knowledge)\n{prior_text}\n\n"
+        f"{analogy_context}\n"
+        f"{failed_text}"
+        "## Your task\n"
+        "Write the `solve(grid)` function that implements the transformation.\n"
+        "Think step by step: What is the rule? How does it generalise?\n"
+        "Then implement it in a fenced ```python``` code block."
+    )
+
+    return [_sys(_ARC_SYNTHESIS_CONTENT), HumanMessage(content=content)]
+
+
+def arc_planner_prompt(
+    world_model: "WorldModel",
+    hypothesis: str,
+    analogy_context: str,
+    errors: list["ErrorEntry"],
+    available_skills: list[str],
+) -> list["BaseMessage"]:
+    """Build an ARC-specific planner prompt with analogy context."""
+    error_summaries = [
+        {"node": e.node, "message": e.message[:200], "attempt": e.attempt}
+        for e in errors
+    ]
+
+    return [
+        _sys(_ARC_PLANNER_CONTENT),
+        HumanMessage(
+            content=(
+                f"## Task hypothesis\n{hypothesis}\n\n"
+                f"## World model observations\n"
+                f"{json.dumps(world_model.observations[:20])}\n\n"
+                f"{analogy_context}\n\n"
+                f"## Past errors\n{json.dumps(error_summaries)}\n\n"
+                f"## Available skills\n{json.dumps(available_skills)}\n\n"
+                "Respond with JSON:\n"
+                '{"steps": [{"id": "s1", "description": "...", '
+                '"mode": "code", "depends_on": []}]}'
+            )
+        ),
+    ]

@@ -240,7 +240,8 @@ class TestApplyProgram:
 
 class TestPrimitivesRegistry:
     def test_all_registered(self) -> None:
-        expected = {
+        # Original core primitives must all be present
+        core = {
             "identity", "rotate_90", "rotate_180", "rotate_270",
             "flip_horizontal", "flip_vertical", "transpose",
             "shift_right", "shift_left", "shift_down", "shift_up",
@@ -248,4 +249,7 @@ class TestPrimitivesRegistry:
             "pad_grid", "tile_grid", "scale_up",
             "gravity_down", "gravity_left", "hollow_rectangle",
         }
-        assert expected == set(PRIMITIVES.keys())
+        registered = set(PRIMITIVES.keys())
+        assert core.issubset(registered), f"Missing core primitives: {core - registered}"
+        # Extended DSL must have at least 50 primitives total
+        assert len(registered) >= 50, f"Expected >= 50 primitives, got {len(registered)}"

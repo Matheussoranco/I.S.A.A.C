@@ -1,13 +1,18 @@
 """Explorer Node — active exploration for ARC-AGI and general tasks.
 
-The Explorer performs systematic experimentation on ARC grids:
-- Applies DSL primitives to training inputs and observes results.
-- Extracts structural features, object decompositions, and symmetries.
-- Records observations in the semantic memory as facts.
-- Generates hypotheses for the Planner to refine.
+For **ARC tasks** the Explorer runs a full prior + analogy analysis pipeline:
+  1. Core-knowledge prior analysis (objectness, topology, geometry, counting)
+  2. Analogy engine (cross-pair delta extraction → transformation hypotheses)
+  3. DSL primitive scan (quick single-primitive match)
+  4. Hypothesis ranking and summary for the Planner
 
-For non-ARC tasks it acts as a research node that probes the environment
-using the tool registry (web search, file reads, etc.) to gather context.
+For **general tasks** the Explorer uses the tool registry (web search, file
+reads) to gather context before planning.
+
+The Explorer deliberately does NOT call the LLM — it is a pure symbolic
+pre-processing stage that feeds high-quality structured observations to the
+Planner and Synthesis nodes, reducing their LLM token budget and improving
+accuracy.
 """
 
 from __future__ import annotations
@@ -23,31 +28,26 @@ logger = logging.getLogger(__name__)
 
 
 def explorer_node(state: IsaacState) -> dict[str, Any]:
-    """LangGraph node: explore the problem space before planning.
-
-    If the task contains ARC grids, run structural analysis and DSL
-    experiments.  Otherwise, use tools to gather context.
-    """
+    """LangGraph node: explore the problem space before planning."""
     world_model: WorldModel = state.get("world_model", WorldModel())
     observations = list(world_model.observations)
     hypothesis = state.get("hypothesis", "")
 
-    # Detect ARC task by checking for grid data
     arc_grids = _extract_arc_grids(state)
 
     if arc_grids:
-        new_obs, new_hyp = _explore_arc(arc_grids)
+        new_obs, new_hyp, analogy_context = _explore_arc(arc_grids)
         observations.extend(new_obs)
         if new_hyp and not hypothesis:
             hypothesis = new_hyp
+        # Store analogy context in resources for Synthesis/Planner
+        world_model.resources["_analogy_context"] = analogy_context
+        world_model.resources["_arc_task"] = True
     else:
         new_obs = _explore_general(state)
         observations.extend(new_obs)
 
-    # Store facts in semantic memory
     _store_exploration_facts(observations)
-
-    # Update world model
     world_model.observations = observations
 
     return {
@@ -58,108 +58,130 @@ def explorer_node(state: IsaacState) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# ARC exploration
+# ARC exploration — full prior + analogy pipeline
 # ---------------------------------------------------------------------------
 
 
 def _extract_arc_grids(state: IsaacState) -> list[dict[str, Any]]:
-    """Look for ARC grid data in the world model or messages."""
-    grids: list[dict[str, Any]] = []
-
     world_model = state.get("world_model", WorldModel())
     resources = world_model.resources
-
-    # Check if resources contain training pairs
     train_pairs = resources.get("train", [])
     if isinstance(train_pairs, list):
-        for pair in train_pairs:
-            if isinstance(pair, dict) and "input" in pair:
-                grids.append(pair)
-
-    return grids
+        return [p for p in train_pairs if isinstance(p, dict) and "input" in p]
+    return []
 
 
-def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str]:
-    """Apply structural analysis and DSL experiments to ARC grids."""
+def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str, str]:
+    """Run full ARC analysis: priors + analogy engine + DSL scan.
+
+    Returns
+    -------
+    observations:
+        Structured text observations for the world model.
+    hypothesis:
+        Best hypothesis string for the Planner.
+    analogy_context:
+        Formatted analogy report (rich string for LLM prompts).
+    """
     observations: list[str] = []
-    hypotheses: list[str] = []
+    hypothesis = ""
+    analogy_context = ""
 
     try:
-        from isaac.arc.grid_ops import (
-            extract_objects,
-            detect_symmetry,
-            extract_colours,
-        )
-        from isaac.arc.dsl import PRIMITIVES, compose
+        from isaac.arc.grid_ops import analyse_grid, format_grid_for_prompt, grid_diff
+        from isaac.arc.dsl import PRIMITIVES
+        from isaac.arc.priors import full_prior_analysis, describe_prior_analysis
+        from isaac.arc.analogy import run_analogy_engine, format_analogy_for_prompt
     except ImportError as exc:
-        logger.warning("ARC modules not available: %s", exc)
-        return observations, ""
+        logger.warning("ARC modules unavailable: %s", exc)
+        return observations, hypothesis, analogy_context
+
+    # ── 1. Core-knowledge prior analysis (per pair) ─────────────────────
+    observations.append(f"=== ARC Task Analysis ({len(grids)} training pairs) ===")
 
     for i, pair in enumerate(grids):
-        input_grid = np.array(pair["input"])
-        output_grid = np.array(pair.get("output", []))
+        in_grid = np.array(pair["input"], dtype=int)
+        out_grid_raw = pair.get("output", [])
+        prefix = f"[Pair {i}]"
 
-        prefix = f"[Train {i}]"
+        in_analysis = analyse_grid(in_grid)
+        observations.append(
+            f"{prefix} Input {in_grid.shape[0]}x{in_grid.shape[1]}, "
+            f"{in_analysis.n_colours} colours, {len(in_analysis.objects)} objects"
+        )
 
-        # Grid dimensions
-        in_dims = input_grid.shape
-        observations.append(f"{prefix} Input: {in_dims[0]}x{in_dims[1]}")
-        if output_grid.size > 0:
-            out_dims = output_grid.shape
-            observations.append(f"{prefix} Output: {out_dims[0]}x{out_dims[1]}")
+        # Prior analysis on input
+        prior = full_prior_analysis(in_grid)
+        for obs in describe_prior_analysis(prior)[:8]:
+            observations.append(f"  {prefix} {obs}")
 
-            if in_dims == out_dims:
-                observations.append(f"{prefix} Same dimensions → likely in-place transform.")
-            else:
-                observations.append(f"{prefix} Different dimensions → resize/crop/pad suspected.")
-
-        # Colour analysis
-        in_hist = extract_colours(input_grid)
-        observations.append(f"{prefix} Input colours: {dict(in_hist)}")
-        if output_grid.size > 0:
-            out_hist = extract_colours(output_grid)
-            observations.append(f"{prefix} Output colours: {dict(out_hist)}")
-
-            # New colours in output?
-            new_colours = set(out_hist.keys()) - set(in_hist.keys())
-            if new_colours:
-                observations.append(f"{prefix} New colours in output: {new_colours}")
-
-        # Object decomposition
-        objects = extract_objects(input_grid)
-        observations.append(f"{prefix} Found {len(objects)} objects in input.")
-        for obj in objects[:5]:
+        if out_grid_raw:
+            out_grid = np.array(out_grid_raw, dtype=int)
+            out_analysis = analyse_grid(out_grid)
             observations.append(
-                f"  Object {obj.id}: colour={obj.colour}, size={obj.size}, shape={obj.shape}"
+                f"{prefix} Output {out_grid.shape[0]}x{out_grid.shape[1]}, "
+                f"{out_analysis.n_colours} colours, {len(out_analysis.objects)} objects"
             )
 
-        # Symmetry detection
-        symmetry = detect_symmetry(input_grid)
-        if symmetry:
-            observations.append(f"{prefix} Detected symmetry: {symmetry}")
+            diff = grid_diff(in_grid, out_grid)
+            observations.append(
+                f"{prefix} Shape changed: {diff['shape_changed']}, "
+                f"Cells changed: {diff['n_changed_cells']}, "
+                f"Colours added: {diff['colour_changes']['added']}, "
+                f"removed: {diff['colour_changes']['removed']}"
+            )
 
-        # DSL primitive testing  — try each primitive and check if it matches output
-        if output_grid.size > 0:
-            for name, fn in list(PRIMITIVES.items())[:20]:
-                try:
-                    result = fn(input_grid)
-                    if isinstance(result, np.ndarray) and result.shape == output_grid.shape:
-                        if np.array_equal(result, output_grid):
-                            observations.append(
-                                f"{prefix} ✓ Primitive '{name}' produces exact match!"
-                            )
-                            hypotheses.append(
-                                f"Transformation = {name} (single primitive)."
-                            )
-                except Exception:
-                    continue
+            # Quick single-primitive scan on first pair only
+            if i == 0:
+                for name, fn in list(PRIMITIVES.items())[:30]:
+                    try:
+                        result = fn(in_grid)
+                        if isinstance(result, np.ndarray) and result.shape == out_grid.shape:
+                            if np.array_equal(result, out_grid):
+                                observations.append(
+                                    f"  {prefix} EXACT MATCH with primitive '{name}'"
+                                )
+                                hypothesis = f"Single primitive '{name}' solves this task."
+                    except Exception:
+                        continue
 
-    # Synthesise hypothesis from observations
-    combined_hyp = " ".join(hypotheses) if hypotheses else ""
-    if not combined_hyp and observations:
-        combined_hyp = "Need LLM inspection — no single primitive matched all pairs."
+    # ── 2. Analogy engine (cross-pair) ───────────────────────────────────
+    try:
+        analogy_result = run_analogy_engine(grids)
+        analogy_context = format_analogy_for_prompt(analogy_result)
 
-    return observations, combined_hyp
+        if analogy_result.consistent_observations:
+            observations.append("\n[Analogy] Consistent across ALL pairs:")
+            for obs in analogy_result.consistent_observations[:5]:
+                observations.append(f"  - {obs}")
+
+        if analogy_result.hypotheses and not hypothesis:
+            top_hyp = analogy_result.hypotheses[0]
+            hypothesis = (
+                f"{top_hyp.name}: {top_hyp.description} "
+                f"(confidence: {top_hyp.confidence:.0%})"
+            )
+            observations.append(
+                f"\n[Analogy] Top hypothesis: {hypothesis}"
+            )
+
+        if len(analogy_result.hypotheses) > 1:
+            observations.append("[Analogy] Other candidates:")
+            for h in analogy_result.hypotheses[1:5]:
+                observations.append(f"  - [{h.confidence:.0%}] {h.name}: {h.description}")
+
+    except Exception as exc:
+        logger.warning("Analogy engine failed: %s", exc)
+
+    # ── 3. Fallback hypothesis ───────────────────────────────────────────
+    if not hypothesis:
+        hypothesis = (
+            "No single primitive matched. Requires composite transformation or "
+            "object-level reasoning. Use LLM-guided code synthesis with the "
+            "prior analysis and analogy context provided."
+        )
+
+    return observations, hypothesis, analogy_context
 
 
 # ---------------------------------------------------------------------------
@@ -168,14 +190,11 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str]:
 
 
 def _explore_general(state: IsaacState) -> list[str]:
-    """Use tools to gather context about a non-ARC task."""
     observations: list[str] = []
-
     messages = state.get("messages", [])
     if not messages:
         return observations
 
-    # Extract the latest user message for probing
     user_text = ""
     for msg in reversed(messages):
         if hasattr(msg, "type") and msg.type == "human":
@@ -185,7 +204,6 @@ def _explore_general(state: IsaacState) -> list[str]:
     if not user_text:
         return observations
 
-    # Attempt a web search for background context
     try:
         from isaac.tools.base import get_tool_registry
         import asyncio
@@ -193,7 +211,6 @@ def _explore_general(state: IsaacState) -> list[str]:
         registry = get_tool_registry()
         search_tool = registry.get("web_search")
         if search_tool is not None:
-            # Formulate a concise search query from the user text
             query = user_text[:100]
             try:
                 loop = asyncio.get_event_loop()
@@ -209,9 +226,7 @@ def _explore_general(state: IsaacState) -> list[str]:
                         search_tool.execute(query=query, max_results=3)
                     )
             except RuntimeError:
-                result = asyncio.run(
-                    search_tool.execute(query=query, max_results=3)
-                )
+                result = asyncio.run(search_tool.execute(query=query, max_results=3))
 
             if result.success and result.output:
                 observations.append(f"Web search results for '{query[:50]}':")
@@ -228,13 +243,11 @@ def _explore_general(state: IsaacState) -> list[str]:
 
 
 def _store_exploration_facts(observations: list[str]) -> None:
-    """Store exploration observations as facts in semantic memory."""
     try:
         from isaac.memory.manager import get_memory_manager
-
         mm = get_memory_manager()
-        for obs in observations[:20]:  # limit to avoid flooding
-            if len(obs) > 10:  # skip trivial entries
+        for obs in observations[:20]:
+            if len(obs) > 10:
                 mm.store_fact(
                     subject="exploration",
                     predicate="observed",
