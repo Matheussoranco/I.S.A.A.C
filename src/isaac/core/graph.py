@@ -119,19 +119,23 @@ def build_graph() -> Any:
     """
     graph = StateGraph(IsaacState)
 
-    # Register nodes
-    graph.add_node(_GUARD, guard_node)
-    graph.add_node(_PERCEPTION, perception_node)
-    graph.add_node(_EXPLORER, explorer_node)
-    graph.add_node(_PLANNER, planner_node)
-    graph.add_node(_SYNTHESIS, synthesis_node)
-    graph.add_node(_SANDBOX, sandbox_node)
-    graph.add_node(_COMPUTER_USE, computer_use_node)
-    graph.add_node(_REFLECTION, reflection_node)
-    graph.add_node(_SKILL_ABSTRACTION, skill_abstraction_node)
-    graph.add_node(_CONNECTOR_EXEC, connector_execution_node)
-    graph.add_node(_DIRECT_RESPONSE, direct_response_node)
-    graph.add_node(_AWAIT_APPROVAL, await_approval_node)
+    # Wrap each node with the telemetry decorator so per-node duration /
+    # success metrics flow into the self-improvement engine.
+    from isaac.core.telemetry import track_node
+
+    # Register nodes (telemetry-wrapped)
+    graph.add_node(_GUARD, track_node(_GUARD)(guard_node))
+    graph.add_node(_PERCEPTION, track_node(_PERCEPTION)(perception_node))
+    graph.add_node(_EXPLORER, track_node(_EXPLORER)(explorer_node))
+    graph.add_node(_PLANNER, track_node(_PLANNER)(planner_node))
+    graph.add_node(_SYNTHESIS, track_node(_SYNTHESIS)(synthesis_node))
+    graph.add_node(_SANDBOX, track_node(_SANDBOX)(sandbox_node))
+    graph.add_node(_COMPUTER_USE, track_node(_COMPUTER_USE)(computer_use_node))
+    graph.add_node(_REFLECTION, track_node(_REFLECTION)(reflection_node))
+    graph.add_node(_SKILL_ABSTRACTION, track_node(_SKILL_ABSTRACTION)(skill_abstraction_node))
+    graph.add_node(_CONNECTOR_EXEC, track_node(_CONNECTOR_EXEC)(connector_execution_node))
+    graph.add_node(_DIRECT_RESPONSE, track_node(_DIRECT_RESPONSE)(direct_response_node))
+    graph.add_node(_AWAIT_APPROVAL, track_node(_AWAIT_APPROVAL)(await_approval_node))
 
     # Entry: Guard → {Perception | END} → {DirectResponse | Explorer}
     graph.set_entry_point(_GUARD)

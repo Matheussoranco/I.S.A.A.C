@@ -45,13 +45,84 @@ First public beta release.
 
 ---
 
+## [0.3.0] — 2026-04-18
+
+Multimodal & self-improving release.
+
+### LLM stack
+- **First-class local providers**: new `src/isaac/llm/providers/` package
+  with dedicated builders for `ollama`, `llamacpp`, `openai_compat`,
+  `openai`, `anthropic`.  No more base-URL workarounds.
+- **Multimodal router** (`llm/multimodal_router.py`): routes by
+  `(modality × complexity)` with cached health checks and graceful fallback
+  chains.  Vision and text routes are independently configured.
+- **Default provider** flipped from `openai` to `ollama` — the agent now
+  ships local-first out of the box.
+
+### Multimodal
+- **Voice subsystem** (`multimodal/voice/`):
+  - `stt.py` — Whisper backend (faster-whisper preferred, openai-whisper
+    fallback) with auto language detection.
+  - `tts.py` — Piper / Coqui / pyttsx3 auto-selection.
+  - `audio_io.py` — mic capture, VAD-based recording, speaker playback.
+- **Vision subsystem** (`multimodal/vision/`):
+  - `vision_lm.py` — image+text VLM wrapper (defaults to local
+    `llava`/`qwen2.5-vl` via Ollama).
+  - `screen_capture.py` — `mss` / Pillow screen grab → base64 PNG.
+- **Unified input** (`multimodal/input.py`) — combines text, images, audio,
+  and screenshots into a single `HumanMessage` for the cognitive graph.
+- **Voice REPL** (`interfaces/voice_repl.py`) — hands-free or push-to-talk
+  conversational loop with ASCII level meter.
+
+### Self-improvement engine
+- New `src/isaac/improvement/` package:
+  - `performance.py` — SQLite-backed per-node + per-skill telemetry store.
+  - `skill_curation.py` — promote / deprecate / quarantine skills based
+    on success-rate × run-count thresholds.
+  - `prompt_evolution.py` — A/B test prompt variants via epsilon-greedy
+    selection with per-variant Elo-style scoring.
+  - `self_critique.py` — strong-tier LLM reviews the metrics dataset and
+    produces an actionable improvement note.
+  - `engine.py` — orchestrator running curation → critique → prune in one
+    pass.
+- New `core/telemetry.py` — `track_node` / `track_skill` decorators wired
+  into `build_graph()` so every node feeds the tracker automatically.
+- New scheduler job `improvement_job` runs the cycle every
+  `ISAAC_IMPROVEMENT_INTERVAL_MINUTES` when
+  `ISAAC_IMPROVEMENT_ENABLED=true`.
+
+### CLI
+- `isaac voice [--hands-free]` — voice REPL.
+- `isaac vision <image> [--prompt ...]` — ask the local VLM about an image.
+- `isaac improve [--report]` — run one self-improvement cycle on demand.
+- `isaac models` — list providers + Ollama health/installed models.
+
+### Configuration
+- New env vars (see `.env.example`):
+  - LLM provider stack: `ISAAC_LLAMACPP_*`, `ISAAC_OPENAI_COMPAT_*`,
+    `ISAAC_LOCAL_FIRST`.
+  - Vision: `ISAAC_VISION_ENABLED`, `ISAAC_VISION_MODEL`,
+    `ISAAC_VISION_STRONG_MODEL`.
+  - Voice: `ISAAC_VOICE_*` (device, STT model, language, compute type,
+    TTS voice/rate/sample rate).
+  - Self-improvement: `ISAAC_IMPROVEMENT_*` (enable, interval, promote
+    /deprecate thresholds).
+- New optional install extras: `vision`, `voice`, `multimodal`.
+
+### Misc
+- `Dockerfile` and `docker-compose.yml` unchanged — multimodal extras
+  are opt-in.
+- README and SETUP rewritten around the multimodal / self-improving story.
+
+---
+
 ## [Unreleased]
 
-### Planned for 0.2.0
-- First-class Ollama provider in `llm/provider.py` (no base-URL workaround)
-- Google Gemini and Mistral provider support
-- ARC-AGI LLM-guided DSL synthesis (beyond depth-2 brute force)
+### Planned for 0.4.0
+- Gemini and Mistral cloud providers via the new provider registry
+- Streaming TTS (sentence-boundary playback during long replies)
 - Web UI dashboard (FastAPI + WebSocket streaming)
 - Multi-agent collaboration via shared skill library
 
 [0.1.0]: https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v0.1.0
+[0.3.0]: https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v0.3.0

@@ -251,6 +251,96 @@ if typer is not None:
             typer.echo(f"  [{avail}] {name:15s}  env={env:30s}  {connector.description[:50]}")
 
     @app.command()
+    def voice(
+        hands_free: bool = typer.Option(False, "--hands-free", "-f", help="Continuous listening mode."),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Start the conversational voice REPL (mic ↔ STT ↔ agent ↔ TTS ↔ speaker)."""
+        _setup_logging(verbose)
+        try:
+            from isaac.tools import register_all_tools
+            register_all_tools()
+        except Exception:
+            pass
+        from isaac.interfaces.voice_repl import run_voice_repl
+
+        code = run_voice_repl(hands_free=hands_free)
+        raise typer.Exit(code)
+
+    @app.command()
+    def vision(
+        image: str = typer.Argument(..., help="Path or URL of the image to analyse."),
+        prompt: str = typer.Option(
+            "Describe this image in detail.",
+            "--prompt", "-p",
+            help="Question to ask about the image.",
+        ),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Ask the local vision-language model a question about an image."""
+        _setup_logging(verbose)
+        from isaac.multimodal.vision.vision_lm import get_vision_lm
+
+        try:
+            answer = get_vision_lm().ask(prompt, image)
+        except Exception as exc:
+            typer.echo(f"Vision call failed: {exc}", err=True)
+            raise typer.Exit(1)
+        typer.echo(answer)
+
+    @app.command()
+    def improve(
+        report: bool = typer.Option(False, "--report", "-r", help="Print the last critique report."),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Run one self-improvement cycle (curation + critique + telemetry prune)."""
+        _setup_logging(verbose)
+        from isaac.improvement import run_improvement_cycle
+
+        result = run_improvement_cycle()
+        promoted = sum(1 for d in result.curation_decisions if d.get("action") == "promote")
+        deprecated = sum(1 for d in result.curation_decisions if d.get("action") == "deprecate")
+        typer.echo(
+            f"Improvement cycle complete in {result.finished_at - result.started_at:.1f}s — "
+            f"promoted={promoted}, deprecated={deprecated}, pruned_rows={result.pruned_rows}"
+        )
+        if result.critique_summary:
+            typer.echo(f"\nCritique: {result.critique_summary}")
+        if result.critique_action:
+            typer.echo(f"Suggested action: {result.critique_action}")
+        if result.errors:
+            typer.echo(f"\nErrors during cycle: {result.errors}")
+        if report and result.curation_decisions:
+            typer.echo("\nCuration decisions:")
+            for d in result.curation_decisions:
+                typer.echo(
+                    f"  - {d['action']:10s} {d['skill_name']}  "
+                    f"(runs={d['runs']}, sr={d['success_rate']:.2f})"
+                )
+
+    @app.command()
+    def models() -> None:
+        """List available providers and detect locally-installed models."""
+        _setup_logging()
+        from isaac.config.settings import settings
+        from isaac.llm.providers import LOCAL_PROVIDERS, PROVIDERS
+        from isaac.llm.providers.ollama import health_check, list_models as list_ollama_models
+
+        typer.echo("Registered providers:")
+        for name in sorted(PROVIDERS):
+            tag = "local" if name in LOCAL_PROVIDERS else "cloud"
+            typer.echo(f"  - {name:15s} [{tag}]")
+
+        typer.echo("\nOllama:")
+        if health_check(settings.ollama_base_url):
+            tags = list_ollama_models(settings.ollama_base_url)
+            typer.echo(f"  reachable at {settings.ollama_base_url}")
+            for t in tags:
+                typer.echo(f"    - {t}")
+        else:
+            typer.echo(f"  not reachable at {settings.ollama_base_url}")
+
+    @app.command()
     def tokens(
         action: str = typer.Argument("list", help="Action: list, issue, revoke, cleanup."),
         tool_name: str = typer.Option("*", "--tool", help="Tool name for issue/revoke."),
