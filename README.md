@@ -3,96 +3,139 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.1.0--beta-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-0.3.0--beta-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v0.3.0)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
-A neuro-symbolic autonomous agent built on [LangGraph](https://github.com/langchain-ai/langgraph) with Docker-sandboxed execution, a cumulative Skill Library, and a full security stack for ARC-AGI program synthesis and general-purpose autonomy.
+A **multimodal, self-improving, local-first** autonomous agent built on
+[LangGraph](https://github.com/langchain-ai/langgraph) — Docker-sandboxed
+execution, voice + vision input, a cumulative Skill Library, telemetry-driven
+self-curation, and a hardened security stack.
 
 ---
 
-## Architecture Overview
-I.S.A.A.C. models reasoning as an explicit cyclic state graph — not generic while-loops. Ten cognitive nodes operate on a strict `TypedDict` state contract:
+## Highlights
+
+| Capability | What it does |
+|---|---|
+| **Local-first LLMs** | First-class Ollama, llama.cpp, and any OpenAI-compatible endpoint. Cloud (OpenAI/Anthropic) only as fallback. |
+| **Voice I/O** | Whisper (STT) ↔ Piper / Coqui / pyttsx3 (TTS) with VAD-driven hands-free mode. |
+| **Vision** | Local VLMs via Ollama (`llava`, `qwen2.5-vl`). Image / screen-capture input. |
+| **Self-improving** | Per-node telemetry, A/B prompt evolution, skill auto-curation, periodic self-critique. |
+| **Sandboxed code** | Ephemeral Docker containers, no network, dropped capabilities, seccomp profile. |
+| **5-layer memory** | Long-term (SQLite FTS5), Episodic (ChromaDB), Semantic (KG), Procedural (skills), WorldModel KG. |
+| **Connectors** | GitHub, IMAP/SMTP, CalDAV, Obsidian, web fetch/search, allowlisted shell. |
+
+## Architecture
+
+I.S.A.A.C. models reasoning as an explicit cyclic state graph — not generic
+while-loops.  Cognitive nodes operate on a strict `TypedDict` state contract.
 
 ```
-START ─► Guard ─► Perception ─► Explorer ─► Planner ─► Synthesis
-                                                          │
-                    ┌────── Skill Abstraction ◄────┐      ▼
-                    │             │                 │   Sandbox / ComputerUse
-                    ▼             ▼                 │      │
-                 Planner        END            Reflection ◄┘
-                                                   │
-                                              AwaitApproval
+START ─► Guard ─► Perception ─► (DirectResponse | Explorer)
+                                       │
+                                       ▼
+                                    Planner
+                                       │
+                              ConnectorExecution
+                                       │
+                                    Synthesis
+                                       │
+                ┌──────────────────────┴──────────────────────┐
+                │ mode=ui                  │ mode=code/hybrid │
+                ▼                          ▼                  │
+          ComputerUse                   Sandbox               │
+                └──────────────┬───────────┘                  │
+                               ▼                              │
+                          Reflection                          │
+                               │                              │
+            ┌──────────────────┼─────────────────────┐        │
+            ▼                  ▼                     ▼        │
+     SkillAbstraction      Planner                  END       │
+                                                              │
+                  AwaitApproval (inserted dynamically) ◄──────┘
 ```
 
 | Node | Responsibility |
 |---|---|
-| **Guard** | Detect prompt injection and sanitize input before processing |
-| **Perception** | Parse input, extract observations, build initial hypothesis |
-| **Explorer** | Active exploration — ARC structural analysis + web search |
-| **Planner** | Decompose task into a dependency-aware DAG (Graph-of-Thought) |
-| **Synthesis** | Generate pure Python code (CodeAgent — no JSON tool calls) |
-| **Sandbox** | Execute code in ephemeral Docker container (zero host access) |
-| **ComputerUse** | GUI automation via virtual desktop (Xvfb + Playwright) |
-| **Reflection** | Analyse results, attempt refinement loop, or escalate to Planner |
-| **Skill Abstraction** | Generalise successful code into reusable library entries |
-| **AwaitApproval** | Pause for human approval on high-risk tool invocations |
+| **Guard** | Detect prompt injection and sanitize input |
+| **Perception** | Parse text + image + audio, build hypothesis, set task mode |
+| **DirectResponse** | Fast-path for greetings / Q&A — skips planning entirely |
+| **Explorer** | Active exploration (ARC structural + web search) |
+| **Planner** | Decompose into a dependency-aware DAG (Graph-of-Thought) |
+| **ConnectorExecution** | Host-side connector dispatch (web, email, fs, ...) |
+| **Synthesis** | Generate pure Python (CodeAgent — no JSON tool calls) |
+| **Sandbox** | Run code in ephemeral Docker (no network, no caps) |
+| **ComputerUse** | GUI automation in virtual desktop (Xvfb + Playwright) |
+| **Reflection** | Analyse, refine, or escalate to Planner |
+| **SkillAbstraction** | Generalise successful code into reusable Library entries |
+| **AwaitApproval** | Pause for human approval on high-risk tools |
+
+### Multimodal subsystem (new in 0.3.0)
+
+```
+src/isaac/multimodal/
+├── voice/
+│   ├── stt.py            ← Whisper (faster-whisper / openai-whisper)
+│   ├── tts.py            ← Piper / Coqui / pyttsx3 auto-selection
+│   └── audio_io.py       ← Mic capture, VAD, playback
+├── vision/
+│   ├── vision_lm.py      ← Image+text VLM wrapper
+│   └── screen_capture.py ← mss / PIL.ImageGrab
+└── input.py              ← Unified text + image + audio → HumanMessage
+```
+
+### Self-improvement engine (new in 0.3.0)
+
+```
+src/isaac/improvement/
+├── performance.py     ← SQLite-backed per-node + per-skill telemetry
+├── skill_curation.py  ← promote / deprecate / quarantine skills
+├── prompt_evolution.py ← A/B test prompt variants (epsilon-greedy)
+├── self_critique.py   ← LLM-driven meta-reflection
+└── engine.py          ← Orchestrator + scheduler hook
+```
+
+Every cognitive node is wrapped in a telemetry decorator (`core/telemetry.py`)
+so per-run duration / success / error patterns flow into the tracker
+**for free** — no node code changes required.
+
+### LLM provider stack (refactored in 0.3.0)
+
+```
+src/isaac/llm/
+├── providers/
+│   ├── ollama.py        ← first-class local
+│   ├── llamacpp.py      ← local llama.cpp HTTP
+│   ├── openai_compat.py ← LM Studio, vLLM, LiteLLM, ...
+│   ├── openai.py        ← cloud
+│   └── anthropic.py     ← cloud
+├── multimodal_router.py ← (modality × complexity) routing with health checks
+└── router.py            ← legacy complexity router (kept for compat)
+```
 
 ## Core Design Principles
 
-- **Execution Isolation**: All environment interactions run in ephemeral, unprivileged Docker containers (`--network=none`, `--cap-drop=ALL`, `--read-only`, seccomp profile).
-- **CodeAgent Paradigm**: The LLM generates pure Python — no JSON/XML tool calling. Code is injected into the sandbox, never executed on the host.
-- **Ollama-First LLM Routing**: Prefers local Ollama models for privacy and speed. Falls back to OpenAI/Anthropic only when necessary.
-- **Neuro-Symbolic Reasoning**: Structured state schema separates perception from representation. The `WorldModel` carries symbolic observations via a knowledge graph.
-- **Five-Layer Memory**: Episodic (session experiences), Semantic (fact store with transitive inference), WorldModel KG (NetworkX DiGraph), Skill Library (versioned procedural store), and a unified ContextManager for cross-layer recall.
-- **Cumulative Learning**: A persistent Skill Library stores generalised programs. The agent composes existing skills to solve novel tasks, reducing LLM calls over time.
-- **Security-First**: Hash-chained audit log, capability tokens, prompt injection guard, I/O sanitization, seccomp sandboxing.
-- **ARC-AGI Foundations**: Perception/representation separation + compositional Skill Library enable program synthesis for geometric/logical puzzles.
-
-## Project Structure
-
-```
-I.S.A.A.C/
-├── src/isaac/                  # Main package
-│   ├── core/                   # State schema, graph builder, transitions
-│   ├── nodes/                  # 10 cognitive graph nodes + refinement helper
-│   │   ├── guard.py            # Prompt injection detection
-│   │   ├── perception.py       # Input parsing, world model construction
-│   │   ├── explorer.py         # Active exploration (ARC structural + web search)
-│   │   ├── planner.py          # Task decomposition dispatcher
-│   │   ├── got_planner.py      # Graph-of-Thought DAG plan builder
-│   │   ├── synthesis.py        # Pure-Python code generation
-│   │   ├── sandbox.py          # Docker code execution node
-│   │   ├── computer_use.py     # GUI automation via virtual desktop
-│   │   ├── reflection.py       # Result analysis + refinement loop dispatch
-│   │   ├── refinement.py       # Synthesis→Sandbox tight inner loop (called by Reflection)
-│   │   ├── skill_abstraction.py # Generalise code into Skill Library
-│   │   └── approval.py         # Human approval workflow
-│   ├── memory/                 # Five-layer memory system
-│   │   ├── episodic.py         # Session experiences ring buffer
-│   │   ├── semantic.py         # Fact store with transitive inference
-│   │   ├── world_model_kg.py   # NetworkX knowledge graph (DiGraph)
-│   │   ├── skill_library.py    # Versioned procedural skill store
-│   │   ├── context_manager.py  # Unified recall across all layers
-│   │   └── manager.py         # MemoryManager singleton facade
-│   ├── sandbox/                # Docker security, manager, code executor
-│   ├── llm/                    # Provider factory, LLM router, prompt templates
-│   ├── tools/                  # Secure tool ecosystem (browser, file, search, email, calendar, code)
-│   ├── interfaces/             # Telegram gateway
-│   ├── scheduler/              # APScheduler heartbeat + background jobs
-│   ├── security/               # Audit log, capability tokens, sanitizer
-│   ├── config/                 # Pydantic settings (env-driven)
-│   ├── arc/                    # ARC-AGI DSL, grid ops, evaluator
-│   └── cli.py                  # Typer CLI entry point
-├── sandbox_image/              # Dockerfile for code execution sandbox
-├── sandbox_image_ui/           # Dockerfile for virtual desktop sandbox
-├── skills/                     # Persistent skill library (JSON + .py)
-├── tests/                      # Full test suite with mocked LLM/Docker
-├── docker-compose.yml          # Full-stack deployment
-├── Dockerfile                  # Agent container image
-├── pyproject.toml              # PEP 621 metadata + tooling config
-└── requirements.txt            # Flat dependency list
-```
+- **Local-first** — every default points at a local backend. Cloud APIs are
+  optional fallbacks, never required.
+- **Modality-aware routing** — text, vision, and audio each get their own
+  routing table; the router picks the best healthy backend per request.
+- **Self-improving** — the agent measures itself and acts on the data:
+  weak skills get deprecated, good prompt variants get more traffic.
+- **Execution Isolation** — all environment interactions in ephemeral
+  unprivileged Docker containers (`--network=none`, `--cap-drop=ALL`,
+  `--read-only`, seccomp profile).
+- **CodeAgent Paradigm** — the LLM generates pure Python; no JSON/XML tool
+  calling. Code is injected into the sandbox, never executed on host.
+- **Neuro-Symbolic Reasoning** — structured state schema separates perception
+  from representation. The `WorldModel` carries symbolic observations via
+  a knowledge graph.
+- **Five-Layer Memory** — Episodic, Semantic, WorldModelKG, SkillLibrary,
+  unified ContextManager.
+- **Cumulative Learning** — persistent Skill Library composes existing
+  skills to solve novel tasks, reducing LLM calls over time.
+- **Security-First** — hash-chained audit log, capability tokens, prompt
+  injection guard, I/O sanitization, seccomp sandboxing.
 
 ## Quick Start
 
@@ -100,76 +143,69 @@ I.S.A.A.C/
 
 - Python ≥ 3.10
 - Docker Engine running
-- An API key for OpenAI or Anthropic (optional — Ollama works offline)
 - [Ollama](https://ollama.ai/) (recommended for local inference)
+- *Optional:* faster-whisper + Piper for voice; mss + Pillow for vision
 
 ### Setup
 
 ```bash
-# Clone
 git clone https://github.com/Matheussoranco/I.S.A.A.C.git
 cd I.S.A.A.C
 
-# Virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
+source .venv/bin/activate           # Linux/macOS
+# .venv\Scripts\activate            # Windows
 
-# Install
+# Core install
 pip install -e ".[dev]"
+
+# Add multimodal extras (vision + voice)
+pip install -e ".[multimodal]"
 
 # Configure
 cp .env.example .env
-# Edit .env with your API key and model preferences
+# Edit .env — at minimum set ISAAC_OLLAMA_BASE_URL / ISAAC_MODEL_NAME
 
-# Build the sandbox images
+# Build sandbox images
 docker build -t isaac-sandbox:latest sandbox_image/
 docker build -t isaac-ui-sandbox:latest sandbox_image_ui/
+
+# Pull a local model + a VLM
+ollama pull qwen2.5-coder:7b
+ollama pull llava:7b
 ```
 
 ### Run
 
 ```bash
-# Interactive REPL mode
-python -m isaac run
+# Rich text REPL (default)
+isaac run
+
+# Voice REPL — push-to-talk
+isaac voice
+
+# Voice REPL — hands-free (continuous listening + VAD)
+isaac voice --hands-free
+
+# Ask a question about an image
+isaac vision /path/to/screenshot.png --prompt "What's in this UI?"
+
+# Run one self-improvement cycle on demand
+isaac improve
+
+# Print the last critique report alongside the cycle
+isaac improve --report
+
+# List all providers + locally-installed Ollama models
+isaac models
 
 # Telegram bot + heartbeat scheduler
-python -m isaac serve
+isaac serve
 
-# View last N audit entries
-python -m isaac audit --last 20
-
-# Verify audit chain integrity
-python -m isaac audit --verify
-
-# List registered tools
-python -m isaac tools
-
-# Query memory
-python -m isaac memory "search term"
-
-# Manage capability tokens
-python -m isaac tokens list
-python -m isaac tokens issue --tool web_search
-```
-
-### Docker Compose
-
-```bash
-# Build all images
-docker compose build
-
-# Start the agent (with optional Ollama)
-docker compose --profile ollama up -d
-
-# View logs
-docker compose logs -f isaac
-```
-
-### Run Tests
-
-```bash
-pytest
+# Audit / memory / connectors / cron / tokens — see SETUP.md
+isaac audit --last 20
+isaac memory "search term"
+isaac connectors
 ```
 
 ## State Schema
@@ -185,14 +221,13 @@ The `IsaacState` TypedDict flows through all graph nodes:
 | `code_buffer` | `str` | replace | Synthesised Python code |
 | `execution_logs` | `list[ExecutionResult]` | append | Sandbox stdout/stderr/exit |
 | `skill_candidate` | `SkillCandidate \| None` | replace | Code pending library commit |
-| `errors` | `list[ErrorEntry]` | append | Failure stack (prevents loops) |
+| `errors` | `list[ErrorEntry]` | append | Failure stack |
 | `iteration` | `int` | replace | Cycle counter (hard-capped) |
 | `current_phase` | `str` | replace | Active node name |
-| `task_mode` | `TaskMode` | replace | `"code"` \| `"computer_use"` \| `"none"` |
-| `ui_actions` | `list[UIAction]` | append | Pending GUI actions from Synthesis |
-| `ui_results` | `list[UIActionResult]` | append | Screenshot+outcome from ComputerUse |
-| `ui_cycle` | `int` | replace | Screenshot→action loop counter |
-| `pending_approvals` | `list[PendingApproval]` | append | High-risk actions awaiting human sign-off |
+| `task_mode` | `TaskMode` | replace | `"code"` \| `"computer_use"` \| `"hybrid"` |
+| `ui_actions` | `list[UIAction]` | append | Pending GUI actions |
+| `ui_results` | `list[UIActionResult]` | append | Screenshot+outcome |
+| `pending_approvals` | `list[PendingApproval]` | append | High-risk actions awaiting sign-off |
 
 ## Sandbox Security
 

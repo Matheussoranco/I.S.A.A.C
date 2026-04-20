@@ -1,6 +1,6 @@
 # I.S.A.A.C. — Setup Guide
 
-> **Intelligent System for Autonomous Action and Cognition** v0.2.0
+> **Intelligent System for Autonomous Action and Cognition** v0.3.0
 
 ## Prerequisites
 
@@ -8,7 +8,8 @@
 | ----------------- | --------- | ---------------------------------------------- |
 | Python            | ≥ 3.10    | 3.12 recommended                               |
 | Docker            | ≥ 24.0    | For sandboxed code execution                   |
-| Ollama (optional) | ≥ 0.3     | Local LLM — default provider                   |
+| Ollama (recommended) | ≥ 0.3  | Local LLM — default provider                   |
+| Microphone + speakers | any   | Only needed for the voice REPL                 |
 
 ## 1. Clone & Install
 
@@ -21,207 +22,226 @@ python -m venv .venv
 .venv\Scripts\activate     # Windows
 # source .venv/bin/activate  # Linux/macOS
 
-# Install in editable mode with dev dependencies
-pip install -e ".[dev,calendar,browser]"
+# Core install
+pip install -e ".[dev]"
 
-# OR install from requirements.txt
-pip install -r requirements.txt
+# Optional extras
+pip install -e ".[vision]"     # mss + Pillow (screen + image input)
+pip install -e ".[voice]"      # whisper + piper + sounddevice + webrtcvad
+pip install -e ".[multimodal]" # vision + voice combined
+pip install -e ".[browser,calendar]" # connectors
 ```
 
 ## 2. Environment Variables
 
-Copy the example env file and fill in your keys:
+Copy the example env file and edit what you need:
 
 ```bash
 cp .env.example .env
 ```
 
-### Required
+### Required for local-first (default)
 
-| Variable              | Description                              |
+The default install talks to **Ollama** on `http://localhost:11434`.
+The only thing you need to do is pull a model:
+
+```bash
+ollama pull qwen2.5-coder:7b   # text
+ollama pull llava:7b           # vision (optional)
+```
+
+### Optional — Cloud fallbacks
+
+| Variable              | When to set                              |
 | --------------------- | ---------------------------------------- |
-| `OPENAI_API_KEY`      | OpenAI API key (if not using Ollama)     |
-| `ANTHROPIC_API_KEY`   | Anthropic API key (optional fallback)    |
+| `OPENAI_API_KEY`      | Set when using `openai` provider or as fallback |
+| `ANTHROPIC_API_KEY`   | Set when using `anthropic` provider or as fallback |
+| `ISAAC_LLM_FALLBACK_PROVIDER` | `openai` / `anthropic` — used when the primary local backend is down |
+
+### Optional — Voice
+
+| Variable                       | Default                  | Purpose |
+| ------------------------------ | ------------------------ | ------- |
+| `ISAAC_VOICE_ENABLED`          | `true`                   | Master switch |
+| `ISAAC_VOICE_DEVICE`           | `auto`                   | `auto` / `cpu` / `cuda` |
+| `ISAAC_VOICE_STT_MODEL`        | `base`                   | Whisper size: `tiny` / `base` / `small` / `medium` / `large-v3` |
+| `ISAAC_VOICE_STT_LANGUAGE`     | (auto-detect)            | ISO 639-1 (`en`, `pt`, …) |
+| `ISAAC_VOICE_STT_COMPUTE_TYPE` | `int8`                   | faster-whisper compute (`int8` / `float16` / `float32`) |
+| `ISAAC_VOICE_TTS_VOICE`        | `en_US-lessac-medium`    | Piper voice file under `~/.isaac/voices` or `$PIPER_VOICE_DIR` |
+| `ISAAC_VOICE_TTS_RATE`         | `175`                    | Words/min (pyttsx3 only) |
+
+Download a Piper voice (one-time):
+
+```bash
+mkdir -p ~/.isaac/voices
+curl -L -o ~/.isaac/voices/en_US-lessac-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+curl -L -o ~/.isaac/voices/en_US-lessac-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+```
+
+### Optional — Vision
+
+| Variable                  | Default      |
+| ------------------------- | ------------ |
+| `ISAAC_VISION_ENABLED`    | `true`       |
+| `ISAAC_VISION_MODEL`      | `llava:7b`   |
+| `ISAAC_VISION_STRONG_MODEL` | (none)     |
+
+### Optional — Self-improvement
+
+| Variable                              | Default | Purpose |
+| ------------------------------------- | ------- | ------- |
+| `ISAAC_IMPROVEMENT_ENABLED`           | `false` | Auto-run periodic improvement cycles |
+| `ISAAC_IMPROVEMENT_INTERVAL_MINUTES`  | `240`   | Cycle period (10 ≤ x ≤ 10080)        |
+| `ISAAC_IMPROVEMENT_PROMOTE_RUNS`      | `10`    | Min runs before a skill can be promoted |
+| `ISAAC_IMPROVEMENT_PROMOTE_THRESHOLD` | `0.85`  | Success rate required to promote     |
+| `ISAAC_IMPROVEMENT_DEPRECATE_RUNS`    | `8`     | Min runs before a skill can be deprecated |
+| `ISAAC_IMPROVEMENT_DEPRECATE_THRESHOLD` | `0.30` | Success rate below which to deprecate |
 
 ### Optional — Connectors
 
 | Variable               | Connector       | Description                            |
 | ---------------------- | --------------- | -------------------------------------- |
-| `GITHUB_TOKEN`         | GitHub          | Personal access token for GitHub API   |
-| `EMAIL_IMAP_HOST`      | Email           | IMAP server hostname                   |
-| `EMAIL_USER`           | Email           | IMAP login username                    |
-| `EMAIL_PASSWORD`       | Email           | IMAP login password                    |
-| `EMAIL_IMAP_PORT`      | Email           | IMAP port (default: 993)              |
-| `OBSIDIAN_VAULT_PATH`  | Obsidian        | Absolute path to your Obsidian vault   |
-
-### Optional — Customisation
-
-| Variable                         | Default                     | Description                              |
-| -------------------------------- | --------------------------- | ---------------------------------------- |
-| `ISAAC_AGENT_NAME`               | `I.S.A.A.C.`               | Display name                             |
-| `ISAAC_SOUL_PATH`                | (built-in)                  | Path to custom soul JSON file            |
-| `ISAAC_MEMORY_DB_PATH`           | `~/.isaac/long_term_memory.db` | SQLite LTM database path             |
-| `ISAAC_USER_PROFILE_PATH`        | `~/.isaac/user_profile.json`   | User profile JSON path               |
-| `ISAAC_MEMORY_CONSOLIDATION_INTERVAL` | `50`                   | Interactions between memory consolidation |
-| `ISAAC_CRON_POLL_SECONDS`        | `30`                        | Cron daemon poll interval                |
-| `ISAAC_CRON_ENABLED`             | `false`                     | Auto-start cron daemon                   |
+| `ISAAC_GITHUB_TOKEN`   | GitHub          | Personal access token                  |
+| `ISAAC_EMAIL_*`        | Email           | IMAP (inbound) + SMTP (outbound)       |
+| `ISAAC_CALDAV_*`       | Calendar        | CalDAV server                          |
+| `ISAAC_OBSIDIAN_VAULT_PATH` | Obsidian   | Absolute vault path                    |
 
 ## 3. Build Docker Sandbox Images
 
 ```bash
-# Code execution sandbox
 docker build -t isaac-sandbox:latest -f sandbox_image/Dockerfile sandbox_image/
-
-# UI sandbox (optional — for browser/desktop automation)
 docker build -t isaac-ui-sandbox:latest -f sandbox_image_ui/Dockerfile sandbox_image_ui/
 ```
 
-## 4. Start Ollama (if using local LLM)
+## 4. Start Ollama
 
 ```bash
-ollama pull qwen2.5-coder:7b
-ollama serve
+ollama serve   # in one terminal
 ```
 
 ## 5. Run I.S.A.A.C.
 
-### Interactive REPL
+### Text REPL (Rich UI, default)
 
 ```bash
-python -m isaac run
-# or
 isaac run
 ```
 
-### Example Session
-
-```
-I.S.A.A.C. — Intelligent System for Autonomous Action and Cognition
-Type your task below.  Press Ctrl+C to exit.
-
->>> Write a Python function that computes the Fibonacci sequence
-
-[I.S.A.A.C.] Here's a Fibonacci implementation...
-  ─ exit_code: 0
-  ─ stdout: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
-  ─ mode: code  phase: reflection
-
->>> Search the web for the latest Python 3.13 release notes
-
-[I.S.A.A.C.] Based on my web search, Python 3.13 was released on...
-  ─ mode: code  phase: reflection
-```
-
-### Telegram Bot
+### Voice REPL
 
 ```bash
-# Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USERS in .env
+isaac voice                  # push-to-talk
+isaac voice --hands-free     # continuous listening (VAD)
+```
+
+### Vision one-shot
+
+```bash
+isaac vision ~/Pictures/screen.png --prompt "What error is this dialog showing?"
+```
+
+### Self-improvement
+
+```bash
+isaac improve            # one cycle on demand
+isaac improve --report   # cycle + show curation decisions
+```
+
+### Provider / model inspection
+
+```bash
+isaac models             # all providers + ollama install list
+```
+
+### Telegram + scheduler daemon
+
+```bash
 isaac serve
 ```
 
-## 6. CLI Commands
+## 6. CLI reference
 
-| Command                | Description                              |
-| ---------------------- | ---------------------------------------- |
-| `isaac run`            | Start interactive REPL                   |
-| `isaac serve`          | Start Telegram gateway + scheduler       |
-| `isaac audit`          | View audit log                           |
-| `isaac audit --verify` | Verify audit chain integrity             |
-| `isaac memory "query"` | Query the unified memory system          |
-| `isaac tools`          | List registered tools                    |
-| `isaac connectors`     | List connectors and availability         |
-| `isaac cron list`      | List cron tasks                          |
-| `isaac cron add -c "echo hello" -s "*/5 * * * *"` | Add a cron task |
-| `isaac cron start`     | Start the cron daemon                    |
-| `isaac cron stop`      | Stop the cron daemon                     |
-| `isaac cron status`    | Check daemon status                      |
-| `isaac tokens list`    | Manage capability tokens                 |
+| Command                     | Description                                 |
+| --------------------------- | ------------------------------------------- |
+| `isaac run`                 | Rich text REPL                              |
+| `isaac run --classic`       | Plain `print()` REPL                        |
+| `isaac voice [--hands-free]`| Voice REPL                                  |
+| `isaac vision <path>`       | Ask the local VLM about an image            |
+| `isaac improve [--report]`  | Run one self-improvement cycle              |
+| `isaac models`              | List providers + Ollama models              |
+| `isaac serve`               | Telegram gateway + heartbeat scheduler      |
+| `isaac audit [--verify]`    | View / verify the audit chain               |
+| `isaac memory "<query>"`    | Query the unified memory system             |
+| `isaac tools`               | List registered tools                       |
+| `isaac connectors`          | List connectors and availability            |
+| `isaac cron …`              | Manage background cron tasks                |
+| `isaac tokens …`            | Manage capability tokens                    |
 
 ## 7. Running Tests
 
 ```bash
 pytest -v
-pytest tests/test_identity.py -v
-pytest tests/test_long_term_memory.py -v
-pytest tests/test_connectors.py -v
-pytest tests/test_cron_engine.py -v
 ```
 
-## 8. Project Structure (v0.2.0)
+## 8. Project Structure (v0.3.0)
 
 ```
 src/isaac/
-├── __init__.py                  # Package root, __version__
-├── __main__.py                  # Entry point
-├── cli.py                       # Typer CLI (run, serve, audit, cron, connectors, ...)
+├── __init__.py
+├── __main__.py
+├── cli.py                       # Typer CLI: run, serve, voice, vision,
+│                                # improve, models, audit, memory, …
 ├── identity/
-│   ├── __init__.py
-│   └── soul.py                  # SOUL personality + loader
+│   └── soul.py                  # Personality + soul loader
 ├── config/
-│   └── settings.py              # Pydantic settings (all env vars)
+│   └── settings.py              # Pydantic settings (ALL env vars)
 ├── core/
 │   ├── state.py                 # IsaacState TypedDict
-│   ├── graph.py                 # LangGraph StateGraph builder
-│   └── transitions.py           # Conditional edge routing
+│   ├── graph.py                 # LangGraph builder (telemetry-wrapped)
+│   ├── transitions.py           # Conditional edge routing
+│   └── telemetry.py             # NEW — track_node / track_skill decorators
 ├── llm/
-│   ├── provider.py              # LLM factory (Ollama → OpenAI/Anthropic)
-│   ├── router.py                # Tiered model routing
-│   └── prompts.py               # Prompt templates (soul-injected)
-├── memory/
-│   ├── long_term.py             # SQLite FTS5 long-term memory
-│   ├── user_profile.py          # JSON user profile
-│   ├── episodic.py              # ChromaDB episodic memory
-│   ├── semantic.py              # Semantic memory
-│   ├── skill_library.py         # Skill embedding retrieval
-│   ├── context_manager.py       # Message compression
-│   ├── world_model.py           # World model graph
-│   ├── world_model_kg.py        # Knowledge graph
-│   ├── procedural.py            # Procedural memory
-│   └── manager.py               # Unified memory manager
-├── nodes/
-│   ├── perception.py            # Perception (+ LTM/profile integration)
-│   ├── explorer.py              # Explorer
-│   ├── planner.py               # Graph-of-Thought planner
-│   ├── connector_execution.py   # Host-side connector dispatch
-│   ├── synthesis.py             # Code synthesis
-│   ├── sandbox.py               # Docker sandbox execution
-│   ├── computer_use.py          # UI automation executor
-│   ├── reflection.py            # Reflection (+ LTM storage)
-│   ├── skill_abstraction.py     # Skill extraction
-│   ├── approval.py              # Human-in-the-loop approval
-│   └── guard.py                 # Prompt injection guard
-├── skills/
-│   ├── __init__.py
-│   └── connectors/
-│       ├── __init__.py
-│       ├── base.py              # BaseConnector ABC
-│       ├── registry.py          # Auto-discovery + audit
-│       ├── web_search.py        # DuckDuckGo search
-│       ├── web_fetch.py         # HTTP page fetch + extract
-│       ├── filesystem.py        # Safe file system access
-│       ├── github.py            # GitHub REST API
-│       ├── shell.py             # Allowlisted shell commands
-│       ├── calendar.py          # iCal .ics read/write
-│       ├── email_reader.py      # Read-only IMAP email
-│       └── obsidian.py          # Obsidian vault access
-├── background/
-│   ├── __init__.py
-│   └── cron_engine.py           # Cron daemon + task management
+│   ├── providers/               # NEW — first-class provider builders
+│   │   ├── ollama.py
+│   │   ├── llamacpp.py
+│   │   ├── openai_compat.py
+│   │   ├── openai.py
+│   │   └── anthropic.py
+│   ├── multimodal_router.py     # NEW — (modality × complexity) router
+│   ├── provider.py              # legacy tier factory (kept)
+│   ├── router.py                # legacy complexity router (kept)
+│   └── prompts.py
+├── multimodal/                  # NEW
+│   ├── voice/
+│   │   ├── stt.py               # Whisper backends
+│   │   ├── tts.py               # Piper / Coqui / pyttsx3
+│   │   └── audio_io.py          # mic + speaker + VAD
+│   ├── vision/
+│   │   ├── vision_lm.py         # local VLM wrapper
+│   │   └── screen_capture.py
+│   └── input.py                 # unified multimodal HumanMessage builder
+├── improvement/                 # NEW — self-improvement engine
+│   ├── performance.py
+│   ├── skill_curation.py
+│   ├── prompt_evolution.py
+│   ├── self_critique.py
+│   └── engine.py
+├── memory/                      # 5-layer memory (unchanged in 0.3.0)
+├── nodes/                       # cognitive graph nodes
+├── skills/connectors/           # external connectors
+├── background/                  # cron daemon
 ├── sandbox/                     # Docker sandbox management
-├── security/                    # Audit, capabilities, guard
-├── scheduler/                   # Heartbeat scheduler
-├── interfaces/                  # Telegram gateway
-├── tools/                       # Tool registry
-└── arc/                         # ARC-AGI DSL
-
-tests/
-├── test_identity.py             # Soul module tests
-├── test_long_term_memory.py     # LTM + user profile tests
-├── test_connectors.py           # Connector + registry tests
-├── test_cron_engine.py          # Cron engine tests
-├── test_graph.py                # Graph integration tests
-├── test_state.py                # State tests
-└── ...                          # Existing test suites
+├── security/                    # audit, capabilities, guard
+├── scheduler/                   # heartbeat + improvement_job
+├── interfaces/
+│   ├── repl.py
+│   ├── voice_repl.py            # NEW — conversational voice loop
+│   ├── terminal_ui.py
+│   └── telegram_gateway.py
+├── tools/
+└── arc/
 ```
 
 ## License
