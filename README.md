@@ -114,6 +114,63 @@ src/isaac/llm/
 └── router.py            ← legacy complexity router (kept for compat)
 ```
 
+### Routing matrix `(modality × complexity)`
+
+The `MultimodalRouter` resolves every LLM call to a concrete `(provider, model)` pair via a 3 × 3 table. Local providers are health-checked (cached 60 s) before dispatch; on miss the router walks a fallback chain.
+
+|              | **fast** (perception, classification) | **default** (synthesis, planning) | **strong** (reflection, critique)                       |
+| ------------ | ------------------------------------- | --------------------------------- | ------------------------------------------------------- |
+| **text**     | `ollama / qwen2.5:3b`                 | `ollama / qwen2.5-coder:7b`       | `ollama / qwen2.5:14b` → `anthropic / claude-haiku-4-5` |
+| **vision**   | `ollama / llava:7b`                   | `ollama / llava:7b`               | `ollama / qwen2.5-vl` → `openai / gpt-4o`               |
+| **audio**    | faster-whisper (`tiny` / `base`)      | faster-whisper (`small`)          | faster-whisper (`large-v3`)                             |
+
+Cloud providers (`openai`, `anthropic`) are **never required** — they only enter the chain when listed as a fallback **and** the user supplied `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. Audio routing transcribes locally and re-routes the text through the **text** row.
+
+### Self-improvement lifecycle
+
+```
+       ┌─────────────────────────────────────────────────────┐
+       │              every cognitive node                   │
+       │              (telemetry decorator)                  │
+       └────────────────────────┬────────────────────────────┘
+                                ▼
+                ┌──────────────────────────────┐
+                │ performance.PerformanceTracker│
+                │   • node_runs                 │
+                │   • skill_runs                │
+                │   • prompt_runs               │  ← SQLite
+                └──────────────┬────────────────┘
+                               ▼
+       ┌────────────────────── engine.run_cycle ──────────────────────┐
+       │                                                              │
+       │   1. SkillCurator       — promote / deprecate / quarantine   │
+       │   2. PromptEvolution    — ε-greedy variant selection         │
+       │   3. SelfCritique       — strong-tier LLM meta-reflection    │
+       │   4. PerformanceTracker — prune > 90-day rows                │
+       │                                                              │
+       └──────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+                  ImprovementResult ──► audit log + scheduler
+```
+
+Trigger paths:
+- **Manual** — `isaac improve [--report]` runs one cycle synchronously and prints the critique summary
+- **Scheduled** — when `ISAAC_IMPROVEMENT_ENABLED=true`, APScheduler fires `improvement_job` every `ISAAC_IMPROVEMENT_INTERVAL_MINUTES` (10 ≤ x ≤ 10080)
+- **Telemetry-only** — when improvement is disabled, the tracker still records every node/skill run so a later cycle has data to act on
+
+### Five-layer memory (unchanged in 0.3.0, summarized here)
+
+| Layer            | Backend                            | Purpose                                                  |
+| ---------------- | ---------------------------------- | -------------------------------------------------------- |
+| **LongTerm**     | SQLite + FTS5                      | Full-text-searchable canonical archive                   |
+| **Episodic**     | Ring buffer + ChromaDB             | Recent turns, vector recall                              |
+| **Semantic**     | NetworkX KG + SQLite + ChromaDB    | Concept graph, relation queries                          |
+| **Procedural**   | `SkillLibrary` (JSON + embeddings) | Reusable Python snippets generalized from past successes |
+| **WorldModelKG** | NetworkX DiGraph + SQLite          | Symbolic observations carried inside `IsaacState`        |
+
+`MemoryManager.recall()` produces a single combined prompt string from all five layers; ChromaDB-dependent layers degrade gracefully (exact-match fallback) when the vector store is unavailable.
+
 ## Core Design Principles
 
 - **Local-first** — every default points at a local backend. Cloud APIs are
