@@ -202,6 +202,32 @@ class Settings(BaseSettings):
     cron_enabled: bool = False
     """Whether to auto-start the cron daemon on boot."""
 
+    # ── Multimodal ──────────────────────────────────────────────────────
+    whisper_model: str = "base"
+    """faster-whisper model size: tiny/base/small/medium/large-v3."""
+    tts_engine: str = "auto"
+    """TTS engine: pyttsx3 / kokoro / openai / auto."""
+    tts_voice: str = "default"
+    """Voice ID for TTS (engine-specific)."""
+
+    # ── MCP Server ──────────────────────────────────────────────────────
+    mcp_enabled: bool = True
+    """Expose I.S.A.A.C. as an MCP tool provider (used by claude mcp-serve)."""
+
+    # ── Self-Improvement ────────────────────────────────────────────────
+    meta_learner_db_path: str = ""
+    """SQLite path for MetaLearner outcomes (default: ~/.isaac/meta_learner.db)."""
+    parallel_synthesis_enabled: bool = False
+    """Enable parallel Claude sub-agent synthesis for independent plan steps."""
+    parallel_synthesis_min_steps: int = Field(default=2, ge=2, le=10)
+    """Minimum independent steps required to trigger parallel synthesis."""
+
+    # ── Sub-agents ──────────────────────────────────────────────────────
+    subagent_model: str = "claude-sonnet-4-6"
+    """Claude model used by ClaudeSubAgent."""
+    subagent_max_workers: int = Field(default=4, ge=1, le=16)
+    """Max concurrent sub-agents in ParallelSubAgentPool."""
+
 
 # Module-level singleton — import and use directly.
 settings = Settings()

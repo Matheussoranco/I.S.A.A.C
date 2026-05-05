@@ -98,6 +98,91 @@ if typer is not None:
         finally:
             stop_scheduler()
 
+    @app.command(name="mcp-serve")
+    def mcp_serve(
+        verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
+    ) -> None:
+        """Run the MCP stdio server — expose I.S.A.A.C. as a Claude tool provider.
+
+        Add to Claude Code via:
+            claude mcp add isaac -- isaac mcp-serve
+        """
+        _setup_logging(verbose)
+        from isaac.mcp.server import run_server
+        run_server()
+
+    @app.command()
+    def learn(
+        task_type: str = typer.Option("", "--type", "-t", help="Filter by task type."),
+        failures: bool = typer.Option(False, "--failures", "-f", help="Show failure analysis."),
+    ) -> None:
+        """Show self-improvement statistics from the MetaLearner."""
+        _setup_logging()
+        from isaac.meta.learner import get_learner
+        import json
+
+        learner = get_learner()
+        if failures:
+            data = learner.analyse_failures()
+        else:
+            data = learner.get_stats(task_type=task_type or None)
+        typer.echo(json.dumps(data, indent=2))
+
+    @app.command()
+    def transcribe(
+        audio_file: str = typer.Argument(..., help="Path to audio file (.wav/.mp3/etc.)"),
+        model: str = typer.Option("base", "--model", "-m", help="Whisper model size."),
+        language: Optional[str] = typer.Option(None, "--lang", "-l", help="Language code (e.g. 'en')."),
+    ) -> None:
+        """Transcribe an audio file to text using local Whisper (faster-whisper)."""
+        _setup_logging()
+        from isaac.multimodal.audio import transcribe as do_transcribe
+        text = do_transcribe(audio_file, model=model, language=language)  # type: ignore[arg-type]
+        typer.echo(text)
+
+    @app.command()
+    def speak(
+        text: str = typer.Argument(..., help="Text to synthesise."),
+        output: Optional[str] = typer.Option(None, "--out", "-o", help="Save to file instead of playing."),
+        engine: str = typer.Option("auto", "--engine", "-e", help="TTS engine: pyttsx3/kokoro/openai/auto."),
+    ) -> None:
+        """Convert text to speech using local TTS (pyttsx3/kokoro/openai)."""
+        _setup_logging()
+        from isaac.multimodal.audio import speak as do_speak
+        result = do_speak(text, output_path=output, engine=engine)  # type: ignore[arg-type]
+        if result:
+            typer.echo(f"Saved to: {result}")
+
+    @app.command()
+    def extract(
+        doc_path: str = typer.Argument(..., help="Document path (.pdf/.docx/.pptx/.png/etc.)"),
+        pages_only: bool = typer.Option(False, "--pages", "-p", help="Show page-by-page (PDF only)."),
+    ) -> None:
+        """Extract text from a document (PDF, DOCX, PPTX, image)."""
+        _setup_logging()
+        from isaac.multimodal.document import extract_text, extract_pages
+        if pages_only:
+            pages = extract_pages(doc_path)
+            for i, page in enumerate(pages, 1):
+                typer.echo(f"\n--- Page {i} ---\n{page}")
+        else:
+            typer.echo(extract_text(doc_path))
+
+    @app.command()
+    def prove(
+        constraints_json: str = typer.Argument(..., help='JSON array of constraint strings.'),
+        variables_json: str = typer.Option("{}", "--vars", "-v", help='JSON object: {name: sort}.'),
+    ) -> None:
+        """Check satisfiability of symbolic constraints using Z3."""
+        _setup_logging()
+        import json
+        from isaac.reasoning.theorem_prover import TheoremProver
+        constraints = json.loads(constraints_json)
+        variables = json.loads(variables_json)
+        prover = TheoremProver()
+        result = prover.check_sat(constraints, variables or None)
+        typer.echo(json.dumps(result, indent=2))
+
     @app.command()
     def audit(
         verify: bool = typer.Option(False, "--verify", help="Verify audit chain integrity."),

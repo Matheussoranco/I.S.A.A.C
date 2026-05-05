@@ -1,0 +1,309 @@
+"""MCP tool definitions — JSON schemas and handler dispatch for Isaac's MCP server."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Tool schemas (MCP format)
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "name": "isaac_ask",
+        "description": (
+            "Send a task or question to the I.S.A.A.C. cognitive agent. "
+            "Isaac will plan, synthesise code if needed, execute in a Docker sandbox, "
+            "and return a structured result. Use for: coding tasks, research, analysis, "
+            "file operations, web search, computer-use automation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "The task or question for Isaac."},
+                "context": {
+                    "type": "string",
+                    "description": "Optional extra context (e.g. relevant code, file contents).",
+                    "default": "",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["code", "ui", "hybrid", "auto"],
+                    "description": "Execution mode. 'auto' lets Isaac decide.",
+                    "default": "auto",
+                },
+            },
+            "required": ["task"],
+        },
+    },
+    {
+        "name": "isaac_memory_search",
+        "description": "Search I.S.A.A.C.'s five-layer memory system for relevant past knowledge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Natural-language search query."},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["episodic", "semantic", "long_term", "procedural", "all"]},
+                    "description": "Memory layers to search.",
+                    "default": ["all"],
+                },
+                "top_k": {"type": "integer", "description": "Max results per layer.", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "isaac_skill_search",
+        "description": "Search I.S.A.A.C.'s versioned skill library for reusable code patterns.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Description of the skill to find."},
+                "top_k": {"type": "integer", "description": "Number of results.", "default": 3},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "isaac_code_execute",
+        "description": (
+            "Execute Python code in I.S.A.A.C.'s secure Docker sandbox (no network, "
+            "256 MB RAM, 30 s timeout, seccomp profile). Returns stdout, stderr, exit code."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python code to execute."},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (max 120).", "default": 30},
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "isaac_web_search",
+        "description": "Perform a web search via DuckDuckGo and return structured results.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query."},
+                "max_results": {"type": "integer", "description": "Number of results.", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "isaac_knowledge_query",
+        "description": "Query I.S.A.A.C.'s semantic knowledge graph (NetworkX + SQLite).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Subject entity (optional)."},
+                "predicate": {"type": "string", "description": "Relationship predicate (optional)."},
+                "query": {"type": "string", "description": "Free-text query against the KG."},
+            },
+        },
+    },
+    {
+        "name": "isaac_spawn_subagent",
+        "description": (
+            "Spawn a Claude sub-agent to handle a specific subtask in parallel. "
+            "Returns the sub-agent result. Useful for decomposing complex tasks."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subtask": {"type": "string", "description": "The specific subtask for the sub-agent."},
+                "context": {"type": "string", "description": "Context to pass to the sub-agent.", "default": ""},
+                "role": {
+                    "type": "string",
+                    "enum": ["researcher", "coder", "analyst", "planner", "critic"],
+                    "description": "Specialization role for the sub-agent.",
+                    "default": "coder",
+                },
+            },
+            "required": ["subtask"],
+        },
+    },
+    {
+        "name": "isaac_meta_stats",
+        "description": "Get I.S.A.A.C.'s self-improvement statistics: task success rates, strategy rankings, error patterns.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_type": {"type": "string", "description": "Filter by task type (optional)."},
+            },
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Handler dispatch
+# ---------------------------------------------------------------------------
+
+
+def _handle_ask(args: dict[str, Any]) -> dict[str, Any]:
+    """Run a full Isaac cognitive cycle and return the result."""
+    import uuid
+    from langchain_core.messages import HumanMessage
+    from isaac.core.graph import build_graph
+    from isaac.core.state import make_initial_state
+
+    task = args["task"]
+    context = args.get("context", "")
+    mode = args.get("mode", "auto")
+
+    full_task = task if not context else f"{task}\n\nContext:\n{context}"
+
+    state = make_initial_state()
+    state["session_id"] = f"mcp-{uuid.uuid4()}"
+    state["messages"] = [HumanMessage(content=full_task)]
+
+    if mode != "auto":
+        state["task_mode"] = mode  # type: ignore[literal-required]
+
+    compiled = build_graph()
+    result: dict[str, Any] = {}
+    for event in compiled.stream(dict(state)):
+        for _node, node_output in event.items():
+            if isinstance(node_output, dict):
+                result.update(node_output)
+
+    from langchain_core.messages import AIMessage
+    response_text = ""
+    for msg in result.get("messages", []):
+        if isinstance(msg, AIMessage):
+            response_text = msg.content
+            break
+
+    logs = result.get("execution_logs", [])
+    exec_summary = {}
+    if logs:
+        last = logs[-1]
+        exec_summary = {
+            "exit_code": last.exit_code,
+            "stdout": last.stdout[:2000],
+            "stderr": last.stderr[:500],
+            "duration_ms": last.duration_ms,
+        }
+
+    return {
+        "response": response_text,
+        "phase": result.get("current_phase", ""),
+        "mode": result.get("task_mode", "code"),
+        "execution": exec_summary,
+        "errors": [{"node": e.node, "message": e.message} for e in result.get("errors", [])],
+    }
+
+
+def _handle_memory_search(args: dict[str, Any]) -> dict[str, Any]:
+    from isaac.memory.manager import MemoryManager
+    query = args["query"]
+    top_k = args.get("top_k", 5)
+    layers = args.get("layers", ["all"])
+
+    mgr = MemoryManager()
+    results = mgr.recall(query, top_k=top_k)
+    return {"query": query, "results": results}
+
+
+def _handle_skill_search(args: dict[str, Any]) -> dict[str, Any]:
+    from isaac.memory.skill_library import SkillLibrary
+    from isaac.config.settings import settings
+    query = args["query"]
+    top_k = args.get("top_k", 3)
+
+    lib = SkillLibrary(str(settings.skills_dir))
+    skills = lib.search(query, top_k=top_k)
+    return {"query": query, "skills": skills}
+
+
+def _handle_code_execute(args: dict[str, Any]) -> dict[str, Any]:
+    import asyncio
+    from isaac.sandbox.executor import SandboxExecutor
+    code = args["code"]
+    timeout = min(args.get("timeout", 30), 120)
+
+    executor = SandboxExecutor()
+    try:
+        result = asyncio.run(executor.run(code, timeout_seconds=timeout))
+        return {
+            "exit_code": result.exit_code,
+            "stdout": result.stdout[:3000],
+            "stderr": result.stderr[:1000],
+            "duration_ms": result.duration_ms,
+        }
+    except Exception as exc:
+        return {"exit_code": -1, "stdout": "", "stderr": str(exc), "duration_ms": 0.0}
+
+
+def _handle_web_search(args: dict[str, Any]) -> dict[str, Any]:
+    from isaac.skills.connectors.web_search import WebSearchConnector
+    query = args["query"]
+    max_results = args.get("max_results", 5)
+
+    connector = WebSearchConnector()
+    results = connector.search(query, max_results=max_results)
+    return {"query": query, "results": results}
+
+
+def _handle_knowledge_query(args: dict[str, Any]) -> dict[str, Any]:
+    from isaac.memory.semantic import SemanticMemory
+    subject = args.get("subject", "")
+    predicate = args.get("predicate", "")
+    query = args.get("query", "")
+
+    mem = SemanticMemory()
+    if query:
+        results = mem.search(query)
+    else:
+        results = mem.query_triples(subject=subject, predicate=predicate)
+    return {"results": results}
+
+
+def _handle_spawn_subagent(args: dict[str, Any]) -> dict[str, Any]:
+    from isaac.agents.claude_subagent import ClaudeSubAgent
+    subtask = args["subtask"]
+    context = args.get("context", "")
+    role = args.get("role", "coder")
+
+    agent = ClaudeSubAgent(role=role)
+    result = agent.run(subtask, context=context)
+    return result
+
+
+def _handle_meta_stats(args: dict[str, Any]) -> dict[str, Any]:
+    from isaac.meta.learner import MetaLearner
+    task_type = args.get("task_type", "")
+    learner = MetaLearner()
+    return learner.get_stats(task_type=task_type or None)
+
+
+_HANDLERS = {
+    "isaac_ask": _handle_ask,
+    "isaac_memory_search": _handle_memory_search,
+    "isaac_skill_search": _handle_skill_search,
+    "isaac_code_execute": _handle_code_execute,
+    "isaac_web_search": _handle_web_search,
+    "isaac_knowledge_query": _handle_knowledge_query,
+    "isaac_spawn_subagent": _handle_spawn_subagent,
+    "isaac_meta_stats": _handle_meta_stats,
+}
+
+
+def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch a tool call by name and return a result dict."""
+    handler = _HANDLERS.get(name)
+    if handler is None:
+        raise ValueError(f"Unknown tool: {name!r}")
+    try:
+        return handler(arguments)
+    except Exception as exc:
+        logger.exception("Tool %r failed: %s", name, exc)
+        return {"error": str(exc)}

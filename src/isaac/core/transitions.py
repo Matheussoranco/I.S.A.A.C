@@ -25,6 +25,11 @@ NODE_SANDBOX = "sandbox"
 NODE_DIRECT_RESPONSE = "direct_response"
 NODE_EXPLORER = "explorer"
 NODE_PERCEPTION = "perception"
+NODE_MULTIMODAL_INPUT = "multimodal_input"
+NODE_PARALLEL_SYNTHESIS = "parallel_synthesis"
+NODE_SYNTHESIS = "synthesis"
+NODE_META_LEARNER = "meta_learner"
+NODE_CLARIFICATION = "clarification"
 END = "__end__"
 
 
@@ -76,13 +81,35 @@ def after_perception(state: IsaacState) -> str:
     """Route after Perception based on task_mode.
 
     * ``task_mode == 'direct'`` → ``direct_response`` (fast single-call path)
-    * anything else             → ``explorer`` (full pipeline)
+    * anything else             → ``clarification`` (active-learning gate)
+
+    The clarification node decides at run-time whether to ask the user a
+    question or pass through to the explorer.
     """
     task_mode = state.get("task_mode", "code")
     if task_mode == "direct":
         logger.info("Transition: Perception → DirectResponse (task_mode=direct).")
         return NODE_DIRECT_RESPONSE
-    logger.info("Transition: Perception → Explorer (task_mode=%s).", task_mode)
+    logger.info("Transition: Perception → Clarification (task_mode=%s).", task_mode)
+    return NODE_CLARIFICATION
+
+
+# ---------------------------------------------------------------------------
+# Edge: Clarification → {END | Explorer}
+# ---------------------------------------------------------------------------
+
+
+def after_clarification(state: IsaacState) -> str:
+    """Route after Clarification.
+
+    * ``needs_clarification=True`` → ``__end__``  (question already emitted;
+      wait for the user's next message to re-enter the graph)
+    * otherwise                    → ``explorer`` (proceed with the plan)
+    """
+    if state.get("needs_clarification", False):
+        logger.info("Transition: Clarification → END (waiting for user response).")
+        return END
+    logger.info("Transition: Clarification → Explorer (no ambiguity).")
     return NODE_EXPLORER
 
 
@@ -174,6 +201,62 @@ def after_skill_abstraction(state: IsaacState) -> str:
         return NODE_PLANNER
 
     logger.info("Transition: Skill Abstraction → END (plan complete).")
+    return END
+
+
+# ---------------------------------------------------------------------------
+# Edge: Guard → {MultimodalInput | Perception}
+# ---------------------------------------------------------------------------
+
+
+def after_guard_multimodal(state: IsaacState) -> str:
+    """Route after Guard: check for multimodal attachments before Perception."""
+    if state.get("guard_blocked", False):
+        return END
+
+    wm = state.get("world_model")
+    attachments = (wm.resources.get("_attachments", []) if wm else [])
+    if attachments and not state.get("multimodal_done", False):
+        logger.info("Transition: Guard → MultimodalInput (attachments detected).")
+        return NODE_MULTIMODAL_INPUT
+    return NODE_PERCEPTION
+
+
+# ---------------------------------------------------------------------------
+# Edge: Planner → {ParallelSynthesis | Synthesis}
+# ---------------------------------------------------------------------------
+
+
+def after_planner(state: IsaacState) -> str:
+    """Route after Planner: use parallel synthesis when ≥2 independent steps exist."""
+    plan = state.get("plan", [])
+    done_ids = {s.id for s in plan if s.status == "done"}
+    independent = [
+        s for s in plan
+        if s.status == "pending" and all(dep in done_ids for dep in s.depends_on)
+    ]
+
+    wm = state.get("world_model")
+    parallel_eligible = (wm.resources.get("_parallel_eligible", False) if wm else False)
+
+    if parallel_eligible and len(independent) >= 2:
+        logger.info("Transition: Planner → ParallelSynthesis (%d independent steps).", len(independent))
+        return NODE_PARALLEL_SYNTHESIS
+
+    logger.info("Transition: Planner → Synthesis (sequential).")
+    return NODE_SYNTHESIS
+
+
+# ---------------------------------------------------------------------------
+# Edge: MetaLearner → {Planner | END}
+# ---------------------------------------------------------------------------
+
+
+def after_meta_learner(state: IsaacState) -> str:
+    """After MetaLearner, route to Planner if steps remain, else END."""
+    plan = state.get("plan", [])
+    if _has_pending_steps(plan):
+        return NODE_PLANNER
     return END
 
 

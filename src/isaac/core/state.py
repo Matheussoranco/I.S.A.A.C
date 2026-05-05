@@ -282,6 +282,18 @@ class IsaacState(TypedDict, total=False):
     # ── Connector execution context ────────────────────────────────────────
     connector_results: Annotated[list[dict[str, Any]], _append_list]
 
+    # ── Multimodal ──────────────────────────────────────────────────────────
+    multimodal_done:   Annotated[bool, _replace]
+    """True after the MultimodalInput node has processed attachments."""
+
+    # ── Parallel synthesis ──────────────────────────────────────────────────
+    parallel_done:     Annotated[bool, _replace]
+    """True when ParallelSynthesis has handled the current plan batch."""
+
+    # ── Sub-agent results ───────────────────────────────────────────────────
+    agent_results:     Annotated[list[dict[str, Any]], _append_list]
+    """Structured results from ClaudeSubAgent runs."""
+
 
 def make_initial_state() -> IsaacState:
     """Return a fully initialised blank state for a new cognitive cycle."""
@@ -304,4 +316,7 @@ def make_initial_state() -> IsaacState:
         session_id="",
         pending_approvals=[],
         connector_results=[],
+        multimodal_done=False,
+        parallel_done=False,
+        agent_results=[],
     )

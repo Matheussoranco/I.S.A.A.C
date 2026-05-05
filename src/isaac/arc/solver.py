@@ -688,6 +688,8 @@ def _make_task_result(
         for pred, pair in zip(predictions, task.test)
     )
 
+    _record_for_library_learning(task, best)
+
     return TaskResult(
         task_id=task.id,
         correct=correct,
@@ -696,6 +698,29 @@ def _make_task_result(
         solve_time_ms=elapsed,
         method=best.method,
     )
+
+
+def _record_for_library_learning(task: ArcTask, best: CandidateProgram) -> None:
+    """Forward a fully-solved program to the DreamCoder-style library learner.
+
+    Only records DSL programs (not raw Python) and only when training accuracy
+    is ≥ 0.99 — this protects the learner from noisy fragments.
+    """
+    if best.train_accuracy < 0.99 or not best.ops:
+        return
+    if best.ops and best.ops[0].get("op") == "_custom_python":
+        return
+    try:
+        from isaac.arc.library_learning import get_library_learner
+        learner = get_library_learner()
+        learner.record_solution(
+            task_payload={"id": task.id, "n_train": len(task.train)},
+            program=best.ops,
+            accuracy=best.train_accuracy,
+            strategy=best.method,
+        )
+    except Exception as exc:
+        logger.debug("Library learner record failed: %s", exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

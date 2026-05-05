@@ -7,6 +7,72 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — SOTA Neuro-Symbolic upgrade
+
+### Added — Knowledge Experts (Mixture-of-Experts)
+- `src/isaac/experts/` — pluggable MoE with seven bundled experts:
+  `language` (local LLM, default), `math` (SymPy), `code` (skill library +
+  LLM), `kg` (WorldModelKG queries), `arc` (5-strategy solver),
+  `logic` (Z3), `vision` (grid perception).
+- `HybridRouter` — symbolic-first routing combining each expert's
+  `can_handle()` confidence, MetaLearner historical win-rate, and a
+  cost penalty. Optional LLM tie-breaker for ambiguous cases.
+- `MixtureOfExperts` — orchestrator with three modes: `single`,
+  `top_k` (parallel ThreadPool merge), `cascade` (escalate on low conf).
+  Records every routing decision in MetaLearner for self-improvement.
+
+### Added — DreamCoder-style ARC library learning
+- `src/isaac/arc/library_learning.py` — mines frequent fragments from
+  successful ARC programs and promotes them to first-class DSL primitives.
+  Persisted in `~/.isaac/arc_library.db`, automatically injected into
+  `PRIMITIVES` at startup, growing the search vocabulary across sessions.
+- Hooked into `solver._make_task_result` so every fully-solved DSL program
+  is automatically recorded for future compression passes.
+
+### Added — Causal reasoning
+- `src/isaac/reasoning/causal.py` — pure-Python PC-style structure learner
+  with mutual-information and conditional-MI tests, tabular CPT inference,
+  do-calculus interventions, and twin-network counterfactual queries.
+  `CausalReasoner.from_episodic()` builds graphs straight from episodic
+  memory.
+
+### Added — Memory consolidation ('sleep cycle')
+- `src/isaac/memory/consolidation.py` — periodic episodic→semantic
+  promotion. LLM-based fact extraction with regex fallback, Hebbian
+  reinforcement of recurring facts (`c ← c + (1−c)·η`), exponential
+  decay + pruning of low-confidence facts, schedulable via the heartbeat
+  scheduler (`schedule_consolidation`).
+
+### Added — Constitutional safety layer
+- `src/isaac/security/constitution.py` — pre-execution action critic
+  combining a hard symbolic deny-list (rm -rf /, drop table, force-push
+  to main, fork bombs, curl|bash, hardcoded credentials, …) with an LLM
+  critic scoring against a configurable constitution. Wired into
+  `sandbox_node` so all sandboxed code is reviewed before docker exec.
+
+### Added — Self-play curriculum + clarification
+- `src/isaac/meta/curriculum.py` — auto-generates practice tasks from
+  recent failures via mutation + LLM synthesis, drilled on idle cycles
+  and tracked in `~/.isaac/curriculum.db`.
+- `src/isaac/nodes/clarification.py` — active-learning node that asks a
+  single focused question when perception confidence is low, query is
+  ambiguous, or the MoE routing margin is small. **Wired into the graph**:
+  `Perception → {DirectResponse | Clarification → {END | Explorer}}`.
+  When clarification fires, the turn ends with the question; the user's
+  next message re-enters at Guard and the loop resumes naturally.
+
+### Changed
+- `isaac.scheduler.heartbeat.register_callback()` — public hook so
+  self-improvement modules can attach periodic jobs.
+- `solver.synthesise()` records DSL solutions for library learning.
+
+### Tests
+- 21 new tests across `test_experts/`, `test_reasoning/test_causal.py`,
+  `test_security/test_constitution.py`, `test_arc/test_library_learning.py`.
+  All pass (`pytest -q tests/test_experts tests/test_reasoning tests/test_security/test_constitution.py tests/test_arc/test_library_learning.py`).
+
+---
+
 ## [0.1.0] — 2026-03-04
 
 First public beta release.

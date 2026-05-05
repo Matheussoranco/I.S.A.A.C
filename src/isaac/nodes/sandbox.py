@@ -40,6 +40,43 @@ def sandbox_node(state: IsaacState) -> dict[str, Any]:
             "current_phase": "sandbox",
         }
 
+    # Constitutional safety review — block hard violations before docker exec.
+    try:
+        from isaac.security.constitution import review
+
+        decision = review(
+            action_kind="sandbox_code",
+            action=code,
+            context={"phase": "sandbox", "code_len": len(code)},
+            use_llm=False,
+        )
+        if not decision.allow:
+            from isaac.core.state import ExecutionResult
+
+            logger.warning(
+                "Sandbox: constitution blocked execution — %s",
+                decision.reason or "policy violation",
+            )
+            return {
+                "execution_logs": [
+                    ExecutionResult(
+                        stdout="",
+                        stderr=(
+                            "[constitution] Action blocked: "
+                            + (decision.reason or "policy violation")
+                            + " | violations: "
+                            + ", ".join(v.rule for v in decision.violations)
+                        ),
+                        exit_code=126,
+                        duration_ms=0.0,
+                    )
+                ],
+                "current_phase": "sandbox",
+                "constitution_decision": decision.to_dict(),
+            }
+    except Exception as exc:
+        logger.debug("Constitution review skipped (%s)", exc)
+
     executor = CodeExecutor()
     try:
         result = executor.execute(code)

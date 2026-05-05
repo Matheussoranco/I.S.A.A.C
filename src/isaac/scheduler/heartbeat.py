@@ -163,3 +163,39 @@ def stop_scheduler() -> None:
             pass
         _scheduler = None
         logger.info("Heartbeat scheduler stopped.")
+
+
+def register_callback(
+    callback: Any,
+    *,
+    interval_seconds: int = 900,
+    name: str = "",
+) -> bool:
+    """Attach an arbitrary callable to the running scheduler.
+
+    Used by self-improvement modules (``memory.consolidation``,
+    ``meta.curriculum``) to run on idle cycles. Starts the scheduler if
+    needed. Returns ``True`` on success.
+    """
+    global _scheduler
+    if _scheduler is None:
+        try:
+            start_scheduler()
+        except Exception as exc:
+            logger.debug("scheduler start failed: %s", exc)
+            return False
+    if _scheduler is None:
+        return False
+    try:
+        from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
+    except ImportError:
+        return False
+    job_id = name or f"cb_{id(callback):x}"
+    _scheduler.add_job(
+        callback,
+        IntervalTrigger(seconds=interval_seconds),
+        id=job_id,
+        replace_existing=True,
+    )
+    logger.info("Registered scheduler callback %r every %ds.", job_id, interval_seconds)
+    return True

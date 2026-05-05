@@ -40,23 +40,37 @@ from langgraph.graph import END, StateGraph
 
 from isaac.core.state import IsaacState, make_initial_state
 from isaac.core.transitions import (
+    NODE_CLARIFICATION,
     NODE_COMPUTER_USE,
     NODE_DIRECT_RESPONSE,
     NODE_EXPLORER,
+    NODE_META_LEARNER,
+    NODE_MULTIMODAL_INPUT,
+    NODE_PARALLEL_SYNTHESIS,
     NODE_PERCEPTION,
+    NODE_PLANNER,
     NODE_SANDBOX,
+    NODE_SYNTHESIS,
+    after_clarification,
     after_guard,
+    after_guard_multimodal,
+    after_meta_learner,
     after_perception,
+    after_planner,
     after_reflection,
     after_skill_abstraction,
     after_synthesis,
 )
 from isaac.nodes.approval import await_approval_node
+from isaac.nodes.clarification import clarification_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
 from isaac.nodes.connector_execution import connector_execution_node
 from isaac.nodes.direct_response import direct_response_node
 from isaac.nodes.explorer import explorer_node
 from isaac.nodes.guard import guard_node
+from isaac.nodes.meta_learner import meta_learner_node
+from isaac.nodes.multimodal_input import multimodal_input_node
+from isaac.nodes.parallel_synthesis import parallel_synthesis_node
 from isaac.nodes.perception import perception_node
 from isaac.nodes.planner import planner_node
 from isaac.nodes.reflection import reflection_node
@@ -83,6 +97,10 @@ _SKILL_ABSTRACTION = "skill_abstraction"
 _CONNECTOR_EXEC = "connector_execution"
 _DIRECT_RESPONSE = "direct_response"
 _AWAIT_APPROVAL = "await_approval"
+_MULTIMODAL_INPUT = "multimodal_input"
+_PARALLEL_SYNTHESIS = "parallel_synthesis"
+_META_LEARNER = "meta_learner"
+_CLARIFICATION = "clarification"
 
 
 # ---------------------------------------------------------------------------
@@ -121,45 +139,72 @@ def build_graph() -> Any:
 
     # Register nodes
     graph.add_node(_GUARD, guard_node)
+    graph.add_node(_MULTIMODAL_INPUT, multimodal_input_node)
     graph.add_node(_PERCEPTION, perception_node)
+    graph.add_node(_CLARIFICATION, clarification_node)
     graph.add_node(_EXPLORER, explorer_node)
     graph.add_node(_PLANNER, planner_node)
+    graph.add_node(_PARALLEL_SYNTHESIS, parallel_synthesis_node)
     graph.add_node(_SYNTHESIS, synthesis_node)
     graph.add_node(_SANDBOX, sandbox_node)
     graph.add_node(_COMPUTER_USE, computer_use_node)
     graph.add_node(_REFLECTION, reflection_node)
     graph.add_node(_SKILL_ABSTRACTION, skill_abstraction_node)
+    graph.add_node(_META_LEARNER, meta_learner_node)
     graph.add_node(_CONNECTOR_EXEC, connector_execution_node)
     graph.add_node(_DIRECT_RESPONSE, direct_response_node)
     graph.add_node(_AWAIT_APPROVAL, await_approval_node)
 
-    # Entry: Guard → {Perception | END} → {DirectResponse | Explorer}
+    # Entry: Guard → {MultimodalInput | Perception | END}
     graph.set_entry_point(_GUARD)
     graph.add_conditional_edges(
         _GUARD,
-        after_guard,
+        after_guard_multimodal,
         {
+            NODE_MULTIMODAL_INPUT: _MULTIMODAL_INPUT,
             NODE_PERCEPTION: _PERCEPTION,
             END: END,
         },
     )
 
-    # Conditional edge: simple queries go to DirectResponse (fast-path)
+    # MultimodalInput → Perception (always, after enriching messages)
+    graph.add_edge(_MULTIMODAL_INPUT, _PERCEPTION)
+
+    # Conditional edge: simple queries go to DirectResponse (fast-path),
+    # everything else passes through Clarification (active-learning gate).
     graph.add_conditional_edges(
         _PERCEPTION,
         after_perception,
         {
             NODE_DIRECT_RESPONSE: _DIRECT_RESPONSE,
+            NODE_CLARIFICATION: _CLARIFICATION,
+        },
+    )
+
+    # Clarification → END (when a question was asked) or Explorer (otherwise)
+    graph.add_conditional_edges(
+        _CLARIFICATION,
+        after_clarification,
+        {
+            END: END,
             NODE_EXPLORER: _EXPLORER,
         },
     )
 
-    # DirectResponse → END (no further processing needed)
-    graph.add_edge(_DIRECT_RESPONSE, END)
+    # DirectResponse → MetaLearner → END
+    graph.add_edge(_DIRECT_RESPONSE, _META_LEARNER)
 
-    # Full pipeline continues: Explorer → Planner → ...
+    # Full pipeline continues: Explorer → Planner → {ParallelSynthesis | Synthesis}
     graph.add_edge(_EXPLORER, _PLANNER)
-    graph.add_edge(_PLANNER, _CONNECTOR_EXEC)
+    graph.add_conditional_edges(
+        _PLANNER,
+        after_planner,
+        {
+            NODE_PARALLEL_SYNTHESIS: _PARALLEL_SYNTHESIS,
+            NODE_SYNTHESIS: _SYNTHESIS,
+        },
+    )
+    graph.add_edge(_PARALLEL_SYNTHESIS, _CONNECTOR_EXEC)
     graph.add_edge(_CONNECTOR_EXEC, _SYNTHESIS)
 
     # Synthesis → ComputerUse OR Sandbox (based on active step mode)
@@ -187,12 +232,15 @@ def build_graph() -> Any:
         },
     )
 
-    # SkillAbstraction → Planner | END
+    # SkillAbstraction → MetaLearner (always — record outcome then route)
+    graph.add_edge(_SKILL_ABSTRACTION, _META_LEARNER)
+
+    # MetaLearner → Planner | END
     graph.add_conditional_edges(
-        _SKILL_ABSTRACTION,
-        after_skill_abstraction,
+        _META_LEARNER,
+        after_meta_learner,
         {
-            _PLANNER: _PLANNER,
+            NODE_PLANNER: _PLANNER,
             END: END,
         },
     )
