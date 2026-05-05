@@ -34,8 +34,10 @@ class LLMSettings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: Literal["openai", "anthropic"] = "openai"
-    model_name: str = "gpt-4o"
+    llm_provider: Literal[
+        "ollama", "llamacpp", "openai_compat", "openai", "anthropic"
+    ] = "ollama"
+    model_name: str = "qwen2.5-coder:7b"
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     base_url: str = ""  # Custom API base URL (e.g. http://localhost:11434/v1 for Ollama)
 
@@ -137,7 +139,50 @@ class Settings(BaseSettings):
     ollama_light_model: str = "qwen2.5-coder:7b"
     ollama_heavy_model: str = "qwen2.5-coder:7b"
     llm_fallback_provider: str = ""
-    """Fallback provider ('openai' | 'anthropic') when Ollama is unavailable."""
+    """Fallback provider name when the primary one is unhealthy."""
+
+    # llama.cpp HTTP server
+    llamacpp_base_url: str = "http://localhost:8080"
+    llamacpp_model: str = "local-model"
+
+    # Generic OpenAI-compatible endpoint (LM Studio, vLLM, LiteLLM, ...)
+    openai_compat_base_url: str = ""
+    openai_compat_api_key: str = ""
+    openai_compat_model: str = ""
+
+    # Multimodal routing toggle
+    local_first: bool = True
+    """When True, the multimodal router prefers local backends over cloud."""
+
+    # ── Vision (multimodal) ────────────────────────────────────────────
+    vision_enabled: bool = True
+    """If False, vision routes are not registered and image input is text-only."""
+    vision_model: str = "llava:7b"
+    """Default vision-language model tag (Ollama by default)."""
+    vision_strong_model: str = ""
+    """Optional larger VLM for hard visual reasoning."""
+
+    # ── Voice (STT / TTS) ──────────────────────────────────────────────
+    voice_enabled: bool = True
+    """Master switch for the voice subsystem."""
+    voice_device: Literal["auto", "cpu", "cuda"] = "auto"
+    voice_stt_model: str = "base"
+    """faster-whisper model size (tiny / base / small / medium / large-v3)."""
+    voice_stt_language: str = ""  # auto-detect
+    voice_stt_compute_type: str = "int8"
+    voice_tts_voice: str = "en_US-lessac-medium"
+    """Piper voice file name (looked up under PIPER_VOICE_DIR or ~/.isaac/voices)."""
+    voice_tts_rate: int = 175
+    voice_tts_sample_rate: int = 22050
+
+    # ── Self-improvement engine ────────────────────────────────────────
+    improvement_enabled: bool = False
+    """When True, the scheduler runs a periodic improvement cycle."""
+    improvement_interval_minutes: int = Field(default=240, ge=10, le=10080)
+    improvement_promote_runs: int = 10
+    improvement_promote_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    improvement_deprecate_runs: int = 8
+    improvement_deprecate_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
 
     # Telegram gateway
     telegram_bot_token: str = ""

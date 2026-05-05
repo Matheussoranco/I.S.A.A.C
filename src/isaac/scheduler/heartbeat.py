@@ -94,6 +94,21 @@ def memory_consolidation_job() -> None:
         logger.debug("Memory consolidation skipped: %s", exc)
 
 
+def improvement_job() -> None:
+    """Periodic self-improvement cycle — only runs when explicitly enabled."""
+    try:
+        from isaac.improvement import run_improvement_cycle
+        result = run_improvement_cycle()
+        promoted = sum(1 for d in result.curation_decisions if d.get("action") == "promote")
+        deprecated = sum(1 for d in result.curation_decisions if d.get("action") == "deprecate")
+        logger.info(
+            "Improvement cycle: promoted=%d deprecated=%d critique=%r",
+            promoted, deprecated, (result.critique_summary or "")[:120],
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Improvement cycle failed: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Scheduler lifecycle
 # ---------------------------------------------------------------------------
@@ -143,6 +158,18 @@ def start_scheduler() -> None:
         id="memory_consolidation",
         replace_existing=True,
     )
+
+    if getattr(settings, "improvement_enabled", False):
+        scheduler.add_job(
+            improvement_job,
+            IntervalTrigger(minutes=settings.improvement_interval_minutes),
+            id="self_improvement",
+            replace_existing=True,
+        )
+        logger.info(
+            "Self-improvement scheduled every %d minutes.",
+            settings.improvement_interval_minutes,
+        )
 
     scheduler.start()
     _scheduler = scheduler
