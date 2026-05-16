@@ -1,20 +1,16 @@
-<<<<<<< HEAD
-"""Multimodal input/output — audio (STT/TTS), documents (PDF/DOCX/OCR)."""
-=======
 """I.S.A.A.C. multimodal subsystem.
 
 Modules
 -------
-* :pymod:`isaac.multimodal.voice`   — STT + TTS + audio I/O
-* :pymod:`isaac.multimodal.vision`  — Vision-language model inference
-* :pymod:`isaac.multimodal.input`   — Unified multimodal input handler
+* :pymod:`isaac.multimodal.audio`    — STT (faster-whisper) + TTS
+* :pymod:`isaac.multimodal.document` — PDF / DOCX / PPTX / OCR
+* :pymod:`isaac.multimodal.voice`    — voice I/O pipeline
+* :pymod:`isaac.multimodal.vision`   — vision-language model inference
+* :pymod:`isaac.multimodal.input`    — unified multimodal input handler
 
 Each submodule is independently importable and degrades gracefully when
 its optional dependencies (whisper, piper, sounddevice, pillow, ...) are
-missing.  Callers should query ``is_available()`` before using a feature.
+missing. Callers should query ``is_available()`` before using a feature.
 """
 
 from __future__ import annotations
-
-__all__ = ["voice", "vision", "input"]
->>>>>>> ee2fe475c742511eae80c3cc479b20de3dfb8414

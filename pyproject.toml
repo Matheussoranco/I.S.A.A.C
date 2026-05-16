@@ -58,7 +58,6 @@ calendar = [
     "caldav>=1.3",
     "icalendar>=5.0",
 ]
-<<<<<<< HEAD
 audio = [
     "faster-whisper>=1.0",
     "pyttsx3>=2.90",
@@ -79,6 +78,18 @@ document = [
 reasoning = [
     "z3-solver>=4.13",
 ]
+vision = [
+    "mss>=9.0",
+    "pillow>=10.0",
+]
+voice = [
+    "faster-whisper>=1.0",
+    "sounddevice>=0.4",
+    "soundfile>=0.12",
+    "webrtcvad>=2.0",
+    "piper-tts>=1.2",
+    "pyttsx3>=2.90",
+]
 multimodal = [
     "faster-whisper>=1.0",
     "pyttsx3>=2.90",
@@ -86,6 +97,7 @@ multimodal = [
     "python-docx>=1.1",
     "pytesseract>=0.3",
     "Pillow>=10.0",
+    "mss>=9.0",
 ]
 all = [
     "playwright>=1.44",
@@ -101,22 +113,9 @@ all = [
     "pytesseract>=0.3",
     "Pillow>=10.0",
     "z3-solver>=4.13",
-=======
-vision = [
     "mss>=9.0",
-    "pillow>=10.0",
-]
-voice = [
-    "faster-whisper>=1.0",
-    "sounddevice>=0.4",
-    "soundfile>=0.12",
     "webrtcvad>=2.0",
     "piper-tts>=1.2",
-    "pyttsx3>=2.90",
-]
-multimodal = [
-    "isaac[vision,voice]",
->>>>>>> ee2fe475c742511eae80c3cc479b20de3dfb8414
 ]
 
 [project.scripts]
