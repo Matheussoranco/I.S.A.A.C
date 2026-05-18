@@ -143,9 +143,6 @@ def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
     from isaac.llm.provider import get_llm
     from isaac.memory.skill_library import SkillLibrary
 
-    llm = get_llm("strong")
-    skill_lib = SkillLibrary(settings.skills_dir)
-
     candidate: SkillCandidate | None = state.get("skill_candidate")
     plan: list[PlanStep] = state.get("plan", [])
 
@@ -154,6 +151,10 @@ def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
         if _has_pending_steps(plan):
             _advance_plan(plan)
         return {"plan": plan, "skill_candidate": None, "current_phase": "skill_abstraction"}
+
+    # LLM is only needed when we actually have a candidate to generalise.
+    llm = get_llm("strong")
+    skill_lib = SkillLibrary(settings.skills_dir)
 
     skill_type = getattr(candidate, "skill_type", "code")
 

@@ -178,13 +178,9 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
     from isaac.llm.provider import get_llm
     from isaac.memory.skill_library import SkillLibrary
 
-    llm = get_llm("strong")
-    skill_lib = SkillLibrary(settings.skills_dir)
-
     plan: list[PlanStep] = state.get("plan", [])
     world_model: WorldModel = state.get("world_model", WorldModel())
     hypothesis: str = state.get("hypothesis", "")
-    available_skills = skill_lib.list_names()
 
     active_step = _get_active_step(plan)
     if active_step is None:
@@ -193,6 +189,11 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
             "code_buffer": "# No active step — nothing to execute.\nprint('NOOP')",
             "current_phase": "synthesis",
         }
+
+    # LLM + skill library are only needed when we actually have work to do.
+    llm = get_llm("strong")
+    skill_lib = SkillLibrary(settings.skills_dir)
+    available_skills = skill_lib.list_names()
 
     mode = active_step.mode
 
