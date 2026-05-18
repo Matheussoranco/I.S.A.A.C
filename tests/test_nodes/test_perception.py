@@ -40,7 +40,8 @@ class TestPerceptionNode:
         state["messages"] = [HumanMessage(content="do something")]
 
         mock = MockLLM("this is not json at all")
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_perception_llm", return_value=mock), \
+             patch("isaac.nodes.perception.fast_classify", return_value=(None, 0.0)):
             result = perception_node(state)
 
         # Should degrade gracefully
@@ -73,7 +74,7 @@ class TestPerceptionNode:
             '"hypothesis": "fill and submit the login form", '
             '"task_mode": "computer_use"}'
         )
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_perception_llm", return_value=mock):
             result = perception_node(state)
 
         assert result["current_phase"] == "perception"
@@ -101,7 +102,7 @@ class TestPerceptionNode:
             '"hypothesis": "click submit", '
             '"task_mode": "computer_use"}'
         )
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_perception_llm", return_value=mock):
             result = perception_node(state)
 
         wm: WorldModel = result["world_model"]
@@ -121,7 +122,8 @@ class TestPerceptionNode:
         ]
 
         mock = MockLLM('{"observations": ["run tests requested"], "hypothesis": "run tests"}')
-        with patch("isaac.llm.provider.get_llm", return_value=mock):
+        with patch("isaac.llm.provider.get_perception_llm", return_value=mock), \
+             patch("isaac.nodes.perception.fast_classify", return_value=(None, 0.0)):
             result = perception_node(state)
 
         assert result["current_phase"] == "perception"

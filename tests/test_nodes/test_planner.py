@@ -70,7 +70,7 @@ class TestPlannerNode:
         assert result["plan"][0].status == "active"
         assert result["plan"][1].status == "pending"
 
-    def test_no_deps_first_step_active(self) -> None:
+    def test_no_deps_all_independent_steps_active(self) -> None:
         state = make_initial_state()
         state["hypothesis"] = "simple"
 
@@ -83,9 +83,10 @@ class TestPlannerNode:
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             result = planner_node(state)
 
-        # Only the first pending step without unmet deps should be activated
+        # PlanDAG.activate_ready() fans out: every dependency-free step is
+        # activated in parallel so independent work can run concurrently.
         assert result["plan"][0].status == "active"
-        assert result["plan"][1].status == "pending"
+        assert result["plan"][1].status == "active"
 
     # ------------------------------------------------------------------
     # Episodic context injection
