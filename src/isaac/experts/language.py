@@ -38,9 +38,21 @@ class LanguageExpert(Expert):
         if not q:
             return 0.0
         score = self.BASE_CONFIDENCE
-        for kw in ("hello", "hi ", "thanks", "explain", "summarise", "summarize",
-                   "what is", "who is", "describe", "tell me", "why ", "how do",
-                   "translate"):
+        for kw in (
+            "hello",
+            "hi ",
+            "thanks",
+            "explain",
+            "summarise",
+            "summarize",
+            "what is",
+            "who is",
+            "describe",
+            "tell me",
+            "why ",
+            "how do",
+            "translate",
+        ):
             if kw in q:
                 score = max(score, 0.7)
                 break
@@ -67,8 +79,10 @@ class LanguageExpert(Expert):
         # Heuristic confidence: lower if the model hedged
         confidence = 0.7
         lowered = text.lower()
-        if any(s in lowered for s in ("i'm not sure", "i am not sure", "i don't know",
-                                      "uncertain", "as an ai")):
+        if any(
+            s in lowered
+            for s in ("i'm not sure", "i am not sure", "i don't know", "uncertain", "as an ai")
+        ):
             confidence = 0.45
 
         return ExpertResponse(

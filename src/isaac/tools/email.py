@@ -59,7 +59,10 @@ class EmailReadTool(IsaacTool):
         if not cfg.get("imap_host") or not cfg.get("username"):
             return ToolResult(
                 success=False,
-                error="Email IMAP settings are not configured. Set EMAIL_IMAP_HOST, EMAIL_USERNAME, EMAIL_PASSWORD.",
+                error=(
+                    "Email IMAP settings are not configured. "
+                    "Set EMAIL_IMAP_HOST, EMAIL_USERNAME, EMAIL_PASSWORD."
+                ),
             )
 
         folder: str = kwargs.get("folder", "INBOX")

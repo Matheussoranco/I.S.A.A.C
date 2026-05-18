@@ -7,7 +7,7 @@ Strips scripts, styles, and returns clean readable text (max 10k chars).
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -19,7 +19,7 @@ class WebFetchConnector(BaseConnector):
 
     name = "web_fetch"
     description = "Fetch a URL and extract its readable text content (max 10k chars)."
-    requires_env: list[str] = []
+    requires_env: ClassVar[list[str]] = []
 
     _MAX_TEXT_LENGTH = 10_000
 
@@ -54,7 +54,7 @@ class WebFetchConnector(BaseConnector):
         }
 
         if not extract_text:
-            result["text"] = resp.text[:self._MAX_TEXT_LENGTH]
+            result["text"] = resp.text[: self._MAX_TEXT_LENGTH]
             result["title"] = ""
             return result
 
@@ -73,13 +73,13 @@ class WebFetchConnector(BaseConnector):
             text = soup.get_text(separator="\n", strip=True)
             # Collapse multiple blank lines
             lines = [line for line in text.splitlines() if line.strip()]
-            clean_text = "\n".join(lines)[:self._MAX_TEXT_LENGTH]
+            clean_text = "\n".join(lines)[: self._MAX_TEXT_LENGTH]
 
             result["title"] = title
             result["text"] = clean_text
         except ImportError:
             # No BS4 — return raw text
             result["title"] = ""
-            result["text"] = resp.text[:self._MAX_TEXT_LENGTH]
+            result["text"] = resp.text[: self._MAX_TEXT_LENGTH]
 
         return result

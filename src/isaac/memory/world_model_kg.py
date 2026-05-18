@@ -120,7 +120,9 @@ class WorldModelKG:
         elif direction == "in":
             return list(self._graph.predecessors(node_id))
         else:
-            return list(set(self._graph.successors(node_id)) | set(self._graph.predecessors(node_id)))
+            return list(
+                set(self._graph.successors(node_id)) | set(self._graph.predecessors(node_id))
+            )
 
     def subgraph(self, node_ids: list[str]) -> nx.DiGraph:
         """Return the induced subgraph for the given nodes."""
@@ -135,10 +137,7 @@ class WorldModelKG:
 
     def find_by_kind(self, kind: str) -> list[str]:
         """Return all node IDs of a given kind."""
-        return [
-            n for n, d in self._graph.nodes(data=True)
-            if d.get("kind") == kind
-        ]
+        return [n for n, d in self._graph.nodes(data=True) if d.get("kind") == kind]
 
     def to_context_string(self, max_nodes: int = 50) -> str:
         """Serialise the KG into a compact text block for LLM prompts."""
@@ -149,12 +148,14 @@ class WorldModelKG:
             kind = data.get("kind", "?")
             lines.append(f"  [{kind}] {node_id}: {label}")
 
-        edges_list = list(self._graph.edges(data=True))[:max_nodes * 2]
+        edges_list = list(self._graph.edges(data=True))[: max_nodes * 2]
         for src, tgt, data in edges_list:
             rel = data.get("relation", "->")
             lines.append(f"  {src} --{rel}--> {tgt}")
 
-        return f"WorldModel KG ({self._graph.number_of_nodes()} nodes, {self._graph.number_of_edges()} edges):\n" + "\n".join(lines)
+        n_nodes = self._graph.number_of_nodes()
+        n_edges = self._graph.number_of_edges()
+        return f"WorldModel KG ({n_nodes} nodes, {n_edges} edges):\n" + "\n".join(lines)
 
     @property
     def node_count(self) -> int:
@@ -172,11 +173,20 @@ class WorldModelKG:
         """Import data from the flat WorldModel into the KG."""
         # Files
         for path, summary in wm.files.items():
-            self.add_node(KGNode(id=f"file:{path}", label=path, kind="file", properties={"summary": summary}))
+            self.add_node(
+                KGNode(id=f"file:{path}", label=path, kind="file", properties={"summary": summary})
+            )
 
         # Resources
         for key, value in wm.resources.items():
-            self.add_node(KGNode(id=f"resource:{key}", label=key, kind="resource", properties={"value": str(value)[:200]}))
+            self.add_node(
+                KGNode(
+                    id=f"resource:{key}",
+                    label=key,
+                    kind="resource",
+                    properties={"value": str(value)[:200]},
+                )
+            )
 
         # Constraints
         for i, constraint in enumerate(wm.constraints):
@@ -220,7 +230,9 @@ class WorldModelKG:
             for row in conn.execute("SELECT id, label, kind, properties FROM nodes"):
                 props = json.loads(row[3]) if row[3] else {}
                 self._graph.add_node(row[0], label=row[1], kind=row[2], **props)
-            for row in conn.execute("SELECT source, target, relation, weight, properties FROM edges"):
+            for row in conn.execute(
+                "SELECT source, target, relation, weight, properties FROM edges"
+            ):
                 props = json.loads(row[4]) if row[4] else {}
                 self._graph.add_edge(row[0], row[1], relation=row[2], weight=row[3], **props)
         finally:
@@ -245,8 +257,16 @@ class WorldModelKG:
         conn = sqlite3.connect(str(self._db_path))
         try:
             conn.execute(
-                "INSERT OR REPLACE INTO edges (source, target, relation, weight, properties) VALUES (?, ?, ?, ?, ?)",
-                (edge.source, edge.target, edge.relation, edge.weight, json.dumps(edge.properties)),
+                "INSERT OR REPLACE INTO edges "
+                "(source, target, relation, weight, properties) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    edge.source,
+                    edge.target,
+                    edge.relation,
+                    edge.weight,
+                    json.dumps(edge.properties),
+                ),
             )
             conn.commit()
         finally:
@@ -277,6 +297,7 @@ def get_world_model_kg() -> WorldModelKG:
     if _instance is None:
         try:
             from isaac.config.settings import get_settings
+
             persist_dir = get_settings().isaac_home / "memory"
         except Exception:
             persist_dir = None

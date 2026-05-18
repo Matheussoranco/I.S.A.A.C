@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Iterable
+from collections.abc import Iterable
 
 from isaac.experts.base import Expert
 
@@ -62,6 +62,7 @@ def register_default_experts(registry: ExpertRegistry) -> None:
     # Language expert is mandatory — wraps the local LLM.
     try:
         from isaac.experts.language import LanguageExpert
+
         registry.register(LanguageExpert())
     except Exception as exc:
         logger.error("Failed to register LanguageExpert: %s", exc)

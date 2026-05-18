@@ -20,16 +20,14 @@ import hashlib
 import json
 import logging
 import threading
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-AuditCategory = Literal[
-    "auth", "tool", "approval", "guard", "sandbox", "system"
-]
+AuditCategory = Literal["auth", "tool", "approval", "guard", "sandbox", "system"]
 
 _GENESIS_HASH = "0" * 64
 
@@ -48,7 +46,8 @@ class AuditEntry:
 
     def compute_hash(self) -> str:
         """Compute SHA-256 over (prev_hash + timestamp + category + action + details)."""
-        payload = f"{self.prev_hash}|{self.timestamp}|{self.category}|{self.action}|{json.dumps(self.details, sort_keys=True)}"
+        details_json = json.dumps(self.details, sort_keys=True)
+        payload = f"{self.prev_hash}|{self.timestamp}|{self.category}|{self.action}|{details_json}"
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -65,6 +64,7 @@ class AuditLog:
         if log_dir is None:
             try:
                 from isaac.config.settings import get_settings
+
                 log_dir = get_settings().isaac_home / "audit"
             except Exception:
                 log_dir = Path.home() / ".isaac" / "audit"
@@ -149,7 +149,7 @@ class AuditLog:
         count = 0
 
         try:
-            with open(self._log_path, "r", encoding="utf-8") as f:
+            with open(self._log_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -191,7 +191,7 @@ class AuditLog:
 
         entries: list[AuditEntry] = []
         try:
-            with open(self._log_path, "r", encoding="utf-8") as f:
+            with open(self._log_path, encoding="utf-8") as f:
                 lines = f.readlines()
             for line in lines[-n:]:
                 line = line.strip()

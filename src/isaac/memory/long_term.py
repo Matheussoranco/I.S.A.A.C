@@ -10,7 +10,6 @@ after every N interactions (configurable via settings).
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 import uuid
@@ -34,6 +33,7 @@ class LongTermMemory:
         if db_path is None:
             try:
                 from isaac.config.settings import settings
+
                 db_path = Path(settings.memory_db_path).expanduser()
             except Exception:
                 db_path = Path.home() / ".isaac" / "memory.db"
@@ -65,7 +65,7 @@ class LongTermMemory:
     def __del__(self) -> None:
         self.close()
 
-    def __enter__(self) -> "LongTermMemory":
+    def __enter__(self) -> LongTermMemory:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -154,7 +154,10 @@ class LongTermMemory:
 
         logger.debug(
             "LongTermMemory: remembered [%s] (type=%s, importance=%.2f) id=%s",
-            preview[:60], type, importance, memory_id,
+            preview[:60],
+            type,
+            importance,
+            memory_id,
         )
         return memory_id
 
@@ -205,7 +208,9 @@ class LongTermMemory:
         now = datetime.now(tz=timezone.utc).isoformat()
         for mem in results:
             self._conn.execute(
-                "UPDATE memories SET access_count = access_count + 1, last_accessed = ? WHERE id = ?",
+                "UPDATE memories "
+                "SET access_count = access_count + 1, last_accessed = ? "
+                "WHERE id = ?",
                 (now, mem["id"]),
             )
         if results:
@@ -318,6 +323,7 @@ class LongTermMemory:
         """Consolidate if interaction count has reached the threshold."""
         try:
             from isaac.config.settings import settings
+
             interval = settings.memory_consolidation_interval
         except Exception:
             interval = 10
@@ -355,7 +361,7 @@ _instance: LongTermMemory | None = None
 
 def get_long_term_memory() -> LongTermMemory:
     """Return the singleton LongTermMemory instance."""
-    global _instance  # noqa: PLW0603
+    global _instance
     if _instance is None:
         _instance = LongTermMemory()
     return _instance
@@ -363,7 +369,7 @@ def get_long_term_memory() -> LongTermMemory:
 
 def reset_long_term_memory() -> None:
     """Reset the singleton (used in tests)."""
-    global _instance  # noqa: PLW0603
+    global _instance
     if _instance is not None:
         _instance.close()
     _instance = None

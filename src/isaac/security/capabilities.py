@@ -12,14 +12,12 @@ The token store persists to ``~/.isaac/security/tokens.json``.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import secrets
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +71,7 @@ class TokenStore:
         if store_path is None:
             try:
                 from isaac.config.settings import get_settings
+
                 store_path = get_settings().isaac_home / "security" / "tokens.json"
             except Exception:
                 store_path = Path.home() / ".isaac" / "security" / "tokens.json"
@@ -124,6 +123,7 @@ class TokenStore:
         # Audit
         try:
             from isaac.security.audit import audit
+
             audit(
                 "auth",
                 "token_issued",
@@ -133,7 +133,9 @@ class TokenStore:
         except Exception:
             pass
 
-        logger.info("Issued token %s for tool '%s' (ttl=%dh).", token.token_id[:8], tool_name, ttl_hours)
+        logger.info(
+            "Issued token %s for tool '%s' (ttl=%dh).", token.token_id[:8], tool_name, ttl_hours
+        )
         return token
 
     def check(self, token_id: str, tool_name: str, action: str = "*") -> bool:
@@ -151,10 +153,16 @@ class TokenStore:
         # Audit
         try:
             from isaac.security.audit import audit
+
             audit(
                 "auth",
                 "token_used",
-                details={"token_id": token_id, "tool": tool_name, "action": action, "uses": token.use_count},
+                details={
+                    "token_id": token_id,
+                    "tool": tool_name,
+                    "action": action,
+                    "uses": token.use_count,
+                },
             )
         except Exception:
             pass
@@ -172,6 +180,7 @@ class TokenStore:
 
         try:
             from isaac.security.audit import audit
+
             audit("auth", "token_revoked", actor=revoked_by, details={"token_id": token_id})
         except Exception:
             pass

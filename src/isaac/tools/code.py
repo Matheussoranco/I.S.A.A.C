@@ -61,12 +61,12 @@ class CodeTool(IsaacTool):
     async def _generate(self, task: str) -> ToolResult:
         """Use the LLM to generate Python code for the task."""
         try:
-            from isaac.llm.router import get_router, TaskComplexity
+            from isaac.llm.router import TaskComplexity, get_router
 
             router = get_router()
             llm = router.route(TaskComplexity.MODERATE)
 
-            from langchain_core.messages import SystemMessage, HumanMessage
+            from langchain_core.messages import HumanMessage, SystemMessage
 
             messages = [
                 SystemMessage(
@@ -87,7 +87,7 @@ class CodeTool(IsaacTool):
             # Strip markdown fences if LLM included them
             if code_text.startswith("```"):
                 lines = code_text.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
+                lines = [ln for ln in lines if not ln.strip().startswith("```")]
                 code_text = "\n".join(lines)
 
             return ToolResult(success=True, output=code_text)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -25,11 +25,12 @@ class FileSystemConnector(BaseConnector):
         "Read, write, list, and search files on the local filesystem. "
         "Operations are restricted to user-configured allowed paths."
     )
-    requires_env: list[str] = []
+    requires_env: ClassVar[list[str]] = []
 
     def __init__(self) -> None:
         try:
             from isaac.config.settings import settings
+
             self._allowed: list[Path] = [
                 Path(p).expanduser().resolve() for p in settings.allowed_paths
             ]
@@ -55,9 +56,7 @@ class FileSystemConnector(BaseConnector):
                 return resolved
             except ValueError:
                 continue
-        raise PermissionError(
-            f"Path {resolved} is outside allowed directories: {self._allowed}"
-        )
+        raise PermissionError(f"Path {resolved} is outside allowed directories: {self._allowed}")
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
         """Execute a filesystem operation.
@@ -127,11 +126,13 @@ class FileSystemConnector(BaseConnector):
                 return {"error": f"Not a directory: {path}"}
             entries: list[dict[str, Any]] = []
             for entry in sorted(validated.iterdir()):
-                entries.append({
-                    "name": entry.name,
-                    "is_dir": entry.is_dir(),
-                    "size": entry.stat().st_size if entry.is_file() else 0,
-                })
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "is_dir": entry.is_dir(),
+                        "size": entry.stat().st_size if entry.is_file() else 0,
+                    }
+                )
             return {"path": str(validated), "entries": entries}
         except PermissionError as exc:
             return {"error": str(exc)}

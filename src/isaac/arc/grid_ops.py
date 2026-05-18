@@ -48,7 +48,7 @@ class GridObject:
     def as_subgrid(self, grid: Grid) -> Grid:
         """Extract the bounding-box crop from the full grid."""
         r1, c1, r2, c2 = self.bbox
-        return grid[r1: r2 + 1, c1: c2 + 1].copy()
+        return grid[r1 : r2 + 1, c1 : c2 + 1].copy()
 
 
 @dataclass
@@ -75,7 +75,7 @@ class GridAnalysis:
 def extract_colours(grid: Grid) -> dict[int, int]:
     """Return a map of colour → count."""
     unique, counts = np.unique(grid, return_counts=True)
-    return dict(zip(unique.tolist(), counts.tolist()))
+    return dict(zip(unique.tolist(), counts.tolist(), strict=False))
 
 
 def detect_background(grid: Grid) -> int:
@@ -108,17 +108,26 @@ def extract_objects(grid: Grid, background: int = 0) -> list[GridObject]:
                 cells.append((cr, cc))
                 for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                     nr, nc = cr + dr, cc + dc
-                    if 0 <= nr < h and 0 <= nc < w and not visited[nr, nc]:
-                        if grid[nr, nc] == colour:
-                            visited[nr, nc] = True
-                            stack.append((nr, nc))
+                    if (
+                        0 <= nr < h
+                        and 0 <= nc < w
+                        and not visited[nr, nc]
+                        and grid[nr, nc] == colour
+                    ):
+                        visited[nr, nc] = True
+                        stack.append((nr, nc))
 
             rows = [cell[0] for cell in cells]
             cols = [cell[1] for cell in cells]
             bbox = (min(rows), min(cols), max(rows), max(cols))
-            objects.append(GridObject(
-                id=obj_id, colour=colour, cells=cells, bbox=bbox,
-            ))
+            objects.append(
+                GridObject(
+                    id=obj_id,
+                    colour=colour,
+                    cells=cells,
+                    bbox=bbox,
+                )
+            )
             obj_id += 1
 
     return objects
@@ -147,7 +156,7 @@ def detect_repeating_pattern(grid: Grid) -> bool:
             is_tiled = True
             for r in range(0, h, ph):
                 for c in range(0, w, pw):
-                    if not np.array_equal(grid[r:r + ph, c:c + pw], tile):
+                    if not np.array_equal(grid[r : r + ph, c : c + pw], tile):
                         is_tiled = False
                         break
                 if not is_tiled:
@@ -199,13 +208,15 @@ def grid_diff(input_grid: Grid, output_grid: Grid) -> dict[str, Any]:
     changed_cells: list[dict[str, Any]] = []
     if input_grid.shape == output_grid.shape:
         diff_mask = input_grid != output_grid
-        for r, c in zip(*np.where(diff_mask)):
-            changed_cells.append({
-                "row": int(r),
-                "col": int(c),
-                "from": int(input_grid[r, c]),
-                "to": int(output_grid[r, c]),
-            })
+        for r, c in zip(*np.where(diff_mask), strict=False):
+            changed_cells.append(
+                {
+                    "row": int(r),
+                    "col": int(c),
+                    "from": int(input_grid[r, c]),
+                    "to": int(output_grid[r, c]),
+                }
+            )
 
     return {
         "input": {
@@ -225,13 +236,13 @@ def grid_diff(input_grid: Grid, output_grid: Grid) -> dict[str, Any]:
         "changed_cells": changed_cells[:50],  # cap for prompt injection
         "colour_changes": {
             "added": sorted(set(output_analysis.colour_counts) - set(input_analysis.colour_counts)),
-            "removed": sorted(set(input_analysis.colour_counts) - set(output_analysis.colour_counts)),
+            "removed": sorted(
+                set(input_analysis.colour_counts) - set(output_analysis.colour_counts)
+            ),
         },
     }
 
 
 def format_grid_for_prompt(grid: Grid) -> str:
     """Render a grid as a compact string for LLM prompt injection."""
-    return "\n".join(
-        " ".join(str(int(cell)) for cell in row) for row in grid
-    )
+    return "\n".join(" ".join(str(int(cell)) for cell in row) for row in grid)

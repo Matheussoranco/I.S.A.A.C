@@ -39,6 +39,7 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     # Sync WorldModel into the knowledge graph so Planner/Reflection can query it
     try:
         from isaac.memory.manager import get_memory_manager
+
         get_memory_manager().sync_kg_from_world_model(world_model)
     except Exception:
         logger.debug("Planner: KG sync failed — continuing.", exc_info=True)
@@ -55,7 +56,11 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
 
     # Call LLM
     prompt = planner_prompt(
-        world_model, hypothesis, errors, available_skills, episodic_context,
+        world_model,
+        hypothesis,
+        errors,
+        available_skills,
+        episodic_context,
         completed_descriptions=completed_descriptions,
     )
     response = llm.invoke(prompt)
@@ -101,6 +106,7 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     # Build a Graph-of-Thought DAG and activate all dependency-satisfied steps
     # simultaneously (fan-out parallelism when multiple steps are independent).
     from isaac.nodes.got_planner import PlanDAG
+
     dag = PlanDAG(steps=all_steps)
     activated = dag.activate_ready()
 
@@ -111,8 +117,12 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     logger.info(
         "Planner: %d total steps (%d preserved done, %d new), "
         "%d activated now, critical_path=%s, iteration=%d",
-        len(all_steps), len(completed_steps), len(steps),
-        len(activated), critical_path, iteration,
+        len(all_steps),
+        len(completed_steps),
+        len(steps),
+        len(activated),
+        critical_path,
+        iteration,
     )
 
     return {

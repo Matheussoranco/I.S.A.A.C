@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 def is_capture_available() -> bool:
     try:
         import mss  # noqa: F401
+
         return True
     except ImportError:
         pass
     try:
         from PIL import ImageGrab  # noqa: F401
+
         return True
     except ImportError:
         return False

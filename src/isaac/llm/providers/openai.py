@@ -14,7 +14,7 @@ def build(
     base_url: str = "",
     temperature: float = 0.2,
     max_tokens: int | None = None,
-    vision: bool = False,  # noqa: ARG001
+    vision: bool = False,
     **extra: Any,
 ) -> BaseChatModel:
     from langchain_openai import ChatOpenAI

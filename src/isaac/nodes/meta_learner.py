@@ -15,7 +15,6 @@ What it does
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 from isaac.core.state import IsaacState
@@ -87,7 +86,9 @@ def meta_learner_node(state: IsaacState) -> dict[str, Any]:
 
     logger.debug(
         "MetaLearner: task_type=%s strategy=%s success=%s",
-        task_type, strategy, success,
+        task_type,
+        strategy,
+        success,
     )
 
     return {

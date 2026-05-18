@@ -19,7 +19,6 @@ import json
 import logging
 import os
 import threading
-import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,9 +44,7 @@ class CronTask:
     enabled: bool = True
     last_run: str = ""  # ISO datetime
     last_status: str = ""  # "ok" | "error" | ""
-    created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 def _task_from_dict(d: dict[str, Any]) -> CronTask:

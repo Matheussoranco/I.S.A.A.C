@@ -115,7 +115,7 @@ class Expert(abc.ABC):
                 error=f"not_applicable: {exc}",
                 elapsed_ms=(time.perf_counter() - t0) * 1000.0,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ExpertResponse(
                 expert=self.name,
                 answer="",

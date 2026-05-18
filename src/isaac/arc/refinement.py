@@ -102,13 +102,11 @@ def _diagnose_pair(
 
     if actual.shape != expected.shape:
         failure.shape_mismatch = True
-        failure.error = (
-            f"Shape mismatch: got {actual.shape}, expected {expected.shape}"
-        )
+        failure.error = f"Shape mismatch: got {actual.shape}, expected {expected.shape}"
         return failure
 
     diff_mask = actual != expected
-    wrong_positions = list(zip(*np.where(diff_mask)))
+    wrong_positions = list(zip(*np.where(diff_mask), strict=False))
     failure.n_wrong_cells = len(wrong_positions)
     failure.wrong_cells = [
         {
@@ -168,7 +166,7 @@ def _load_solve_fn(code: str) -> Any | None:
     """Compile and return the solve() function from a code string."""
     namespace: dict[str, Any] = {"np": np, "numpy": np}
     try:
-        exec(code, namespace)  # noqa: S102
+        exec(code, namespace)
         return namespace.get("solve")
     except Exception:
         return None
@@ -313,7 +311,9 @@ def arc_self_refine(
 
     logger.info(
         "ARC self-refine start: %.0f%% training accuracy, %d/%d fail",
-        acc * 100, len(failures), len(task.train),
+        acc * 100,
+        len(failures),
+        len(task.train),
     )
 
     if acc == 1.0:
@@ -346,9 +346,7 @@ def arc_self_refine(
         try:
             response = llm.invoke(prompt)
             content = (
-                response.content
-                if isinstance(response.content, str)
-                else str(response.content)
+                response.content if isinstance(response.content, str) else str(response.content)
             )
         except Exception as exc:
             logger.warning("ARC self-refine: LLM call failed: %s", exc)
@@ -369,7 +367,9 @@ def arc_self_refine(
 
         logger.info(
             "ARC self-refine iter %d: %.0f%% accuracy (%+.0f%%)",
-            iteration, new_acc * 100, (new_acc - best_acc) * 100,
+            iteration,
+            new_acc * 100,
+            (new_acc - best_acc) * 100,
         )
 
         if new_acc > best_acc:

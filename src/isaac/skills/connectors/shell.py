@@ -11,7 +11,7 @@ import os
 import re
 import subprocess
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -54,7 +54,7 @@ class ShellConnector(BaseConnector):
         "Execute allow-listed shell commands with timeout protection. "
         "Blocks pipes, redirections, and dangerous metacharacters."
     )
-    requires_env: list[str] = []
+    requires_env: ClassVar[list[str]] = []
 
     def _allowed_commands(self) -> frozenset[str]:
         """Return the set of allowed commands."""

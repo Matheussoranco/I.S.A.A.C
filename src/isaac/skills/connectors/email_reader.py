@@ -11,7 +11,7 @@ import email
 import email.utils
 import imaplib
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -26,7 +26,7 @@ class EmailConnector(BaseConnector):
         "Read-only IMAP email access.  List, read, and search messages. "
         "Requires EMAIL_IMAP_HOST, EMAIL_USER, and EMAIL_PASSWORD."
     )
-    requires_env: list[str] = ["EMAIL_IMAP_HOST", "EMAIL_USER", "EMAIL_PASSWORD"]
+    requires_env: ClassVar[list[str]] = ["EMAIL_IMAP_HOST", "EMAIL_USER", "EMAIL_PASSWORD"]
 
     def _connect(self) -> imaplib.IMAP4_SSL:
         import os

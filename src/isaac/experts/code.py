@@ -16,12 +16,35 @@ from isaac.experts.base import Expert, ExpertResponse
 logger = logging.getLogger(__name__)
 
 _CODE_KEYWORDS = (
-    "function", "class", "method", "loop", "regex", "implement",
-    "refactor", "debug", "stack trace", "exception", "import",
-    "compile", "lint", "type check", "snippet", "algorithm",
+    "function",
+    "class",
+    "method",
+    "loop",
+    "regex",
+    "implement",
+    "refactor",
+    "debug",
+    "stack trace",
+    "exception",
+    "import",
+    "compile",
+    "lint",
+    "type check",
+    "snippet",
+    "algorithm",
 )
-_CODE_LANG_HINTS = ("python", "javascript", "typescript", "rust", "go ",
-                    "c++", "c#", "java", "bash", "shell")
+_CODE_LANG_HINTS = (
+    "python",
+    "javascript",
+    "typescript",
+    "rust",
+    "go ",
+    "c++",
+    "c#",
+    "java",
+    "bash",
+    "shell",
+)
 
 
 class CodeExpert(Expert):
@@ -90,6 +113,7 @@ class CodeExpert(Expert):
         """Look up a matching skill in the persistent library."""
         try:
             from isaac.memory.skill_library import get_skill_library
+
             lib = get_skill_library()
             results = lib.search(query, top_k=1)
             if results:

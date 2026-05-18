@@ -62,8 +62,7 @@ def compute_object_signature(obj: GridObject) -> ObjectSignature:
     # Normalised binary mask
     cells_set = set(obj.cells)
     mask = tuple(
-        tuple(1 if (r1 + dr, c1 + dc) in cells_set else 0 for dc in range(w))
-        for dr in range(h)
+        tuple(1 if (r1 + dr, c1 + dc) in cells_set else 0 for dc in range(w)) for dr in range(h)
     )
 
     # Rectangle test: all cells in bbox present
@@ -75,12 +74,11 @@ def compute_object_signature(obj: GridObject) -> ObjectSignature:
     is_diag = False
     if not is_hline and not is_vline and h == w:
         # Check main or anti diagonal
-        is_diag = all((r1 + i, c1 + i) in cells_set for i in range(h)) or \
-                  all((r1 + i, c2 - i) in cells_set for i in range(h))
+        is_diag = all((r1 + i, c1 + i) in cells_set for i in range(h)) or all(
+            (r1 + i, c2 - i) in cells_set for i in range(h)
+        )
     line_dir = (
-        "horizontal" if is_hline else
-        "vertical" if is_vline else
-        "diagonal" if is_diag else "none"
+        "horizontal" if is_hline else "vertical" if is_vline else "diagonal" if is_diag else "none"
     )
 
     rows = [cell[0] for cell in obj.cells]
@@ -133,7 +131,7 @@ def group_objects_by_shape(
     sigs = [compute_object_signature(o) for o in objects]
     groups: list[list[GridObject]] = []
     used = [False] * len(objects)
-    for i, (obj_i, sig_i) in enumerate(zip(objects, sigs)):
+    for i, (obj_i, sig_i) in enumerate(zip(objects, sigs, strict=False)):
         if used[i]:
             continue
         group = [obj_i]
@@ -254,7 +252,12 @@ def detect_enclosed_regions(grid: Grid, background: int = 0) -> list[list[tuple[
                     region.append((cr, cc))
                     for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                         nr, nc = cr + dr, cc + dc
-                        if 0 <= nr < h and 0 <= nc < w and not visited[nr, nc] and enclosed_mask[nr, nc]:
+                        if (
+                            0 <= nr < h
+                            and 0 <= nc < w
+                            and not visited[nr, nc]
+                            and enclosed_mask[nr, nc]
+                        ):
                             visited[nr, nc] = True
                             region_stack.append((nr, nc))
                 regions.append(region)
@@ -278,12 +281,10 @@ def count_objects_by_colour(grid: Grid, background: int = 0) -> dict[int, int]:
 def count_cells_by_colour(grid: Grid) -> dict[int, int]:
     """Return {colour: number_of_cells} mapping."""
     unique, cnts = np.unique(grid, return_counts=True)
-    return {int(u): int(c) for u, c in zip(unique, cnts)}
+    return {int(u): int(c) for u, c in zip(unique, cnts, strict=False)}
 
 
-def infer_colour_correspondence(
-    in_grid: Grid, out_grid: Grid
-) -> dict[int, int] | None:
+def infer_colour_correspondence(in_grid: Grid, out_grid: Grid) -> dict[int, int] | None:
     """Infer a bijective colour mapping if a simple recolouring explains the transform."""
     if in_grid.shape != out_grid.shape:
         return None
@@ -292,7 +293,7 @@ def infer_colour_correspondence(
     if len(in_colours) != len(out_colours):
         return None
     mapping: dict[int, int] = {}
-    for in_c, out_c in zip(sorted(in_colours.tolist()), sorted(out_colours.tolist())):
+    for in_c, out_c in zip(sorted(in_colours.tolist()), sorted(out_colours.tolist()), strict=False):
         # Verify the mapping is consistent
         mask = in_grid == in_c
         if not np.all(out_grid[mask] == out_c):
@@ -379,14 +380,16 @@ def find_line_segments(grid: Grid, background: int = 0) -> list[dict[str, Any]]:
                     c += 1
                 length = c - start
                 if length >= 2:
-                    lines.append({
-                        "direction": "horizontal",
-                        "row": r,
-                        "col_start": start,
-                        "col_end": c - 1,
-                        "length": length,
-                        "colour": colour,
-                    })
+                    lines.append(
+                        {
+                            "direction": "horizontal",
+                            "row": r,
+                            "col_start": start,
+                            "col_end": c - 1,
+                            "length": length,
+                            "colour": colour,
+                        }
+                    )
             else:
                 c += 1
 
@@ -401,14 +404,16 @@ def find_line_segments(grid: Grid, background: int = 0) -> list[dict[str, Any]]:
                     r += 1
                 length = r - start
                 if length >= 2:
-                    lines.append({
-                        "direction": "vertical",
-                        "col": col,
-                        "row_start": start,
-                        "row_end": r - 1,
-                        "length": length,
-                        "colour": colour,
-                    })
+                    lines.append(
+                        {
+                            "direction": "vertical",
+                            "col": col,
+                            "row_start": start,
+                            "row_end": r - 1,
+                            "length": length,
+                            "colour": colour,
+                        }
+                    )
             else:
                 r += 1
 
@@ -469,7 +474,7 @@ class PriorAnalysis:
 
 def full_prior_analysis(grid: Grid) -> PriorAnalysis:
     """Run the full suite of core-knowledge priors on *grid*."""
-    from isaac.arc.grid_ops import extract_colours, detect_background
+    from isaac.arc.grid_ops import detect_background, extract_colours
 
     colours = extract_colours(grid)
     bg = detect_background(grid)
@@ -512,7 +517,7 @@ def describe_prior_analysis(analysis: PriorAnalysis) -> list[str]:
     obs.append(f"Unique colours: {sorted(analysis.colour_counts.keys())}")
     obs.append(f"Objects found: {len(analysis.objects)}")
 
-    for obj, sig in zip(analysis.objects, analysis.object_signatures):
+    for obj, sig in zip(analysis.objects, analysis.object_signatures, strict=False):
         desc = (
             f"  Object {obj.id}: colour={obj.colour}, size={sig.size}, "
             f"shape={sig.height}x{sig.width}"
@@ -529,8 +534,10 @@ def describe_prior_analysis(analysis: PriorAnalysis) -> list[str]:
         obs.append(f"Enclosed background regions: {len(analysis.enclosed_regions)}")
 
     if analysis.has_grid_structure:
-        obs.append(f"Grid dividers — rows: {analysis.grid_dividers['rows']}, "
-                   f"cols: {analysis.grid_dividers['cols']}")
+        obs.append(
+            f"Grid dividers — rows: {analysis.grid_dividers['rows']}, "
+            f"cols: {analysis.grid_dividers['cols']}"
+        )
 
     refl = [k for k, v in analysis.reflection_axes.items() if v]
     if refl:

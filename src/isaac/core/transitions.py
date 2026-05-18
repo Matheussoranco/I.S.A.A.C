@@ -215,7 +215,7 @@ def after_guard_multimodal(state: IsaacState) -> str:
         return END
 
     wm = state.get("world_model")
-    attachments = (wm.resources.get("_attachments", []) if wm else [])
+    attachments = wm.resources.get("_attachments", []) if wm else []
     if attachments and not state.get("multimodal_done", False):
         logger.info("Transition: Guard → MultimodalInput (attachments detected).")
         return NODE_MULTIMODAL_INPUT
@@ -232,15 +232,16 @@ def after_planner(state: IsaacState) -> str:
     plan = state.get("plan", [])
     done_ids = {s.id for s in plan if s.status == "done"}
     independent = [
-        s for s in plan
-        if s.status == "pending" and all(dep in done_ids for dep in s.depends_on)
+        s for s in plan if s.status == "pending" and all(dep in done_ids for dep in s.depends_on)
     ]
 
     wm = state.get("world_model")
-    parallel_eligible = (wm.resources.get("_parallel_eligible", False) if wm else False)
+    parallel_eligible = wm.resources.get("_parallel_eligible", False) if wm else False
 
     if parallel_eligible and len(independent) >= 2:
-        logger.info("Transition: Planner → ParallelSynthesis (%d independent steps).", len(independent))
+        logger.info(
+            "Transition: Planner → ParallelSynthesis (%d independent steps).", len(independent)
+        )
         return NODE_PARALLEL_SYNTHESIS
 
     logger.info("Transition: Planner → Synthesis (sequential).")

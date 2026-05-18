@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,17 +48,17 @@ class SkillCurator:
 
     def decide(self, skill_name: str, runs: int, success_rate: float) -> CurationDecision:
         if runs >= self.promote_runs and success_rate >= self.promote_threshold:
-            return CurationDecision(
-                skill_name, "promote",
-                f"runs={runs} ≥ {self.promote_runs}, sr={success_rate:.2f} ≥ {self.promote_threshold}",
-                runs, success_rate,
+            reason = (
+                f"runs={runs} ≥ {self.promote_runs}, "
+                f"sr={success_rate:.2f} ≥ {self.promote_threshold}"
             )
+            return CurationDecision(skill_name, "promote", reason, runs, success_rate)
         if runs >= self.deprecate_runs and success_rate < self.deprecate_threshold:
-            return CurationDecision(
-                skill_name, "deprecate",
-                f"runs={runs} ≥ {self.deprecate_runs}, sr={success_rate:.2f} < {self.deprecate_threshold}",
-                runs, success_rate,
+            reason = (
+                f"runs={runs} ≥ {self.deprecate_runs}, "
+                f"sr={success_rate:.2f} < {self.deprecate_threshold}"
             )
+            return CurationDecision(skill_name, "deprecate", reason, runs, success_rate)
         return CurationDecision(skill_name, "noop", "below thresholds", runs, success_rate)
 
     def curate_all(self) -> list[CurationDecision]:
@@ -83,15 +82,20 @@ class SkillCurator:
                 if hasattr(proc, "set_status"):
                     proc.set_status(s.skill_name, decision.action, reason=decision.reason)
                 elif hasattr(proc, "annotate"):
-                    proc.annotate(s.skill_name, {
-                        "status": decision.action,
-                        "curated_at": time.time(),
-                        "reason": decision.reason,
-                    })
+                    proc.annotate(
+                        s.skill_name,
+                        {
+                            "status": decision.action,
+                            "curated_at": time.time(),
+                            "reason": decision.reason,
+                        },
+                    )
                 decisions.append(decision)
                 logger.info(
                     "Curator: %s '%s' (%s)",
-                    decision.action, s.skill_name, decision.reason,
+                    decision.action,
+                    s.skill_name,
+                    decision.reason,
                 )
             except Exception as exc:  # pragma: no cover
                 logger.warning("Curator: failed to mark %s: %s", s.skill_name, exc)

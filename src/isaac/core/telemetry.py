@@ -20,7 +20,8 @@ from __future__ import annotations
 import functools
 import logging
 import time
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,10 @@ def track_node(node_name: str) -> Callable[[F], F]:
             finally:
                 try:
                     from isaac.improvement.performance import get_tracker
+
                     duration_ms = (time.monotonic() - start) * 1000.0
                     iteration = int(state.get("iteration", 0)) if isinstance(state, dict) else 0
-                    session_id = (
-                        str(state.get("session_id", "")) if isinstance(state, dict) else ""
-                    )
+                    session_id = str(state.get("session_id", "")) if isinstance(state, dict) else ""
                     get_tracker().record_node(
                         node=node_name,
                         duration_ms=duration_ms,
@@ -84,6 +84,7 @@ def track_skill(skill_name: str) -> Callable[[F], F]:
             finally:
                 try:
                     from isaac.improvement.performance import get_tracker
+
                     duration_ms = (time.monotonic() - start) * 1000.0
                     get_tracker().record_skill(
                         skill_name=skill_name,

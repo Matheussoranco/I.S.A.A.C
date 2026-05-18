@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -24,7 +24,7 @@ class ObsidianConnector(BaseConnector):
         "Access a local Obsidian vault: read, write, search, and list markdown notes. "
         "Requires OBSIDIAN_VAULT_PATH."
     )
-    requires_env: list[str] = ["OBSIDIAN_VAULT_PATH"]
+    requires_env: ClassVar[list[str]] = ["OBSIDIAN_VAULT_PATH"]
 
     def _vault_root(self) -> Path:
         return Path(os.environ["OBSIDIAN_VAULT_PATH"]).resolve()

@@ -19,8 +19,8 @@ from typing import Any
 
 import numpy as np
 
-from isaac.arc.dsl import PRIMITIVES, apply_program, compose
-from isaac.arc.grid_ops import Grid, analyse_grid, format_grid_for_prompt, grid_diff
+from isaac.arc.dsl import PRIMITIVES, compose
+from isaac.arc.grid_ops import Grid, format_grid_for_prompt, grid_diff
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +111,14 @@ def load_tasks(path: Path) -> list[ArcTask]:
             )
             for p in item.get("test", [])
         ]
-        tasks.append(ArcTask(
-            id=item.get("id", f"task_{len(tasks)}"),
-            train=train_pairs,
-            test=test_pairs,
-            description=item.get("description", ""),
-        ))
+        tasks.append(
+            ArcTask(
+                id=item.get("id", f"task_{len(tasks)}"),
+                train=train_pairs,
+                test=test_pairs,
+                description=item.get("description", ""),
+            )
+        )
     logger.info("Loaded %d ARC tasks from %s", len(tasks), path)
     return tasks
 
@@ -140,15 +142,12 @@ def _try_single_primitive(
     """Try each single DSL primitive and check if it solves all training pairs."""
     for name, fn in PRIMITIVES.items():
         try:
-            if all(
-                np.array_equal(fn(pair.input), pair.output)
-                for pair in task.train
-            ):
+            if all(np.array_equal(fn(pair.input), pair.output) for pair in task.train):
                 # Verify on test pairs
                 predictions = [fn(pair.input) for pair in task.test]
                 correct = all(
                     np.array_equal(pred, pair.output)
-                    for pred, pair in zip(predictions, task.test)
+                    for pred, pair in zip(predictions, task.test, strict=False)
                 )
                 return TaskResult(
                     task_id=task.id,
@@ -176,14 +175,11 @@ def _try_two_primitive_composition(
             tried += 1
             fn = compose(PRIMITIVES[name_a], PRIMITIVES[name_b])
             try:
-                if all(
-                    np.array_equal(fn(pair.input), pair.output)
-                    for pair in task.train
-                ):
+                if all(np.array_equal(fn(pair.input), pair.output) for pair in task.train):
                     predictions = [fn(pair.input) for pair in task.test]
                     correct = all(
                         np.array_equal(pred, pair.output)
-                        for pred, pair in zip(predictions, task.test)
+                        for pred, pair in zip(predictions, task.test, strict=False)
                     )
                     return TaskResult(
                         task_id=task.id,
@@ -248,12 +244,10 @@ def build_arc_prompt(task: ArcTask) -> str:
 
     # ── Prior + analogy context ──────────────────────────────────────────
     try:
-        from isaac.arc.priors import full_prior_analysis, describe_prior_analysis
-        from isaac.arc.analogy import run_analogy_engine, format_analogy_for_prompt
+        from isaac.arc.analogy import format_analogy_for_prompt, run_analogy_engine
+        from isaac.arc.priors import describe_prior_analysis, full_prior_analysis
 
-        train_dicts = [
-            {"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train
-        ]
+        train_dicts = [{"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train]
         analogy = run_analogy_engine(train_dicts)
         lines.append(format_analogy_for_prompt(analogy))
         lines.append("")
@@ -280,8 +274,10 @@ def build_arc_prompt(task: ArcTask) -> str:
         diff = grid_diff(pair.input, pair.output)
         lines.append(f"Shape changed: {diff['shape_changed']}")
         lines.append(f"Cells changed: {diff['n_changed_cells']}")
-        lines.append(f"Colour changes: added={diff['colour_changes']['added']}, "
-                     f"removed={diff['colour_changes']['removed']}")
+        lines.append(
+            f"Colour changes: added={diff['colour_changes']['added']}, "
+            f"removed={diff['colour_changes']['removed']}"
+        )
         lines.append("")
 
     for i, pair in enumerate(task.test):
@@ -314,6 +310,7 @@ def solve_with_llm(
     if llm is None:
         try:
             from isaac.llm.provider import get_llm
+
             llm = get_llm("strong")
         except Exception:
             logger.warning("LLM unavailable — falling back to DSL solver.")
@@ -324,13 +321,15 @@ def solve_with_llm(
     from langchain_core.messages import HumanMessage, SystemMessage
 
     messages = [
-        SystemMessage(content=(
-            "You are an expert at solving ARC-AGI tasks. Analyse the input→output "
-            "patterns in the training examples and write a Python function that "
-            "implements the transformation. The function signature must be "
-            "`solve(grid: np.ndarray) -> np.ndarray`. Use only numpy. "
-            "Respond ONLY with a fenced Python code block."
-        )),
+        SystemMessage(
+            content=(
+                "You are an expert at solving ARC-AGI tasks. Analyse the input→output "
+                "patterns in the training examples and write a Python function that "
+                "implements the transformation. The function signature must be "
+                "`solve(grid: np.ndarray) -> np.ndarray`. Use only numpy. "
+                "Respond ONLY with a fenced Python code block."
+            )
+        ),
         HumanMessage(content=prompt_text),
     ]
 
@@ -340,22 +339,20 @@ def solve_with_llm(
 
         # Extract code
         import re
+
         match = re.search(r"```(?:python)?\s*\n(.*?)```", content, re.DOTALL)
         code = match.group(1).strip() if match else content.strip()
 
         # Execute the code to get the solve function
         namespace: dict[str, Any] = {"np": np, "numpy": np}
-        exec(code, namespace)  # noqa: S102
+        exec(code, namespace)
         solve_fn = namespace.get("solve")
 
         if solve_fn is None:
             raise ValueError("No 'solve' function found in generated code.")
 
         # Validate on training data
-        train_ok = all(
-            np.array_equal(solve_fn(pair.input), pair.output)
-            for pair in task.train
-        )
+        train_ok = all(np.array_equal(solve_fn(pair.input), pair.output) for pair in task.train)
 
         if not train_ok:
             logger.info("LLM solution failed training validation for %s.", task.id)
@@ -366,7 +363,7 @@ def solve_with_llm(
         predictions = [solve_fn(pair.input) for pair in task.test]
         correct = all(
             np.array_equal(pred, pair.output)
-            for pred, pair in zip(predictions, task.test)
+            for pred, pair in zip(predictions, task.test, strict=False)
         )
 
         elapsed = (time.perf_counter() - t0) * 1000
@@ -426,12 +423,14 @@ def evaluate(
     t_start = time.perf_counter()
 
     for task in tasks:
-        logger.info("Evaluating task %s (%d train, %d test)...",
-                    task.id, len(task.train), len(task.test))
+        logger.info(
+            "Evaluating task %s (%d train, %d test)...", task.id, len(task.train), len(task.test)
+        )
 
         if solver == "synthesis":
             try:
                 from isaac.arc.solver import synthesise
+
                 result = synthesise(
                     task,
                     llm=llm,
@@ -457,11 +456,13 @@ def evaluate(
         report.results.append(result)
         if result.correct:
             report.correct += 1
-            logger.info("  ✓ %s solved in %.1fms via %s",
-                        task.id, result.solve_time_ms, result.method)
+            logger.info(
+                "  ✓ %s solved in %.1fms via %s", task.id, result.solve_time_ms, result.method
+            )
         else:
-            logger.info("  ✗ %s unsolved (%.1fms, method=%s)",
-                        task.id, result.solve_time_ms, result.method)
+            logger.info(
+                "  ✗ %s unsolved (%.1fms, method=%s)", task.id, result.solve_time_ms, result.method
+            )
 
     report.total_time_ms = (time.perf_counter() - t_start) * 1000
     report.accuracy = report.correct / report.total_tasks if report.total_tasks else 0.0

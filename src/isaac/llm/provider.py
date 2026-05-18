@@ -29,7 +29,7 @@ def get_perception_llm() -> BaseChatModel:
     """Return a token-capped LLM specifically for the Perception node.
 
     Capped at 200 tokens because we only need a short JSON response:
-    ``{"observations": [...], "hypothesis": "...", "task_mode": "..."}``.  
+    ``{"observations": [...], "hypothesis": "...", "task_mode": "..."}``.
     Limiting output tokens is the single fastest win for Ollama.
     """
     from isaac.config.settings import settings
@@ -51,7 +51,9 @@ def get_perception_llm() -> BaseChatModel:
         try:
             # Try native Ollama client first (faster, no HTTP overhead)
             from langchain_ollama import ChatOllama
+
             from isaac.config.settings import settings as s
+
             return ChatOllama(
                 model=model_name,
                 base_url=s.ollama_base_url or "http://localhost:11434",
@@ -60,10 +62,12 @@ def get_perception_llm() -> BaseChatModel:
             )
         except ImportError:
             from langchain_openai import ChatOpenAI
+
             return ChatOpenAI(**kwargs)
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
+
         return ChatAnthropic(
             model=model_name,  # type: ignore[arg-type]
             temperature=temperature,
@@ -93,7 +97,9 @@ def get_direct_response_llm() -> BaseChatModel:
     if provider in ("openai", "ollama"):
         try:
             from langchain_ollama import ChatOllama
+
             from isaac.config.settings import settings as s
+
             return ChatOllama(
                 model=model_name,
                 base_url=s.ollama_base_url or "http://localhost:11434",
@@ -102,6 +108,7 @@ def get_direct_response_llm() -> BaseChatModel:
             )
         except ImportError:
             from langchain_openai import ChatOpenAI
+
             return ChatOpenAI(
                 model=model_name,
                 temperature=temperature,
@@ -112,6 +119,7 @@ def get_direct_response_llm() -> BaseChatModel:
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
+
         return ChatAnthropic(
             model=model_name,  # type: ignore[arg-type]
             temperature=temperature,

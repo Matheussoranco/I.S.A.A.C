@@ -16,7 +16,8 @@ The default routing prefers local backends in this order:
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
 from . import anthropic as _anthropic
 from . import llamacpp as _llamacpp
@@ -26,7 +27,7 @@ from . import openai_compat as _openai_compat
 
 ProviderBuilder = Callable[..., Any]
 
-PROVIDERS: Dict[str, ProviderBuilder] = {
+PROVIDERS: dict[str, ProviderBuilder] = {
     "ollama": _ollama.build,
     "llamacpp": _llamacpp.build,
     "openai_compat": _openai_compat.build,
@@ -42,10 +43,7 @@ def get_provider(name: str) -> ProviderBuilder:
     """Return the builder for the named provider, or raise KeyError."""
     key = name.lower().strip()
     if key not in PROVIDERS:
-        raise KeyError(
-            f"Unknown LLM provider: {name!r}. "
-            f"Known: {', '.join(sorted(PROVIDERS))}."
-        )
+        raise KeyError(f"Unknown LLM provider: {name!r}. Known: {', '.join(sorted(PROVIDERS))}.")
     return PROVIDERS[key]
 
 

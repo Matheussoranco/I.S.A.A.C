@@ -34,9 +34,7 @@ class LLMSettings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: Literal[
-        "ollama", "llamacpp", "openai_compat", "openai", "anthropic"
-    ] = "ollama"
+    llm_provider: Literal["ollama", "llamacpp", "openai_compat", "openai", "anthropic"] = "ollama"
     model_name: str = "qwen2.5-coder:7b"
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     base_url: str = ""  # Custom API base URL (e.g. http://localhost:11434/v1 for Ollama)

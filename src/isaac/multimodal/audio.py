@@ -16,7 +16,6 @@ Usage
 from __future__ import annotations
 
 import logging
-import os
 import tempfile
 from pathlib import Path
 from typing import Literal
@@ -75,6 +74,7 @@ def _transcribe_faster_whisper(path: Path, model: str, language: str | None) -> 
 
 def _transcribe_openai(path: Path, language: str | None) -> str:
     import openai
+
     client = openai.OpenAI()
     with path.open("rb") as f:
         extra = {"language": language} if language else {}
@@ -143,7 +143,9 @@ def _speak_dispatch(
     raise ValueError(f"Unknown TTS engine: {engine!r}")
 
 
-def _speak_pyttsx3(text: str, output_path: str | Path | None, voice: str, speed: float) -> Path | None:
+def _speak_pyttsx3(
+    text: str, output_path: str | Path | None, voice: str, speed: float
+) -> Path | None:
     import pyttsx3  # type: ignore[import-untyped]
 
     engine = pyttsx3.init()
@@ -167,10 +169,12 @@ def _speak_pyttsx3(text: str, output_path: str | Path | None, voice: str, speed:
         return None
 
 
-def _speak_kokoro(text: str, output_path: str | Path | None, voice: str, speed: float) -> Path | None:
+def _speak_kokoro(
+    text: str, output_path: str | Path | None, voice: str, speed: float
+) -> Path | None:
     import kokoro  # type: ignore[import-untyped]
-    import soundfile as sf  # type: ignore[import-untyped]
     import numpy as np
+    import soundfile as sf  # type: ignore[import-untyped]
 
     pipeline = kokoro.KPipeline(lang_code="en-us")
     voice_name = voice if voice != "default" else "af_heart"
@@ -185,7 +189,9 @@ def _speak_kokoro(text: str, output_path: str | Path | None, voice: str, speed: 
     return out_path
 
 
-def _speak_openai(text: str, output_path: str | Path | None, voice: str, speed: float) -> Path | None:
+def _speak_openai(
+    text: str, output_path: str | Path | None, voice: str, speed: float
+) -> Path | None:
     import openai
 
     client = openai.OpenAI()
@@ -193,7 +199,10 @@ def _speak_openai(text: str, output_path: str | Path | None, voice: str, speed: 
     out_path = Path(output_path) if output_path else Path(tempfile.mktemp(suffix=".mp3"))
 
     response = client.audio.speech.create(
-        model="tts-1", voice=oai_voice, input=text, speed=speed  # type: ignore[arg-type]
+        model="tts-1",
+        voice=oai_voice,
+        input=text,
+        speed=speed,  # type: ignore[arg-type]
     )
     response.stream_to_file(str(out_path))
     return out_path
@@ -214,10 +223,11 @@ def record_microphone(
     """
     try:
         import sounddevice as sd  # type: ignore[import-untyped]
-        import soundfile as sf    # type: ignore[import-untyped]
-        import numpy as np
-    except ImportError:
-        raise ImportError("Install sounddevice and soundfile: pip install sounddevice soundfile")
+        import soundfile as sf  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise ImportError(
+            "Install sounddevice and soundfile: pip install sounddevice soundfile"
+        ) from exc
 
     logger.info("Recording %.1f seconds at %d Hz…", duration_seconds, sample_rate)
     audio = sd.rec(

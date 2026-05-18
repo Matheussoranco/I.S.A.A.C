@@ -216,6 +216,7 @@ class MixtureOfExperts:
     def _record(query: str, result: MoEResult) -> None:
         try:
             from isaac.meta.learner import get_learner
+
             learner = get_learner()
             learner.record(
                 task_desc=query[:200],

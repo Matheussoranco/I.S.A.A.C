@@ -62,6 +62,7 @@ class PromptEvolution:
         if store_path is None:
             try:
                 from isaac.config.settings import settings
+
                 store_path = settings.isaac_home / "prompt_evolution.json"
             except Exception:
                 store_path = Path.home() / ".isaac" / "prompt_evolution.json"
@@ -147,7 +148,9 @@ class PromptEvolution:
         with self._lock:
             bank = self._banks.get(prompt_id)
             if not bank or variant not in bank.variants:
-                logger.debug("PromptEvolution: ignoring outcome for unknown %s/%s", prompt_id, variant)
+                logger.debug(
+                    "PromptEvolution: ignoring outcome for unknown %s/%s", prompt_id, variant
+                )
                 return
             v = bank.variants[variant]
             v.runs += 1
@@ -160,6 +163,7 @@ class PromptEvolution:
         # Mirror to the perf tracker for the unified leaderboard
         try:
             from isaac.improvement.performance import get_tracker
+
             get_tracker().record_prompt(prompt_id, variant, success, score)
         except Exception:
             pass
@@ -180,7 +184,7 @@ _evolution: PromptEvolution | None = None
 
 
 def get_prompt_evolution() -> PromptEvolution:
-    global _evolution  # noqa: PLW0603
+    global _evolution
     if _evolution is None:
         _evolution = PromptEvolution()
     return _evolution
@@ -188,5 +192,5 @@ def get_prompt_evolution() -> PromptEvolution:
 
 def reset_prompt_evolution() -> None:
     """Reset the singleton (used in tests)."""
-    global _evolution  # noqa: PLW0603
+    global _evolution
     _evolution = None

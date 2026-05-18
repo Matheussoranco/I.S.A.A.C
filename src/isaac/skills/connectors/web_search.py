@@ -7,7 +7,7 @@ unavailable or fails.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -19,7 +19,7 @@ class WebSearchConnector(BaseConnector):
 
     name = "web_search"
     description = "Search the web using DuckDuckGo and return titles, URLs, and snippets."
-    requires_env: list[str] = []
+    requires_env: ClassVar[list[str]] = []
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
         """Execute a web search.
@@ -57,11 +57,13 @@ class WebSearchConnector(BaseConnector):
         results: list[dict[str, str]] = []
         with DDGS() as ddgs:
             for r in ddgs.text(query, max_results=max_results):
-                results.append({
-                    "title": r.get("title", ""),
-                    "url": r.get("href", r.get("link", "")),
-                    "snippet": r.get("body", r.get("snippet", "")),
-                })
+                results.append(
+                    {
+                        "title": r.get("title", ""),
+                        "url": r.get("href", r.get("link", "")),
+                        "snippet": r.get("body", r.get("snippet", "")),
+                    }
+                )
         return {"query": query, "results": results}
 
     def _search_httpx(self, query: str, max_results: int) -> dict[str, Any]:
@@ -75,6 +77,7 @@ class WebSearchConnector(BaseConnector):
         results: list[dict[str, str]] = []
         try:
             from bs4 import BeautifulSoup  # type: ignore[import-untyped]
+
             soup = BeautifulSoup(resp.text, "html.parser")
             for link in soup.select(".result__a")[:max_results]:
                 href = link.get("href", "")

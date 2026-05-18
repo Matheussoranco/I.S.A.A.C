@@ -85,7 +85,8 @@ def _arc_synthesis(
 
     try:
         import numpy as np
-        from isaac.arc.evaluator import ArcTask, ArcPair
+
+        from isaac.arc.evaluator import ArcPair, ArcTask
         from isaac.arc.solver import synthesise
 
         train_pairs = [
@@ -126,8 +127,8 @@ def _arc_synthesis(
             code = result.program
         elif isinstance(result.program, list) and result.program:
             # DSL program — wrap in executable Python
-            from isaac.arc.dsl import apply_program
             import json as _json
+
             ops_json = _json.dumps(result.program)
             code = (
                 f"import numpy as np\n"
@@ -149,10 +150,10 @@ def _arc_synthesis(
                 "sys.exit(1)\n"
             )
 
-        train_acc = result.method
         logger.info(
             "ARC synthesis: method=%s, code_len=%d chars",
-            result.method, len(code),
+            result.method,
+            len(code),
         )
         return {"code_buffer": code, "current_phase": "synthesis"}
 
@@ -209,7 +210,8 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
         code = _extract_code(content)
         logger.info(
             "Synthesis(code): generated %d chars for step '%s'.",
-            len(code), active_step.id,
+            len(code),
+            active_step.id,
         )
         return {"code_buffer": code, "current_phase": "synthesis"}
 
@@ -249,7 +251,8 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
         ]
         logger.info(
             "Synthesis(ui): generated %d UIActions for step '%s'.",
-            len(ui_actions), active_step.id,
+            len(ui_actions),
+            active_step.id,
         )
         return {"ui_actions": ui_actions, "current_phase": "synthesis"}
 
@@ -258,15 +261,14 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
     gui_state = world_model.gui_state or GUIState()
     screenshot_b64 = gui_state.screenshot_b64
 
-    prompt = synthesis_hybrid_prompt(
-        active_step, gui_state, screenshot_b64 or "", available_skills
-    )
+    prompt = synthesis_hybrid_prompt(active_step, gui_state, screenshot_b64 or "", available_skills)
     response = llm.invoke(prompt)
     content = response.content if isinstance(response.content, str) else str(response.content)
     code = _extract_code(content)
 
     logger.info(
         "Synthesis(hybrid): generated %d chars of Playwright script for step '%s'.",
-        len(code), active_step.id,
+        len(code),
+        active_step.id,
     )
     return {"code_buffer": code, "current_phase": "synthesis"}

@@ -106,17 +106,18 @@ class WebSearchTool(IsaacTool):
         if not searx_url:
             return ToolResult(
                 success=False,
-                error="DuckDuckGo and Searx both unavailable. Install duckduckgo-search or set SEARX_URL.",
+                error=(
+                    "DuckDuckGo and Searx both unavailable. "
+                    "Install duckduckgo-search or set SEARX_URL."
+                ),
             )
 
         try:
-            import urllib.request
-            import urllib.parse
             import json
+            import urllib.parse
+            import urllib.request
 
-            params = urllib.parse.urlencode(
-                {"q": query, "format": "json", "categories": "general"}
-            )
+            params = urllib.parse.urlencode({"q": query, "format": "json", "categories": "general"})
             url = f"{searx_url.rstrip('/')}/search?{params}"
             req = urllib.request.Request(url, headers={"User-Agent": "ISAAC/1.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:

@@ -62,12 +62,16 @@ class ClaudeSubAgent:
     def _get_client_and_model(self) -> tuple[Any, str]:
         try:
             import anthropic
+
             from isaac.config.settings import settings
+
             client = anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
             model = self._model or "claude-sonnet-4-6"
             return client, model
-        except ImportError:
-            raise RuntimeError("anthropic package not installed. Run: pip install anthropic")
+        except ImportError as exc:
+            raise RuntimeError(
+                "anthropic package not installed. Run: pip install anthropic"
+            ) from exc
 
     def run(self, subtask: str, context: str = "", max_tokens: int = 2048) -> dict[str, Any]:
         """Execute the subtask and return a structured result dict."""

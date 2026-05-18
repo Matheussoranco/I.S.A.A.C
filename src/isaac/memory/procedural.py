@@ -166,24 +166,28 @@ class ProceduralMemory:
         if name in self._records:
             record = self._records[name]
             record.current_version += 1
-            record.versions.append(SkillVersion(
-                version=record.current_version,
-                code=candidate.code,
-                timestamp=now,
-                success_count=candidate.success_count,
-            ))
+            record.versions.append(
+                SkillVersion(
+                    version=record.current_version,
+                    code=candidate.code,
+                    timestamp=now,
+                    success_count=candidate.success_count,
+                )
+            )
             record.updated_at = now
             record.tags = list(set(record.tags + list(getattr(candidate, "tags", []))))
         else:
             self._records[name] = SkillRecord(
                 name=name,
                 current_version=1,
-                versions=[SkillVersion(
-                    version=1,
-                    code=candidate.code,
-                    timestamp=now,
-                    success_count=candidate.success_count,
-                )],
+                versions=[
+                    SkillVersion(
+                        version=1,
+                        code=candidate.code,
+                        timestamp=now,
+                        success_count=candidate.success_count,
+                    )
+                ],
                 tags=list(getattr(candidate, "tags", [])),
                 created_at=now,
                 updated_at=now,
@@ -245,10 +249,7 @@ class ProceduralMemory:
 
     def list_active(self) -> list[str]:
         """List all non-deprecated skill names."""
-        return [
-            name for name, record in self._records.items()
-            if not record.deprecated
-        ]
+        return [name for name, record in self._records.items() if not record.deprecated]
 
     def search(self, query: str, top_k: int = 5) -> list[str]:
         """Semantic search via the base library's ChromaDB integration."""

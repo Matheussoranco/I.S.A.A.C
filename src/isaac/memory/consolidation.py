@@ -19,12 +19,13 @@ via the heartbeat scheduler with :func:`schedule_consolidation`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -132,8 +133,12 @@ def consolidate_now(
     report.elapsed_ms = (time.perf_counter() - t0) * 1000.0
     logger.info(
         "Consolidation: episodes=%d extracted=%d promoted=%d strengthened=%d pruned=%d (%.0fms)",
-        report.episodes_seen, report.facts_extracted, report.facts_promoted,
-        report.facts_strengthened, report.facts_pruned, report.elapsed_ms,
+        report.episodes_seen,
+        report.facts_extracted,
+        report.facts_promoted,
+        report.facts_strengthened,
+        report.facts_pruned,
+        report.elapsed_ms,
     )
     return report
 
@@ -156,8 +161,9 @@ def _episode_to_text(episode: Any) -> str:
 
 
 def _extract_with_llm(episode_text: str) -> list[dict[str, Any]]:
-    from isaac.llm.provider import get_llm
     from langchain_core.messages import HumanMessage
+
+    from isaac.llm.provider import get_llm
 
     llm = get_llm("fast")
     prompt = _EXTRACTION_PROMPT.format(episode=episode_text[:2000])
@@ -173,13 +179,27 @@ def _extract_heuristic(episode_text: str) -> list[dict[str, Any]]:
     """Regex-only extraction — fallback when no LLM is available."""
     facts: list[dict[str, Any]] = []
     # "X is a Y" / "X is Y"
-    for m in re.finditer(r"([A-Z][\w\s]{1,40})\s+is\s+(?:a|an)\s+([A-Za-z][\w\s]{1,40})", episode_text):
-        facts.append({"subject": m.group(1).strip(), "predicate": "is_a",
-                      "object": m.group(2).strip(), "confidence": 0.7})
+    for m in re.finditer(
+        r"([A-Z][\w\s]{1,40})\s+is\s+(?:a|an)\s+([A-Za-z][\w\s]{1,40})", episode_text
+    ):
+        facts.append(
+            {
+                "subject": m.group(1).strip(),
+                "predicate": "is_a",
+                "object": m.group(2).strip(),
+                "confidence": 0.7,
+            }
+        )
     # "X has Y"
     for m in re.finditer(r"([A-Z][\w\s]{1,40})\s+has\s+([A-Za-z][\w\s]{1,40})", episode_text):
-        facts.append({"subject": m.group(1).strip(), "predicate": "has_property",
-                      "object": m.group(2).strip(), "confidence": 0.65})
+        facts.append(
+            {
+                "subject": m.group(1).strip(),
+                "predicate": "has_property",
+                "object": m.group(2).strip(),
+                "confidence": 0.65,
+            }
+        )
     return facts
 
 
@@ -220,10 +240,8 @@ def _decay_and_prune(semantic: Any, *, decay: float, prune_below: float) -> int:
         # Persist if SemanticMemory exposes a save method
         save = getattr(semantic, "_persist_all", None) or getattr(semantic, "save", None)
         if callable(save):
-            try:
+            with contextlib.suppress(Exception):
                 save()
-            except Exception:
-                pass
     except Exception as exc:
         logger.debug("decay_and_prune failed: %s", exc)
     return pruned

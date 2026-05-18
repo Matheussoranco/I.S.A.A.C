@@ -7,7 +7,7 @@ requests against the GitHub REST API.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -24,10 +24,11 @@ class GitHubConnector(BaseConnector):
         "List repos, read files, create/list issues, and search code on GitHub. "
         "Requires GITHUB_TOKEN."
     )
-    requires_env: list[str] = ["GITHUB_TOKEN"]
+    requires_env: ClassVar[list[str]] = ["GITHUB_TOKEN"]
 
     def _headers(self) -> dict[str, str]:
         import os
+
         token = os.environ.get("GITHUB_TOKEN", "")
         return {
             "Authorization": f"Bearer {token}",
@@ -79,6 +80,7 @@ class GitHubConnector(BaseConnector):
 
     def _list_repos(self, **kwargs: Any) -> dict[str, Any]:
         import httpx  # type: ignore[import-untyped]
+
         user = kwargs.get("user", "")
         url = f"{_API_BASE}/users/{user}/repos" if user else f"{_API_BASE}/user/repos"
         resp = httpx.get(url, headers=self._headers(), timeout=15)
@@ -91,6 +93,7 @@ class GitHubConnector(BaseConnector):
 
     def _read_file(self, **kwargs: Any) -> dict[str, Any]:
         import httpx
+
         repo = kwargs.get("repo", "")
         path = kwargs.get("path", "")
         branch = kwargs.get("branch", "main")
@@ -99,17 +102,22 @@ class GitHubConnector(BaseConnector):
         resp.raise_for_status()
         data = resp.json()
         import base64
+
         content = base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
         return {"repo": repo, "path": path, "content": content, "sha": data.get("sha", "")}
 
     def _create_issue(self, **kwargs: Any) -> dict[str, Any]:
         import httpx
+
         repo = kwargs.get("repo", "")
         title = kwargs.get("title", "")
         body = kwargs.get("body", "")
         url = f"{_API_BASE}/repos/{repo}/issues"
         resp = httpx.post(
-            url, headers=self._headers(), json={"title": title, "body": body}, timeout=15,
+            url,
+            headers=self._headers(),
+            json={"title": title, "body": body},
+            timeout=15,
         )
         resp.raise_for_status()
         issue = resp.json()
@@ -117,6 +125,7 @@ class GitHubConnector(BaseConnector):
 
     def _list_issues(self, **kwargs: Any) -> dict[str, Any]:
         import httpx
+
         repo = kwargs.get("repo", "")
         url = f"{_API_BASE}/repos/{repo}/issues?state=open&per_page=20"
         resp = httpx.get(url, headers=self._headers(), timeout=15)
@@ -129,6 +138,7 @@ class GitHubConnector(BaseConnector):
 
     def _search_code(self, **kwargs: Any) -> dict[str, Any]:
         import httpx
+
         query = kwargs.get("query", "")
         url = f"{_API_BASE}/search/code?q={query}&per_page=10"
         resp = httpx.get(url, headers=self._headers(), timeout=15)

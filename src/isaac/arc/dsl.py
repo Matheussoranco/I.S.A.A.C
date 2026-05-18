@@ -22,7 +22,8 @@ Extended for ARC-AGI 2 with:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -143,7 +144,7 @@ def gravity_down(grid: Grid, background: int = 0) -> Grid:
         col = grid[:, c]
         non_bg = col[col != background]
         if len(non_bg) > 0:
-            result[-len(non_bg):, c] = non_bg
+            result[-len(non_bg) :, c] = non_bg
     return result
 
 
@@ -154,7 +155,7 @@ def gravity_up(grid: Grid, background: int = 0) -> Grid:
         col = grid[:, c]
         non_bg = col[col != background]
         if len(non_bg) > 0:
-            result[:len(non_bg), c] = non_bg
+            result[: len(non_bg), c] = non_bg
     return result
 
 
@@ -165,7 +166,7 @@ def gravity_left(grid: Grid, background: int = 0) -> Grid:
         row = grid[r, :]
         non_bg = row[row != background]
         if len(non_bg) > 0:
-            result[r, :len(non_bg)] = non_bg
+            result[r, : len(non_bg)] = non_bg
     return result
 
 
@@ -176,19 +177,20 @@ def gravity_right(grid: Grid, background: int = 0) -> Grid:
         row = grid[r, :]
         non_bg = row[row != background]
         if len(non_bg) > 0:
-            result[r, -len(non_bg):] = non_bg
+            result[r, -len(non_bg) :] = non_bg
     return result
 
 
 def hollow_rectangle(grid: Grid, background: int = 0) -> Grid:
     """For each object, keep only the border cells."""
     from isaac.arc.grid_ops import extract_objects
+
     result = np.full_like(grid, background)
     objects = extract_objects(grid, background)
     for obj in objects:
         r1, c1, r2, c2 = obj.bbox
         for r, c in obj.cells:
-            if r == r1 or r == r2 or c == c1 or c == c2:
+            if r in (r1, r2) or c in (c1, c2):
                 result[r, c] = obj.colour
     return result
 
@@ -221,6 +223,7 @@ def flood_fill_from(grid: Grid, row: int, col: int, colour: int) -> Grid:
 def fill_enclosed_regions(grid: Grid, fill_col: int = 1, background: int = 0) -> Grid:
     """Fill all background cells enclosed by non-background cells with *fill_col*."""
     from isaac.arc.priors import detect_enclosed_regions
+
     result = grid.copy()
     regions = detect_enclosed_regions(grid, background)
     for region in regions:
@@ -231,8 +234,10 @@ def fill_enclosed_regions(grid: Grid, fill_col: int = 1, background: int = 0) ->
 
 def fill_enclosed_auto(grid: Grid, background: int = 0) -> Grid:
     """Fill enclosed background regions with the dominant surrounding colour."""
-    from isaac.arc.priors import detect_enclosed_regions
     from collections import Counter
+
+    from isaac.arc.priors import detect_enclosed_regions
+
     result = grid.copy()
     h, w = grid.shape
     regions = detect_enclosed_regions(grid, background)
@@ -267,6 +272,7 @@ def remove_colour(grid: Grid, colour: int, background: int = 0) -> Grid:
 def select_largest_object(grid: Grid, background: int = 0) -> Grid:
     """Keep only the largest (by cell count) object."""
     from isaac.arc.grid_ops import extract_objects
+
     objects = extract_objects(grid, background)
     if not objects:
         return np.full_like(grid, background)
@@ -280,6 +286,7 @@ def select_largest_object(grid: Grid, background: int = 0) -> Grid:
 def select_smallest_object(grid: Grid, background: int = 0) -> Grid:
     """Keep only the smallest (by cell count) object."""
     from isaac.arc.grid_ops import extract_objects
+
     objects = extract_objects(grid, background)
     if not objects:
         return np.full_like(grid, background)
@@ -293,6 +300,7 @@ def select_smallest_object(grid: Grid, background: int = 0) -> Grid:
 def recolour_by_size(grid: Grid, background: int = 0) -> Grid:
     """Recolour objects: rank by size descending; rank value becomes new colour."""
     from isaac.arc.grid_ops import extract_objects
+
     objects = extract_objects(grid, background)
     if not objects:
         return grid.copy()
@@ -307,6 +315,7 @@ def recolour_by_size(grid: Grid, background: int = 0) -> Grid:
 def recolour_by_position(grid: Grid, background: int = 0) -> Grid:
     """Recolour objects by reading-order position (top-left to bottom-right)."""
     from isaac.arc.grid_ops import extract_objects
+
     objects = extract_objects(grid, background)
     if not objects:
         return grid.copy()
@@ -339,7 +348,7 @@ def complete_symmetry_horizontal(grid: Grid) -> Grid:
     """Mirror the top half downward to create horizontal symmetry."""
     result = grid.copy()
     h = grid.shape[0]
-    result[h // 2:, :] = grid[:h // 2, :][::-1, :]
+    result[h // 2 :, :] = grid[: h // 2, :][::-1, :]
     return result
 
 
@@ -347,7 +356,7 @@ def complete_symmetry_vertical(grid: Grid) -> Grid:
     """Mirror the left half rightward to create vertical symmetry."""
     result = grid.copy()
     w = grid.shape[1]
-    result[:, w // 2:] = grid[:, :w // 2][:, ::-1]
+    result[:, w // 2 :] = grid[:, : w // 2][:, ::-1]
     return result
 
 
@@ -385,7 +394,7 @@ def add_border(grid: Grid, colour: int = 1, width: int = 1) -> Grid:
     """Surround the grid with a *colour* border of *width* cells."""
     h, w = grid.shape
     result = np.full((h + 2 * width, w + 2 * width), colour, dtype=grid.dtype)
-    result[width:width + h, width:width + w] = grid
+    result[width : width + h, width : width + w] = grid
     return result
 
 
@@ -406,7 +415,7 @@ def normalise_to_square(grid: Grid, background: int = 0) -> Grid:
     result = np.full((size, size), background, dtype=grid.dtype)
     r_off = (size - h) // 2
     c_off = (size - w) // 2
-    result[r_off:r_off + h, c_off:c_off + w] = grid
+    result[r_off : r_off + h, c_off : c_off + w] = grid
     return result
 
 
@@ -418,7 +427,7 @@ def center_object(grid: Grid, background: int = 0) -> Grid:
     ch, cw = cropped.shape
     r_off = max(0, min((h - ch) // 2, h - ch))
     c_off = max(0, min((w - cw) // 2, w - cw))
-    result[r_off:r_off + ch, c_off:c_off + cw] = cropped
+    result[r_off : r_off + ch, c_off : c_off + cw] = cropped
     return result
 
 
@@ -452,12 +461,12 @@ def draw_rectangle(
     r1, r2 = max(0, min(r1, r2)), min(grid.shape[0] - 1, max(r1, r2))
     c1, c2 = max(0, min(c1, c2)), min(grid.shape[1] - 1, max(c1, c2))
     if filled:
-        result[r1:r2 + 1, c1:c2 + 1] = colour
+        result[r1 : r2 + 1, c1 : c2 + 1] = colour
     else:
-        result[r1, c1:c2 + 1] = colour
-        result[r2, c1:c2 + 1] = colour
-        result[r1:r2 + 1, c1] = colour
-        result[r1:r2 + 1, c2] = colour
+        result[r1, c1 : c2 + 1] = colour
+        result[r2, c1 : c2 + 1] = colour
+        result[r1 : r2 + 1, c1] = colour
+        result[r1 : r2 + 1, c2] = colour
     return result
 
 
@@ -467,6 +476,7 @@ def connect_objects_horizontal(grid: Grid, colour: int = -1, background: int = 0
     If *colour* is -1, uses the objects' own colour.
     """
     from isaac.arc.grid_ops import extract_objects
+
     result = grid.copy()
     objects = extract_objects(grid, background)
     colour_groups: dict[int, list] = {}
@@ -491,6 +501,7 @@ def connect_objects_horizontal(grid: Grid, colour: int = -1, background: int = 0
 def connect_objects_vertical(grid: Grid, colour: int = -1, background: int = 0) -> Grid:
     """Draw vertical connectors between objects aligned in the same column."""
     from isaac.arc.grid_ops import extract_objects
+
     result = grid.copy()
     objects = extract_objects(grid, background)
     colour_groups: dict[int, list] = {}
@@ -515,6 +526,7 @@ def connect_objects_vertical(grid: Grid, colour: int = -1, background: int = 0) 
 def object_to_border(grid: Grid, background: int = 0) -> Grid:
     """Move each object to the nearest border edge."""
     from isaac.arc.grid_ops import extract_objects
+
     objects = extract_objects(grid, background)
     result = np.full_like(grid, background)
     h, w = grid.shape
@@ -575,13 +587,14 @@ def grid_xor(grid_a: Grid, grid_b: Grid, background: int = 0) -> Grid:
 def sort_objects_by_size(grid: Grid, ascending: bool = True, background: int = 0) -> Grid:
     """Re-layout objects in sorted size order while preserving positional slots."""
     from isaac.arc.grid_ops import extract_objects
+
     objects = extract_objects(grid, background)
     if not objects:
         return grid.copy()
     sorted_objs = sorted(objects, key=lambda o: o.size, reverse=not ascending)
     positions = sorted([o.bbox[:2] for o in objects])
     result = np.full_like(grid, background)
-    for obj, pos in zip(sorted_objs, positions):
+    for obj, pos in zip(sorted_objs, positions, strict=False):
         r_offset = pos[0] - obj.bbox[0]
         c_offset = pos[1] - obj.bbox[1]
         for r, c in obj.cells:
@@ -593,17 +606,18 @@ def sort_objects_by_size(grid: Grid, ascending: bool = True, background: int = 0
 
 def split_grid_horizontal(grid: Grid) -> Grid:
     """Return the top half of the grid."""
-    return grid[:grid.shape[0] // 2, :].copy()
+    return grid[: grid.shape[0] // 2, :].copy()
 
 
 def split_grid_vertical(grid: Grid) -> Grid:
     """Return the left half of the grid."""
-    return grid[:, :grid.shape[1] // 2].copy()
+    return grid[:, : grid.shape[1] // 2].copy()
 
 
 def count_to_cells(grid: Grid, background: int = 0) -> Grid:
     """Replace each object with a horizontal bar whose length = object.size."""
     from isaac.arc.grid_ops import extract_objects
+
     objects = extract_objects(grid, background)
     result = np.full_like(grid, background)
     h, w = grid.shape
@@ -617,6 +631,7 @@ def count_to_cells(grid: Grid, background: int = 0) -> Grid:
 def mask_objects(grid: Grid, mask_colour: int, fill_colour: int, background: int = 0) -> Grid:
     """Fill all objects of *mask_colour* with *fill_colour*."""
     from isaac.arc.grid_ops import extract_objects
+
     result = grid.copy()
     objects = extract_objects(grid, background)
     for obj in objects:
@@ -655,9 +670,12 @@ def reflect_about_main_diagonal(grid: Grid) -> Grid:
 
 
 def colour_if(
-    grid: Grid, condition_colour: int, true_colour: int, false_colour: int = 0,
+    grid: Grid,
+    condition_colour: int,
+    true_colour: int,
+    false_colour: int = 0,
 ) -> Grid:
-    """Binary colour mask: cells matching *condition_colour* → *true_colour*, else *false_colour*."""
+    """Binary colour mask: cells == *condition_colour* → *true_colour*, else *false_colour*."""
     result = np.full_like(grid, false_colour)
     result[grid == condition_colour] = true_colour
     return result
@@ -784,11 +802,13 @@ PRIMITIVES: dict[str, Transform] = {
 
 def compose(*transforms: Transform) -> Transform:
     """Compose multiple transforms: f, g, h → h(g(f(grid)))."""
+
     def composed(grid: Grid) -> Grid:
         result = grid
         for fn in transforms:
             result = fn(result)
         return result
+
     return composed
 
 

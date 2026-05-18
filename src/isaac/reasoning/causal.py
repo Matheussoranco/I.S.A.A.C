@@ -28,8 +28,9 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,7 @@ class CausalGraph:
     # ----- queries ----------------------------------------------------
 
     def parents(self, node: str) -> list[str]:
-        return self.parent_order.get(node, [
-            p for (p, c) in self.edges if c == node
-        ])
+        return self.parent_order.get(node, [p for (p, c) in self.edges if c == node])
 
     def children(self, node: str) -> list[str]:
         return [c for (p, c) in self.edges if p == node]
@@ -81,9 +80,8 @@ class CausalGraph:
         return order
 
     def to_string(self) -> str:
-        return (
-            f"CausalGraph(nodes={len(self.nodes)}, edges={len(self.edges)}):\n"
-            + "\n".join(f"  {p} → {c}" for p, c in sorted(self.edges))
+        return f"CausalGraph(nodes={len(self.nodes)}, edges={len(self.edges)}):\n" + "\n".join(
+            f"  {p} → {c}" for p, c in sorted(self.edges)
         )
 
 
@@ -166,7 +164,7 @@ def learn_structure(
        within each observation if absent), preferring earlier→later.
     5. Estimate tabular CPTs from observations.
     """
-    variables = sorted({k for obs in observations for k in obs.keys()})
+    variables = sorted({k for obs in observations for k in obs})
     if variable_order:
         variables = [v for v in variable_order if v in variables] + [
             v for v in variables if v not in variable_order
@@ -177,7 +175,7 @@ def learn_structure(
     # Phase 1+2: undirected skeleton
     skeleton: set[frozenset[str]] = set()
     for i, x in enumerate(variables):
-        for y in variables[i + 1:]:
+        for y in variables[i + 1 :]:
             mi = _mutual_information(observations, x, y)
             if mi > mi_threshold:
                 skeleton.add(frozenset({x, y}))
@@ -190,6 +188,7 @@ def learn_structure(
         # Try empty, size-1, size-2 separating sets
         for size in range(0, max_cond_set + 1):
             from itertools import combinations
+
             stop = False
             for sep in combinations(candidates, size):
                 if _conditional_mi(observations, x, y, list(sep)) < cmi_threshold:
@@ -283,10 +282,11 @@ def predict(
     }
 
     from itertools import product
+
     for combo in product(*[list(d.items()) for d in parent_dists.values()]):
         weight = 1.0
         key_vals: list[Any] = []
-        for (val, prob) in combo:
+        for val, prob in combo:
             weight *= prob
             key_vals.append(val)
         cond = _normalise(cpt.get(tuple(key_vals), Counter()))
@@ -356,10 +356,12 @@ class CausalReasoner:
     def predict(self, target: str, **kwargs: Any) -> dict[Any, float]:
         return predict(self.graph, target, **kwargs)
 
-    def counterfactual(self, factual: Observation, intervention: Observation, target: str) -> dict[Any, float]:
+    def counterfactual(
+        self, factual: Observation, intervention: Observation, target: str
+    ) -> dict[Any, float]:
         return counterfactual(self.graph, factual, intervention, target)
 
-    def from_episodic(self, limit: int = 200) -> "CausalReasoner":
+    def from_episodic(self, limit: int = 200) -> CausalReasoner:
         """Pull recent episodic memories and treat each as one observation.
 
         Each memory is parsed as a flat dict of features. Strings are tokenised
@@ -367,6 +369,7 @@ class CausalReasoner:
         """
         try:
             from isaac.memory.episodic import get_episodic_memory
+
             mem = get_episodic_memory()
             episodes = mem.recent(limit) if hasattr(mem, "recent") else []
             for ep in episodes:
@@ -383,7 +386,8 @@ class CausalReasoner:
             return {k: v for k, v in episode.items() if isinstance(v, (str, int, float, bool))}
         # Fallback: try dataclass-like attrs
         try:
-            return {k: v for k, v in episode.__dict__.items()
-                    if isinstance(v, (str, int, float, bool))}
+            return {
+                k: v for k, v in episode.__dict__.items() if isinstance(v, (str, int, float, bool))
+            }
         except Exception:
             return None

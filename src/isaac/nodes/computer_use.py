@@ -210,8 +210,11 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
             code=json.dumps(
                 [
                     {
-                        "type": a.type, "x": a.x, "y": a.y,
-                        "text": a.text, "key": a.key,
+                        "type": a.type,
+                        "x": a.x,
+                        "y": a.y,
+                        "text": a.text,
+                        "key": a.key,
                         "description": a.description,
                     }
                     for a in trace

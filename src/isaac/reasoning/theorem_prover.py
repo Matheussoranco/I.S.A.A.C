@@ -39,11 +39,9 @@ logger = logging.getLogger(__name__)
 
 
 def _z3_available() -> bool:
-    try:
-        import z3  # type: ignore[import-untyped]
-        return True
-    except ImportError:
-        return False
+    from importlib.util import find_spec
+
+    return find_spec("z3") is not None
 
 
 class TheoremProver:
@@ -113,11 +111,17 @@ class TheoremProver:
                 env[name] = z3.Int(name)
 
         # Add constraints
-        local_env = {**env, "And": z3.And, "Or": z3.Or, "Not": z3.Not,
-                     "Implies": z3.Implies, "If": z3.If}
+        local_env = {
+            **env,
+            "And": z3.And,
+            "Or": z3.Or,
+            "Not": z3.Not,
+            "Implies": z3.Implies,
+            "If": z3.If,
+        }
         for c in constraints:
             try:
-                expr = eval(c, {"__builtins__": {}}, local_env)  # noqa: S307
+                expr = eval(c, {"__builtins__": {}}, local_env)
                 solver.add(expr)
             except Exception as exc:
                 logger.debug("Could not parse constraint %r: %s", c, exc)
@@ -190,8 +194,9 @@ class TheoremProver:
         dict with ``assignments`` mapping var → color int if SAT.
         """
         var_decls = {name: "Int" for name in cell_vars}
-        bounds = [f"({name} >= {color_range[0]}) and ({name} <= {color_range[1]})"
-                  for name in cell_vars]
+        bounds = [
+            f"({name} >= {color_range[0]}) and ({name} <= {color_range[1]})" for name in cell_vars
+        ]
         all_constraints = bounds + grid_constraints
 
         result = self.check_sat(all_constraints, var_decls, timeout_ms)
@@ -207,8 +212,22 @@ class TheoremProver:
     def _auto_detect_vars(self, constraints: list[str]) -> dict[str, str]:
         """Heuristically detect variable names from constraint strings."""
         ident_re = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b")
-        keywords = {"and", "or", "not", "if", "else", "True", "False",
-                    "And", "Or", "Not", "Implies", "If", "in", "is"}
+        keywords = {
+            "and",
+            "or",
+            "not",
+            "if",
+            "else",
+            "True",
+            "False",
+            "And",
+            "Or",
+            "Not",
+            "Implies",
+            "If",
+            "in",
+            "is",
+        }
         names: set[str] = set()
         for c in constraints:
             for m in ident_re.finditer(c):
@@ -221,6 +240,7 @@ class TheoremProver:
     def _z3_to_python(val: Any) -> Any:
         try:
             import z3
+
             if z3.is_int_value(val):
                 return val.as_long()
             if z3.is_rational_value(val):
@@ -249,9 +269,11 @@ def verify_code_property(
     Used by the Refinement node to check candidate solutions symbolically.
     """
     try:
-        from isaac.llm.provider import get_llm
-        from langchain_core.messages import HumanMessage
         import json
+
+        from langchain_core.messages import HumanMessage
+
+        from isaac.llm.provider import get_llm
 
         llm = get_llm("fast")
         prompt = (

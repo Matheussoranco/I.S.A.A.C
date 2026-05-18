@@ -27,8 +27,16 @@ class VisionExpert(Expert):
         if ctx.get("grid") is not None or ctx.get("image_path"):
             return 0.85
         q = query.lower()
-        if any(s in q for s in ("describe the grid", "how many objects",
-                                "is it symmetric", "count colours", "count colors")):
+        if any(
+            s in q
+            for s in (
+                "describe the grid",
+                "how many objects",
+                "is it symmetric",
+                "count colours",
+                "count colors",
+            )
+        ):
             return 0.7
         return 0.0
 
@@ -39,7 +47,8 @@ class VisionExpert(Expert):
 
         try:
             import numpy as np
-            from isaac.arc.grid_ops import extract_objects, detect_symmetry
+
+            from isaac.arc.grid_ops import detect_symmetry, extract_objects
         except ImportError as exc:
             raise ExpertNotApplicable(str(exc)) from exc
 
@@ -50,7 +59,7 @@ class VisionExpert(Expert):
         symmetry = detect_symmetry(grid)
         unique, counts = np.unique(grid, return_counts=True)
         colour_dist = sorted(
-            zip(unique.tolist(), counts.tolist()),
+            zip(unique.tolist(), counts.tolist(), strict=False),
             key=lambda x: -x[1],
         )
 

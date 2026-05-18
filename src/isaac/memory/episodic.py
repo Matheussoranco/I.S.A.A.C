@@ -62,7 +62,7 @@ class EpisodicMemory:
     def _init_chromadb(self) -> None:
         """Initialise ChromaDB for persistent episodic storage."""
         try:
-            import chromadb  # noqa: PLC0415
+            import chromadb
 
             if self._persist_dir is not None:
                 self._persist_dir.mkdir(parents=True, exist_ok=True)
@@ -77,7 +77,9 @@ class EpisodicMemory:
         except ImportError:
             logger.warning("ChromaDB not available — episodic memory is in-memory only.")
         except Exception:
-            logger.warning("ChromaDB init failed — episodic memory is in-memory only.", exc_info=True)
+            logger.warning(
+                "ChromaDB init failed — episodic memory is in-memory only.", exc_info=True
+            )
 
     # -- write --
 
@@ -106,11 +108,13 @@ class EpisodicMemory:
                 self._collection.add(
                     ids=[ep_id],
                     documents=[doc],
-                    metadatas=[{
-                        "success": str(episode.success),
-                        "node": episode.node,
-                        "iteration": episode.iteration,
-                    }],
+                    metadatas=[
+                        {
+                            "success": str(episode.success),
+                            "node": episode.node,
+                            "iteration": episode.iteration,
+                        }
+                    ],
                 )
             except Exception:
                 logger.debug("ChromaDB episode persist failed.", exc_info=True)
@@ -180,11 +184,7 @@ class EpisodicMemory:
     def search(self, keyword: str) -> list[Episode]:
         """Naïve keyword search across task descriptions and hypotheses."""
         kw = keyword.lower()
-        return [
-            ep
-            for ep in self._episodes
-            if kw in ep.task.lower() or kw in ep.hypothesis.lower()
-        ]
+        return [ep for ep in self._episodes if kw in ep.task.lower() or kw in ep.hypothesis.lower()]
 
     def summarise_recent(self, n: int = 5, session_id: str = "") -> str:
         """Return a concise text summary of recent episodes for prompt injection.
@@ -207,9 +207,7 @@ class EpisodicMemory:
         lines: list[str] = []
         for i, ep in enumerate(episodes, 1):
             status = "SUCCESS" if ep.success else "FAILURE"
-            lines.append(
-                f"  {i}. [{status}] {ep.task[:80]} — {ep.result_summary[:120]}"
-            )
+            lines.append(f"  {i}. [{status}] {ep.task[:80]} — {ep.result_summary[:120]}")
         return "\n".join(lines)
 
     def clear(self) -> None:
@@ -231,7 +229,7 @@ _episodic_memory: EpisodicMemory | None = None
 
 def get_episodic_memory() -> EpisodicMemory:
     """Return the session-scoped episodic memory singleton."""
-    global _episodic_memory  # noqa: PLW0603
+    global _episodic_memory
     if _episodic_memory is None:
         _episodic_memory = EpisodicMemory()
     return _episodic_memory
@@ -239,5 +237,5 @@ def get_episodic_memory() -> EpisodicMemory:
 
 def reset_episodic_memory() -> None:
     """Reset the singleton (used in tests)."""
-    global _episodic_memory  # noqa: PLW0603
+    global _episodic_memory
     _episodic_memory = None

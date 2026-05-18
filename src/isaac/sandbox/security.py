@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # Seccomp profile
 # ---------------------------------------------------------------------------
 
+
 def _default_seccomp_profile() -> dict[str, Any]:
     """Return a restrictive seccomp profile for code-execution containers.
 
@@ -36,68 +37,163 @@ def _default_seccomp_profile() -> dict[str, Any]:
     # Allowlisted syscalls — minimal set for CPython + NumPy
     allowed_syscalls = [
         # Process
-        "exit", "exit_group", "getpid", "getppid", "gettid",
-        "clone", "clone3", "fork", "vfork", "wait4", "waitid",
-        "execve", "execveat",
+        "exit",
+        "exit_group",
+        "getpid",
+        "getppid",
+        "gettid",
+        "clone",
+        "clone3",
+        "fork",
+        "vfork",
+        "wait4",
+        "waitid",
+        "execve",
+        "execveat",
         # Memory
-        "mmap", "munmap", "mprotect", "mremap", "brk",
-        "madvise", "mlock", "munlock",
+        "mmap",
+        "munmap",
+        "mprotect",
+        "mremap",
+        "brk",
+        "madvise",
+        "mlock",
+        "munlock",
         # File I/O
-        "open", "openat", "close", "read", "write", "pread64", "pwrite64",
-        "readv", "writev", "lseek", "fstat", "newfstatat", "stat",
-        "fstatfs", "statfs", "statx",
-        "access", "faccessat", "faccessat2",
-        "dup", "dup2", "dup3", "fcntl",
-        "ioctl", "flock",
-        "mkdir", "mkdirat", "rmdir", "unlink", "unlinkat",
-        "rename", "renameat", "renameat2",
-        "readlink", "readlinkat",
-        "getcwd", "chdir", "fchdir",
-        "getdents", "getdents64",
-        "ftruncate", "truncate",
-        "fallocate", "copy_file_range",
+        "open",
+        "openat",
+        "close",
+        "read",
+        "write",
+        "pread64",
+        "pwrite64",
+        "readv",
+        "writev",
+        "lseek",
+        "fstat",
+        "newfstatat",
+        "stat",
+        "fstatfs",
+        "statfs",
+        "statx",
+        "access",
+        "faccessat",
+        "faccessat2",
+        "dup",
+        "dup2",
+        "dup3",
+        "fcntl",
+        "ioctl",
+        "flock",
+        "mkdir",
+        "mkdirat",
+        "rmdir",
+        "unlink",
+        "unlinkat",
+        "rename",
+        "renameat",
+        "renameat2",
+        "readlink",
+        "readlinkat",
+        "getcwd",
+        "chdir",
+        "fchdir",
+        "getdents",
+        "getdents64",
+        "ftruncate",
+        "truncate",
+        "fallocate",
+        "copy_file_range",
         "sendfile",
         # Pipe / socket (for subprocess stdout/stderr)
-        "pipe", "pipe2", "socketpair",
-        "socket", "connect", "bind", "listen",
-        "accept", "accept4",
-        "getsockname", "getpeername",
-        "setsockopt", "getsockopt",
-        "sendto", "recvfrom", "sendmsg", "recvmsg",
+        "pipe",
+        "pipe2",
+        "socketpair",
+        "socket",
+        "connect",
+        "bind",
+        "listen",
+        "accept",
+        "accept4",
+        "getsockname",
+        "getpeername",
+        "setsockopt",
+        "getsockopt",
+        "sendto",
+        "recvfrom",
+        "sendmsg",
+        "recvmsg",
         "shutdown",
-        "select", "pselect6",
+        "select",
+        "pselect6",
         # Signals
-        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
-        "sigaltstack", "kill", "tgkill",
+        "rt_sigaction",
+        "rt_sigprocmask",
+        "rt_sigreturn",
+        "sigaltstack",
+        "kill",
+        "tgkill",
         # Time
-        "clock_gettime", "clock_getres", "clock_nanosleep",
-        "nanosleep", "gettimeofday",
+        "clock_gettime",
+        "clock_getres",
+        "clock_nanosleep",
+        "nanosleep",
+        "gettimeofday",
         # Epoll / poll
-        "epoll_create", "epoll_create1", "epoll_ctl", "epoll_wait",
-        "epoll_pwait", "epoll_pwait2",
-        "poll", "ppoll",
-        "eventfd", "eventfd2",
+        "epoll_create",
+        "epoll_create1",
+        "epoll_ctl",
+        "epoll_wait",
+        "epoll_pwait",
+        "epoll_pwait2",
+        "poll",
+        "ppoll",
+        "eventfd",
+        "eventfd2",
         # Misc
-        "getrandom", "arch_prctl", "prctl", "set_tid_address",
-        "set_robust_list", "get_robust_list",
-        "futex", "futex_waitv",
-        "sched_yield", "sched_getaffinity",
-        "getuid", "getgid", "geteuid", "getegid",
-        "getgroups", "setgroups",
-        "uname", "sysinfo",
-        "umask", "chown", "fchown", "fchownat",
-        "chmod", "fchmod", "fchmodat",
+        "getrandom",
+        "arch_prctl",
+        "prctl",
+        "set_tid_address",
+        "set_robust_list",
+        "get_robust_list",
+        "futex",
+        "futex_waitv",
+        "sched_yield",
+        "sched_getaffinity",
+        "getuid",
+        "getgid",
+        "geteuid",
+        "getegid",
+        "getgroups",
+        "setgroups",
+        "uname",
+        "sysinfo",
+        "umask",
+        "chown",
+        "fchown",
+        "fchownat",
+        "chmod",
+        "fchmod",
+        "fchmodat",
         "utimensat",
-        "timerfd_create", "timerfd_settime", "timerfd_gettime",
+        "timerfd_create",
+        "timerfd_settime",
+        "timerfd_gettime",
         "memfd_create",
-        "prlimit64", "getrlimit", "setrlimit",
+        "prlimit64",
+        "getrlimit",
+        "setrlimit",
         "rseq",
     ]
 
     return {
         "defaultAction": "SCMP_ACT_ERRNO",
         "archMap": [
-            {"architecture": "SCMP_ARCH_X86_64", "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"]},
+            {
+                "architecture": "SCMP_ARCH_X86_64",
+                "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"],
+            },
             {"architecture": "SCMP_ARCH_AARCH64", "subArchitectures": ["SCMP_ARCH_ARM"]},
         ],
         "syscalls": [
@@ -117,6 +213,7 @@ def write_seccomp_profile(target_dir: Path | None = None) -> Path:
     if target_dir is None:
         try:
             from isaac.config.settings import get_settings
+
             target_dir = get_settings().isaac_home / "security"
         except Exception:
             target_dir = Path.home() / ".isaac" / "security"
@@ -148,9 +245,7 @@ class SecurityPolicy:
     # Privilege
     user: str = "65534:65534"  # nobody
     cap_drop: list[str] = field(default_factory=lambda: ["ALL"])
-    security_opts: list[str] = field(
-        default_factory=lambda: ["no-new-privileges"]
-    )
+    security_opts: list[str] = field(default_factory=lambda: ["no-new-privileges"])
     read_only_rootfs: bool = True
 
     # Seccomp
@@ -158,9 +253,7 @@ class SecurityPolicy:
     """Path to a seccomp JSON profile.  Empty string means Docker default."""
 
     # Tmpfs for writable scratch space
-    tmpfs: dict[str, str] = field(
-        default_factory=lambda: {"/tmp": "rw,noexec,nosuid,size=64m"}
-    )
+    tmpfs: dict[str, str] = field(default_factory=lambda: {"/tmp": "rw,noexec,nosuid,size=64m"})
 
     # Execution timeout (seconds) — enforced at application level
     timeout_seconds: int = 30
@@ -170,6 +263,7 @@ class SecurityPolicy:
         sec_opts = list(self.security_opts)
         if self.seccomp_profile_path:
             import platform as _platform
+
             if _platform.system() == "Windows":
                 # Seccomp is a Linux kernel feature; Docker Desktop on Windows
                 # runs containers in a VM that has seccomp but cannot accept a
@@ -177,6 +271,7 @@ class SecurityPolicy:
                 try:
                     import json as _json
                     from pathlib import Path as _Path
+
                     content = _Path(self.seccomp_profile_path).read_text(encoding="utf-8")
                     # Minify to a single line — Docker API expects inline JSON
                     sec_opts.append(f"seccomp={_json.dumps(_json.loads(content))}")
@@ -243,5 +338,5 @@ def ui_policy() -> SecurityPolicy:
         timeout_seconds=cfg.timeout_seconds,
         # UI containers must be writable (Xvfb writes to /tmp/.X11-unix)
         read_only_rootfs=False,
-        tmpfs={}  # managed by the image itself
+        tmpfs={},  # managed by the image itself
     )

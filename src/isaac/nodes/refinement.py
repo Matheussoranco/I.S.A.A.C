@@ -17,7 +17,6 @@ the reflection returns a success update directly.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -58,8 +57,9 @@ def attempt_refinement(
         failed and the caller should fall through to the Planner retry.
     """
     try:
-        from isaac.llm.router import get_router, TaskComplexity
-        from langchain_core.messages import SystemMessage, HumanMessage
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        from isaac.llm.router import TaskComplexity, get_router
 
         router = get_router()
     except ImportError:
@@ -78,12 +78,14 @@ def attempt_refinement(
         llm = router.route(TaskComplexity.MODERATE)
         messages = [
             SystemMessage(content=_REFINEMENT_SYSTEM_PROMPT),
-            HumanMessage(content=(
-                f"## Step\n{step_desc}\n\n"
-                f"## Previous Code\n```python\n{code}\n```\n\n"
-                f"## Error Diagnosis\n{diagnosis}\n\n"
-                f"## Instruction\nFix the code. Output ONLY the corrected Python code."
-            )),
+            HumanMessage(
+                content=(
+                    f"## Step\n{step_desc}\n\n"
+                    f"## Previous Code\n```python\n{code}\n```\n\n"
+                    f"## Error Diagnosis\n{diagnosis}\n\n"
+                    f"## Instruction\nFix the code. Output ONLY the corrected Python code."
+                )
+            ),
         ]
 
         try:
@@ -149,7 +151,7 @@ def _extract_code(content: Any) -> str:
     text = str(content).strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [ln for ln in lines if not ln.strip().startswith("```")]
         text = "\n".join(lines)
     return text
 

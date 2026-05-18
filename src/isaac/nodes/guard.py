@@ -47,30 +47,48 @@ _GUARD_SYSTEM_PROMPT = SystemMessage(
 
 # Regex-based fast pre-filters (catch obvious patterns without LLM call)
 _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("instruction_override", re.compile(
-        r"ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|prompts|rules)",
-        re.IGNORECASE,
-    )),
-    ("role_override", re.compile(
-        r"you\s+are\s+now\s+(a|an|the|DAN|unrestricted|unfiltered)",
-        re.IGNORECASE,
-    )),
-    ("jailbreak_dan", re.compile(
-        r"\b(DAN|do\s+anything\s+now|developer\s+mode|unrestricted\s+mode)\b",
-        re.IGNORECASE,
-    )),
-    ("system_prompt_leak", re.compile(
-        r"(show|reveal|print|output|repeat)\s+(your\s+)?(system\s+prompt|instructions|rules)",
-        re.IGNORECASE,
-    )),
-    ("prompt_delimiter", re.compile(
-        r"(---+|===+|###)\s*(system|instruction|prompt)",
-        re.IGNORECASE,
-    )),
-    ("encoding_trick", re.compile(
-        r"(base64|rot13|hex)\s*(decode|encode|convert)",
-        re.IGNORECASE,
-    )),
+    (
+        "instruction_override",
+        re.compile(
+            r"ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|prompts|rules)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "role_override",
+        re.compile(
+            r"you\s+are\s+now\s+(a|an|the|DAN|unrestricted|unfiltered)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "jailbreak_dan",
+        re.compile(
+            r"\b(DAN|do\s+anything\s+now|developer\s+mode|unrestricted\s+mode)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "system_prompt_leak",
+        re.compile(
+            r"(show|reveal|print|output|repeat)\s+(your\s+)?(system\s+prompt|instructions|rules)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "prompt_delimiter",
+        re.compile(
+            r"(---+|===+|###)\s*(system|instruction|prompt)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "encoding_trick",
+        re.compile(
+            r"(base64|rot13|hex)\s*(decode|encode|convert)",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 
@@ -150,7 +168,9 @@ class PromptInjectionGuard:
 
         try:
             response = llm.invoke(prompt)
-            content = response.content if isinstance(response.content, str) else str(response.content)
+            content = (
+                response.content if isinstance(response.content, str) else str(response.content)
+            )
             cleaned = content.strip()
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("\n", 1)[1]
@@ -255,7 +275,8 @@ def guard_node(state: dict[str, Any]) -> dict[str, Any]:
                 user_text = content
             elif isinstance(content, list):
                 user_text = " ".join(
-                    b.get("text", "") for b in content
+                    b.get("text", "")
+                    for b in content
                     if isinstance(b, dict) and b.get("type") == "text"
                 )
             break
@@ -291,14 +312,16 @@ def guard_node(state: dict[str, Any]) -> dict[str, Any]:
         from langchain_core.messages import AIMessage
 
         return {
-            "messages": [AIMessage(
-                content=(
-                    f"⚠️ Your input was flagged as a potential prompt injection "
-                    f"(score: {result.suspicion_score:.2f}). "
-                    f"Detected patterns: {', '.join(result.flagged_patterns)}. "
-                    f"Please rephrase your request."
+            "messages": [
+                AIMessage(
+                    content=(
+                        f"⚠️ Your input was flagged as a potential prompt injection "
+                        f"(score: {result.suspicion_score:.2f}). "
+                        f"Detected patterns: {', '.join(result.flagged_patterns)}. "
+                        f"Please rephrase your request."
+                    )
                 )
-            )],
+            ],
             "current_phase": "guard",
             "guard_blocked": True,
         }

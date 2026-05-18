@@ -51,6 +51,7 @@ def build_multimodal_message(
     if audio_path is not None:
         try:
             from isaac.multimodal.voice.stt import get_stt
+
             transcribed = get_stt().transcribe(str(audio_path))
             if transcribed:
                 text = (text + "\n" + transcribed).strip() if text else transcribed
@@ -61,6 +62,7 @@ def build_multimodal_message(
     if screenshot:
         try:
             from isaac.multimodal.vision.screen_capture import capture_screen_b64
+
             data_url = f"data:image/png;base64,{capture_screen_b64()}"
             image_paths.append(data_url)
         except Exception as exc:

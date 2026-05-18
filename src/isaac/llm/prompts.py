@@ -48,6 +48,7 @@ def _soul_preamble() -> str:
     """Return the SOUL identity preamble for system prompts."""
     try:
         from isaac.identity.soul import soul_system_prompt
+
         return soul_system_prompt() + "\n\n"
     except Exception:
         return ""
@@ -107,7 +108,7 @@ _SYNTHESIS_UI_CONTENT = (
     "Each action must have: 'type', 'x', 'y' (when applicable), "
     "'text' or 'key' (when applicable), and a 'description' explaining intent. "
     "Think in absolute screen pixels.  Be precise — off-by-one clicks fail. "
-    "Respond ONLY with a valid JSON array: [{\"type\": ..., ...}, ...]"
+    'Respond ONLY with a valid JSON array: [{"type": ..., ...}, ...]'
 )
 
 _SYNTHESIS_HYBRID_CONTENT = (
@@ -127,8 +128,8 @@ _COMPUTER_USE_CONTENT = (
     "You receive a screenshot of the current desktop and a pending UIAction queue. "
     "Decide ONE next UIAction to execute. "
     "If the screenshot shows the step is already complete, emit: "
-    "{\"done\": true, \"summary\": \"...\"}. "
-    "Otherwise emit: {\"done\": false, \"action\": {<UIAction fields>}}. "
+    '{"done": true, "summary": "..."}. '
+    'Otherwise emit: {"done": false, "action": {<UIAction fields>}}. '
     "Be conservative — prefer explicit waits after navigation events. "
     "Respond ONLY with valid JSON."
 )
@@ -250,10 +251,7 @@ def planner_prompt(
     ``completed_descriptions`` surfaces already-finished step descriptions so
     the LLM knows what work has been done and only plans the *remaining* work.
     """
-    error_summaries = [
-        {"node": e.node, "message": e.message, "attempt": e.attempt}
-        for e in errors
-    ]
+    error_summaries = [{"node": e.node, "message": e.message, "attempt": e.attempt} for e in errors]
     gui_context = ""
     if world_model.gui_state:
         gui_context = (
@@ -262,15 +260,11 @@ def planner_prompt(
         )
     episodic_section = ""
     if episodic_context and episodic_context != "No prior episodes.":
-        episodic_section = (
-            f"\n## Recent experience (episodic memory)\n{episodic_context}\n"
-        )
+        episodic_section = f"\n## Recent experience (episodic memory)\n{episodic_context}\n"
     completed_section = ""
     if completed_descriptions:
         done_list = "\n".join(f"  - {d}" for d in completed_descriptions)
-        completed_section = (
-            f"\n## Already completed steps (do NOT repeat these)\n{done_list}\n"
-        )
+        completed_section = f"\n## Already completed steps (do NOT repeat these)\n{done_list}\n"
     return [
         _sys(_PLANNER_CONTENT),
         HumanMessage(
@@ -389,8 +383,8 @@ def synthesis_ui_prompt(
         f"## Active window\n{gui_state.active_window_title}\n"
         f"## Current URL\n{gui_state.current_url or 'n/a'}\n\n"
         "Emit a JSON array of UIActions. "
-        "Each action: {\"type\": ..., \"x\": ..., \"y\": ..., \"text\": ..., "
-        "\"key\": ..., \"description\": ...}\n"
+        'Each action: {"type": ..., "x": ..., "y": ..., "text": ..., '
+        '"key": ..., "description": ...}\n'
         "Available types: screenshot, click, double_click, right_click, "
         "type, key, scroll, move, drag, wait"
     )
@@ -454,8 +448,8 @@ def computer_use_prompt(
         f"## Active window\n{gui_state.active_window_title}\n"
         f"## Current URL\n{gui_state.current_url or 'n/a'}\n\n"
         "Look at the screenshot and decide:\n"
-        "  - If the step goal is COMPLETE: respond with {\"done\": true, \"summary\": \"...\"}\n"
-        "  - Otherwise: respond with {\"done\": false, \"action\": {<UIAction fields>}}\n"
+        '  - If the step goal is COMPLETE: respond with {"done": true, "summary": "..."}\n'
+        '  - Otherwise: respond with {"done": false, "action": {<UIAction fields>}}\n'
         "Be precise with pixel coordinates. "
         "Prefer 'wait' if a page transition is in progress."
     )
@@ -618,7 +612,7 @@ def arc_synthesis_prompt(
     analogy_context: str,
     prior_observations: list[str],
     failed_attempts: list[str] | None = None,
-) -> list["BaseMessage"]:
+) -> list[BaseMessage]:
     """Build an ARC-specific synthesis prompt with chain-of-thought structure.
 
     Parameters
@@ -666,16 +660,15 @@ def arc_synthesis_prompt(
 
 
 def arc_planner_prompt(
-    world_model: "WorldModel",
+    world_model: WorldModel,
     hypothesis: str,
     analogy_context: str,
-    errors: list["ErrorEntry"],
+    errors: list[ErrorEntry],
     available_skills: list[str],
-) -> list["BaseMessage"]:
+) -> list[BaseMessage]:
     """Build an ARC-specific planner prompt with analogy context."""
     error_summaries = [
-        {"node": e.node, "message": e.message[:200], "attempt": e.attempt}
-        for e in errors
+        {"node": e.node, "message": e.message[:200], "attempt": e.attempt} for e in errors
     ]
 
     return [

@@ -9,7 +9,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from isaac.skills.connectors.base import BaseConnector
 
@@ -22,11 +22,8 @@ class CalendarConnector(BaseConnector):
     """Read and write events in local .ics calendar files."""
 
     name = "calendar"
-    description = (
-        "Read or add events to a local .ics calendar file. "
-        "Uses the icalendar package."
-    )
-    requires_env: list[str] = []
+    description = "Read or add events to a local .ics calendar file. Uses the icalendar package."
+    requires_env: ClassVar[list[str]] = []
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
         """Run a calendar operation.

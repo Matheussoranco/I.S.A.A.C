@@ -13,7 +13,7 @@ from __future__ import annotations
 import base64
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -123,7 +123,7 @@ _vision: VisionLM | None = None
 
 
 def get_vision_lm() -> VisionLM:
-    global _vision  # noqa: PLW0603
+    global _vision
     if _vision is None:
         _vision = VisionLM()
     return _vision
@@ -136,5 +136,5 @@ def describe_image(image: str | Path | bytes) -> str:
 
 def reset_vision_lm() -> None:
     """Reset the singleton (used in tests)."""
-    global _vision  # noqa: PLW0603
+    global _vision
     _vision = None

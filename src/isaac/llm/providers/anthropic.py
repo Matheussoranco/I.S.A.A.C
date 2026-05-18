@@ -13,7 +13,7 @@ def build(
     api_key: str = "",
     temperature: float = 0.2,
     max_tokens: int | None = None,
-    vision: bool = False,  # noqa: ARG001
+    vision: bool = False,
     **extra: Any,
 ) -> BaseChatModel:
     from langchain_anthropic import ChatAnthropic

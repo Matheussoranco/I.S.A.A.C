@@ -18,13 +18,25 @@ logger = logging.getLogger(__name__)
 class LogicExpert(Expert):
     name: ClassVar[str] = "logic"
     domains: ClassVar[tuple[str, ...]] = ("logic", "constraints", "verification")
-    description: ClassVar[str] = "Z3 SMT solver — constraint satisfaction & code property verification."
+    description: ClassVar[str] = (
+        "Z3 SMT solver — constraint satisfaction & code property verification."
+    )
     cost: ClassVar[float] = 0.3
 
     def can_handle(self, query: str, context: dict[str, Any] | None = None) -> float:
         q = query.lower()
-        if any(s in q for s in ("satisfiable", "smt ", "z3 ", "constraint",
-                                "verify", "prove ", "counterexample")):
+        if any(
+            s in q
+            for s in (
+                "satisfiable",
+                "smt ",
+                "z3 ",
+                "constraint",
+                "verify",
+                "prove ",
+                "counterexample",
+            )
+        ):
             return 0.8
         if re.search(r"find\s+(?:integers?|values?)\s+such\s+that", q):
             return 0.75
@@ -54,9 +66,11 @@ class LogicExpert(Expert):
 
         # Best-effort: ask LLM to extract constraints, then solve
         try:
-            from isaac.llm.provider import get_llm
-            from langchain_core.messages import HumanMessage
             import json
+
+            from langchain_core.messages import HumanMessage
+
+            from isaac.llm.provider import get_llm
 
             llm = get_llm("fast")
             prompt = (

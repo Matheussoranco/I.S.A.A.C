@@ -28,6 +28,7 @@ class KGExpert(Expert):
     def can_handle(self, query: str, context: dict[str, Any] | None = None) -> float:
         try:
             from isaac.memory.world_model_kg import get_world_model_kg
+
             kg = get_world_model_kg()
         except Exception:
             return 0.0
@@ -36,20 +37,29 @@ class KGExpert(Expert):
 
         q = query.lower()
         # Match against known node labels
-        labels = [str(d.get("label", "")).lower()
-                  for _, d in kg._graph.nodes(data=True)]  # type: ignore[attr-defined]
+        labels = [str(d.get("label", "")).lower() for _, d in kg._graph.nodes(data=True)]  # type: ignore[attr-defined]
         for label in labels:
             if label and label in q:
                 return 0.8
         # Relational phrasing
-        if any(p in q for p in (" related to ", " connected to ", " between ",
-                                " who knows ", " path from ", "neighbours of",
-                                "neighbors of")):
+        if any(
+            p in q
+            for p in (
+                " related to ",
+                " connected to ",
+                " between ",
+                " who knows ",
+                " path from ",
+                "neighbours of",
+                "neighbors of",
+            )
+        ):
             return 0.6
         return 0.0
 
     def _answer(self, query: str, context: dict[str, Any]) -> ExpertResponse:
         from isaac.memory.world_model_kg import get_world_model_kg
+
         kg = get_world_model_kg()
         if kg.node_count == 0:
             raise ExpertNotApplicable("KG is empty")

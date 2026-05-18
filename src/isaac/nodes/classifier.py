@@ -205,7 +205,11 @@ def fast_classify(text: str) -> tuple[TaskMode | None, float]:
         r"\b(build|create|make|write|implement|develop|code|program|script|api|server|bot)\b",
         re.IGNORECASE,
     )
-    if len(stripped) <= 30 and not any(c in stripped for c in "{}[]()<>") and not _BUILD_WORDS.search(stripped):
+    if (
+        len(stripped) <= 30
+        and not any(c in stripped for c in "{}[]()<>")
+        and not _BUILD_WORDS.search(stripped)
+    ):
         return "direct", 0.82
 
     # Ambiguous — let the LLM decide

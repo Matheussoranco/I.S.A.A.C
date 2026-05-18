@@ -99,6 +99,7 @@ class ReviewDecision:
 @dataclass
 class SymbolicRule:
     """A regex-based deny rule."""
+
     pattern: re.Pattern[str]
     rule: str
     severity: str = "high"
@@ -107,51 +108,63 @@ class SymbolicRule:
 _DEFAULT_RULES: ClassVar[list[SymbolicRule]] = [
     SymbolicRule(
         re.compile(r"\brm\s+-rf?\s+(/|~|\$HOME|/\*)", re.I),
-        "Recursive rm of system root", "critical",
+        "Recursive rm of system root",
+        "critical",
     ),
     SymbolicRule(
         re.compile(r"\b(sudo|doas)\s+rm\s+-r", re.I),
-        "Privileged recursive delete", "critical",
+        "Privileged recursive delete",
+        "critical",
     ),
     SymbolicRule(
         re.compile(r":(){\s*:\|:&\s*};:", re.I),
-        "Fork bomb pattern", "critical",
+        "Fork bomb pattern",
+        "critical",
     ),
     SymbolicRule(
         re.compile(r"\bdd\s+if=.+\s+of=/dev/(sd[a-z]|nvme|disk\d)", re.I),
-        "Direct disk write", "critical",
+        "Direct disk write",
+        "critical",
     ),
     SymbolicRule(
         re.compile(r"\bdrop\s+(table|database|schema)\b", re.I),
-        "Database drop statement", "critical",
+        "Database drop statement",
+        "critical",
     ),
     SymbolicRule(
         re.compile(r"\bgit\s+push\s+(?:--force|-f)\s+\S+\s+(main|master|prod\w*)", re.I),
-        "Force push to protected branch", "high",
+        "Force push to protected branch",
+        "high",
     ),
     SymbolicRule(
         re.compile(r"\bchmod\s+(?:-R\s+)?777\s+/", re.I),
-        "World-writable system root", "critical",
+        "World-writable system root",
+        "critical",
     ),
     SymbolicRule(
         re.compile(r"\bcurl\s+[^|\n]*\|\s*(?:bash|sh|zsh)\b", re.I),
-        "Pipe remote script to shell", "high",
+        "Pipe remote script to shell",
+        "high",
     ),
     SymbolicRule(
         re.compile(r"\b(API_KEY|SECRET|TOKEN|PASSWORD)\s*=\s*[A-Za-z0-9_\-]{8,}", re.I),
-        "Hardcoded credential", "medium",
+        "Hardcoded credential",
+        "medium",
     ),
     SymbolicRule(
         re.compile(r"(\.env|id_rsa|\.pem|credentials\.json)", re.I),
-        "Sensitive file path", "medium",
+        "Sensitive file path",
+        "medium",
     ),
     SymbolicRule(
         re.compile(r"--no-verify|--no-gpg-sign", re.I),
-        "Bypassing hooks/signing", "medium",
+        "Bypassing hooks/signing",
+        "medium",
     ),
     SymbolicRule(
         re.compile(r"\biptables\s+-F\b|\bufw\s+disable\b", re.I),
-        "Disabling firewall", "high",
+        "Disabling firewall",
+        "high",
     ),
 ]
 
@@ -160,10 +173,13 @@ def _check_symbolic(action: str) -> list[ConstitutionViolation]:
     violations: list[ConstitutionViolation] = []
     for rule in _DEFAULT_RULES:
         if rule.pattern.search(action):
-            violations.append(ConstitutionViolation(
-                rule=rule.rule, severity=rule.severity,
-                detail=f"Pattern matched: {rule.pattern.pattern}",
-            ))
+            violations.append(
+                ConstitutionViolation(
+                    rule=rule.rule,
+                    severity=rule.severity,
+                    detail=f"Pattern matched: {rule.pattern.pattern}",
+                )
+            )
     return violations
 
 
@@ -202,8 +218,9 @@ def _llm_critic(
     constitution: list[str],
 ) -> dict[str, Any] | None:
     try:
-        from isaac.llm.provider import get_llm
         from langchain_core.messages import HumanMessage
+
+        from isaac.llm.provider import get_llm
 
         llm = get_llm("fast")
         prompt = _CRITIC_PROMPT.format(
@@ -230,6 +247,7 @@ def load_constitution() -> list[str]:
     """Load the constitution from disk if present, else built-in default."""
     try:
         from isaac.config.settings import get_settings
+
         path = get_settings().isaac_home / "security" / "constitution.json"
     except Exception:
         path = Path.home() / ".isaac" / "security" / "constitution.json"
@@ -318,6 +336,7 @@ def review(
 def _audit(action_kind: str, action: str, decision: ReviewDecision) -> None:
     try:
         from isaac.security.audit import audit
+
         audit(
             "constitution",
             "review",

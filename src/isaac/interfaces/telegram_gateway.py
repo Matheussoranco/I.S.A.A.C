@@ -46,9 +46,9 @@ def send_notification(text: str) -> None:
         if not token or not allowed:
             return
 
-        import urllib.request
-        import urllib.parse
         import json
+        import urllib.parse
+        import urllib.request
 
         for user_id in allowed:
             url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -114,8 +114,7 @@ async def start_bot() -> None:
     async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         assert update.effective_message is not None
         await update.effective_message.reply_text(
-            "🤖 I.S.A.A.C. Telegram Gateway\n\n"
-            "Commands: /status /tasks /memory /approve /reject"
+            "🤖 I.S.A.A.C. Telegram Gateway\n\nCommands: /status /tasks /memory /approve /reject"
         )
 
     async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -130,7 +129,6 @@ async def start_bot() -> None:
     async def cmd_tasks(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         assert update.effective_message is not None
         try:
-            from pathlib import Path
             from isaac.config.settings import get_settings
 
             tasks_file = get_settings().isaac_home / "TASKS.md"
@@ -160,7 +158,9 @@ async def start_bot() -> None:
         for a in _pending_approvals:
             if a.approved is None:
                 a.approved = True
-                a.resolved_by = f"telegram:{update.effective_user.id if update.effective_user else 'unknown'}"
+                a.resolved_by = (
+                    f"telegram:{update.effective_user.id if update.effective_user else 'unknown'}"
+                )
                 resolved += 1
         if resolved:
             await update.effective_message.reply_text(f"✅ Approved {resolved} pending action(s).")
@@ -173,7 +173,9 @@ async def start_bot() -> None:
         for a in _pending_approvals:
             if a.approved is None:
                 a.approved = False
-                a.resolved_by = f"telegram:{update.effective_user.id if update.effective_user else 'unknown'}"
+                a.resolved_by = (
+                    f"telegram:{update.effective_user.id if update.effective_user else 'unknown'}"
+                )
                 resolved += 1
         if resolved:
             await update.effective_message.reply_text(f"❌ Rejected {resolved} pending action(s).")

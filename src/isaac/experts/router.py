@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RoutingFeatures:
     """Features computed per (query, expert)."""
+
     raw_confidence: float = 0.0
     meta_winrate: float = 0.0
     cost: float = 1.0
@@ -92,10 +93,7 @@ class HybridRouter:
                 meta_winrate=wr,
                 cost=expert.cost,
                 final_score=base,
-                rationale=(
-                    f"raw={raw:.2f} winrate={wr:.2f} cost={expert.cost:.1f} "
-                    f"→ {base:.3f}"
-                ),
+                rationale=(f"raw={raw:.2f} winrate={wr:.2f} cost={expert.cost:.1f} → {base:.3f}"),
             )
             scored.append((expert, features))
 
@@ -150,6 +148,7 @@ class HybridRouter:
         """Return per-expert historical win-rate from MetaLearner (or empty)."""
         try:
             from isaac.meta.learner import get_learner
+
             learner = get_learner()
             data = learner.get_best_strategy("expert")
             return {row["strategy"]: float(row["win_rate"]) for row in data}
@@ -165,8 +164,9 @@ class HybridRouter:
     ) -> tuple[str, str]:
         """Ask the LLM which expert is best — only when scores genuinely tie."""
         try:
-            from isaac.llm.provider import get_llm
             from langchain_core.messages import HumanMessage
+
+            from isaac.llm.provider import get_llm
 
             llm = get_llm("fast")
             options = "\n".join(f"- {e.name}: {e.description}" for e in candidates)

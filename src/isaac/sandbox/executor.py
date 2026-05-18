@@ -54,19 +54,44 @@ class CodeExecutor:
         7. Destroy the container and clean up temp files.
         """
         import ast
+
         try:
             tree = ast.parse(code)
             # Basic AST walk to reject out-of-scope modules
             # Modules that must never be imported — even inside Docker,
             # the host-side pre-check catches obvious injections early.
-            _BLOCKED_MODULES = frozenset({
-                "os", "socket", "subprocess", "ctypes", "importlib",
-                "sys", "multiprocessing", "pty", "fcntl", "signal",
-                "resource", "platform", "shutil", "tempfile", "glob",
-                "builtins", "imp", "runpy", "code", "codeop",
-                "posix", "nt", "mmap", "select", "selectors",
-                "threading", "_thread", "concurrent",
-            })
+            _BLOCKED_MODULES = frozenset(
+                {
+                    "os",
+                    "socket",
+                    "subprocess",
+                    "ctypes",
+                    "importlib",
+                    "sys",
+                    "multiprocessing",
+                    "pty",
+                    "fcntl",
+                    "signal",
+                    "resource",
+                    "platform",
+                    "shutil",
+                    "tempfile",
+                    "glob",
+                    "builtins",
+                    "imp",
+                    "runpy",
+                    "code",
+                    "codeop",
+                    "posix",
+                    "nt",
+                    "mmap",
+                    "select",
+                    "selectors",
+                    "threading",
+                    "_thread",
+                    "concurrent",
+                }
+            )
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
@@ -74,9 +99,11 @@ class CodeExecutor:
                         if top in _BLOCKED_MODULES:
                             return ExecutionResult(
                                 stdout="",
-                                stderr=f"SecurityError: Import of module '{alias.name}' is blocked.",
+                                stderr=(
+                                    f"SecurityError: Import of module '{alias.name}' is blocked."
+                                ),
                                 exit_code=1,
-                                duration_ms=0.0
+                                duration_ms=0.0,
                             )
                 elif isinstance(node, ast.ImportFrom):
                     top = (node.module or "").split(".")[0]
@@ -85,14 +112,14 @@ class CodeExecutor:
                             stdout="",
                             stderr=f"SecurityError: Import from module '{node.module}' is blocked.",
                             exit_code=1,
-                            duration_ms=0.0
+                            duration_ms=0.0,
                         )
         except SyntaxError as e:
             return ExecutionResult(
                 stdout="",
                 stderr=f"SyntaxError: {e.msg} at line {e.lineno}",
                 exit_code=1,
-                duration_ms=0.0
+                duration_ms=0.0,
             )
 
         tmp_dir = tempfile.mkdtemp(prefix="isaac_sandbox_")

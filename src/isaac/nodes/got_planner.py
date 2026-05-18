@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 import networkx as nx  # type: ignore[import-untyped]
 
@@ -73,10 +72,11 @@ class PlanDAG:
         for step in self.steps:
             if step.status != "pending":
                 continue
-            deps_done = all(
-                self._graph.nodes.get(d, {}).get("status") == "done"
-                for d in step.depends_on
-            ) if step.depends_on else True
+            deps_done = (
+                all(self._graph.nodes.get(d, {}).get("status") == "done" for d in step.depends_on)
+                if step.depends_on
+                else True
+            )
             if deps_done:
                 ready.append(step)
         return ready

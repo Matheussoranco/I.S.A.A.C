@@ -21,15 +21,14 @@ emphasis on ``effective compute`` as the real measure of intelligence.
 
 from __future__ import annotations
 
-import itertools
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-from isaac.arc.dsl import PRIMITIVES, apply_program, compose
+from isaac.arc.dsl import PRIMITIVES, apply_program
 from isaac.arc.evaluator import ArcTask, TaskResult
 from isaac.arc.grid_ops import Grid
 
@@ -76,9 +75,7 @@ def _colour_args_from_task(task: ArcTask) -> list[dict[str, int]]:
 
 def _shift_args_from_task(task: ArcTask) -> list[dict[str, int]]:
     """Generate plausible shift amounts based on grid dimensions."""
-    max_dim = max(
-        max(p.input.shape[0], p.input.shape[1]) for p in task.train
-    )
+    max_dim = max(max(p.input.shape[0], p.input.shape[1]) for p in task.train)
     return [{"n": n} for n in range(1, min(max_dim, 8) + 1)]
 
 
@@ -171,9 +168,7 @@ def _beam_search_dsl(
     from isaac.arc.analogy import run_analogy_engine
 
     # Build analogy to get priority hints
-    train_dicts = [
-        {"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train
-    ]
+    train_dicts = [{"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train]
     analogy = run_analogy_engine(train_dicts)
 
     # Prioritised primitive list: DSL ops mentioned in top hypotheses first
@@ -188,17 +183,40 @@ def _beam_search_dsl(
 
     # Zero-arg ops (safe to call without extra args)
     zero_arg_ops = {
-        "identity", "rotate_90", "rotate_180", "rotate_270",
-        "flip_horizontal", "flip_vertical", "transpose", "diagonal_flip",
-        "reflect_about_main_diagonal", "gravity_down", "gravity_up",
-        "gravity_left", "gravity_right", "hollow_rectangle",
-        "fill_enclosed_auto", "select_largest_object", "select_smallest_object",
-        "recolour_by_size", "recolour_by_position", "outline_objects",
-        "complete_symmetry_horizontal", "complete_symmetry_vertical",
-        "mirror_objects_to_fill_symmetry", "connect_objects_horizontal",
-        "connect_objects_vertical", "object_to_border", "center_object",
-        "split_grid_horizontal", "split_grid_vertical", "count_to_cells",
-        "crop_to_object", "normalise_to_square", "erode_objects", "expand_objects",
+        "identity",
+        "rotate_90",
+        "rotate_180",
+        "rotate_270",
+        "flip_horizontal",
+        "flip_vertical",
+        "transpose",
+        "diagonal_flip",
+        "reflect_about_main_diagonal",
+        "gravity_down",
+        "gravity_up",
+        "gravity_left",
+        "gravity_right",
+        "hollow_rectangle",
+        "fill_enclosed_auto",
+        "select_largest_object",
+        "select_smallest_object",
+        "recolour_by_size",
+        "recolour_by_position",
+        "outline_objects",
+        "complete_symmetry_horizontal",
+        "complete_symmetry_vertical",
+        "mirror_objects_to_fill_symmetry",
+        "connect_objects_horizontal",
+        "connect_objects_vertical",
+        "object_to_border",
+        "center_object",
+        "split_grid_horizontal",
+        "split_grid_vertical",
+        "count_to_cells",
+        "crop_to_object",
+        "normalise_to_square",
+        "erode_objects",
+        "expand_objects",
     }
 
     # Parametric ops with their arg variants
@@ -249,7 +267,7 @@ def _beam_search_dsl(
             for op_name, args in step_candidates:
                 if time.perf_counter() - t_start > time_budget_s:
                     break
-                new_ops = ops_prefix + [{"op": op_name, "args": args} if args else {"op": op_name}]
+                new_ops = [*ops_prefix, {"op": op_name, "args": args} if args else {"op": op_name}]
                 acc = _evaluate_program(new_ops, task)
                 if acc == 1.0:
                     cand = CandidateProgram(ops=new_ops, train_accuracy=1.0, method="dsl_beam")
@@ -282,9 +300,7 @@ def _analogy_direct_solve(task: ArcTask) -> list[CandidateProgram]:
     """Use analogy engine hypotheses directly as candidate programs."""
     from isaac.arc.analogy import run_analogy_engine
 
-    train_dicts = [
-        {"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train
-    ]
+    train_dicts = [{"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train]
     analogy = run_analogy_engine(train_dicts)
 
     solutions: list[CandidateProgram] = []
@@ -350,12 +366,10 @@ def _llm_solve_enriched(
         )
 
         response = llm.invoke(prompt)
-        content = (
-            response.content if isinstance(response.content, str)
-            else str(response.content)
-        )
+        content = response.content if isinstance(response.content, str) else str(response.content)
 
         import re
+
         match = re.search(r"```(?:python)?\s*\n(.*?)```", content, re.DOTALL)
         if not match:
             return None
@@ -366,15 +380,12 @@ def _llm_solve_enriched(
 
         # Validate on training data
         namespace: dict[str, Any] = {"np": np, "numpy": np}
-        exec(code, namespace)  # noqa: S102
+        exec(code, namespace)
         solve_fn = namespace.get("solve")
         if solve_fn is None:
             return None
 
-        correct = sum(
-            1 for p in task.train
-            if _safe_equal_fn(solve_fn, p.input, p.output)
-        )
+        correct = sum(1 for p in task.train if _safe_equal_fn(solve_fn, p.input, p.output))
         acc = correct / len(task.train) if task.train else 0.0
         return code, acc
 
@@ -447,18 +458,16 @@ def synthesise(
         if _analogy_ctx:
             return  # Already built
         try:
-            from isaac.arc.analogy import run_analogy_engine, format_analogy_for_prompt
-            from isaac.arc.priors import full_prior_analysis, describe_prior_analysis
+            from isaac.arc.analogy import format_analogy_for_prompt, run_analogy_engine
             from isaac.arc.object_synthesis import build_object_context_for_llm
+            from isaac.arc.priors import describe_prior_analysis, full_prior_analysis
 
             train_dicts = [
                 {"input": p.input.tolist(), "output": p.output.tolist()} for p in task.train
             ]
             analogy = run_analogy_engine(train_dicts)
             _analogy_ctx = format_analogy_for_prompt(analogy)
-            _analogy_hint = (
-                analogy.hypotheses[0].description if analogy.hypotheses else ""
-            )
+            _analogy_hint = analogy.hypotheses[0].description if analogy.hypotheses else ""
 
             train_pairs_np = [(p.input, p.output) for p in task.train]
             _object_ctx = build_object_context_for_llm(train_pairs_np)
@@ -495,8 +504,7 @@ def synthesise(
             perfect = [c for c in cands if c.train_accuracy == 1.0]
             if perfect:
                 best = perfect[0]
-                logger.info("Solver[2/beam-search] solved %s (depth=%d)",
-                            task.id, len(best.ops))
+                logger.info("Solver[2/beam-search] solved %s (depth=%d)", task.id, len(best.ops))
                 return _make_task_result(task, best, t_start)
         except Exception as exc:
             logger.debug("Strategy 2 failed: %s", exc)
@@ -506,6 +514,7 @@ def synthesise(
     if remaining > 1.0:
         try:
             from isaac.arc.object_synthesis import synthesise_from_object_rules
+
             result = synthesise_from_object_rules(task)
             if result is not None:
                 code, acc = result
@@ -528,9 +537,7 @@ def synthesise(
     if llm is not None and remaining > 3.0:
         _build_symbolic_context()
         try:
-            result_llm = _llm_solve_enriched(
-                task, llm, _analogy_ctx, _object_ctx, _prior_obs
-            )
+            result_llm = _llm_solve_enriched(task, llm, _analogy_ctx, _object_ctx, _prior_obs)
             if result_llm is not None:
                 code, acc = result_llm
                 initial_llm_code = code
@@ -560,15 +567,20 @@ def synthesise(
         starting_code = initial_llm_code
         if starting_code is None:
             try:
-                from isaac.arc.evaluator import build_arc_prompt
                 import re as _re
+
+                from isaac.arc.evaluator import build_arc_prompt
+
                 prompt_text = build_arc_prompt(task)
                 from langchain_core.messages import HumanMessage, SystemMessage
+
                 quick_msgs = [
-                    SystemMessage(content=(
-                        "You are an ARC-AGI expert. Write a Python `solve(grid)` function. "
-                        "Use only numpy. Respond ONLY with a fenced ```python``` block."
-                    )),
+                    SystemMessage(
+                        content=(
+                            "You are an ARC-AGI expert. Write a Python `solve(grid)` function. "
+                            "Use only numpy. Respond ONLY with a fenced ```python``` block."
+                        )
+                    ),
                     HumanMessage(content=prompt_text),
                 ]
                 resp = llm.invoke(quick_msgs)
@@ -605,7 +617,7 @@ def synthesise(
                     elapsed_ms = (time.perf_counter() - t_start) * 1000
                     correct = all(
                         pred is not None and np.array_equal(pred, pair.output)
-                        for pred, pair in zip(predictions, task.test)
+                        for pred, pair in zip(predictions, task.test, strict=False)
                     )
                     return TaskResult(
                         task_id=task.id,
@@ -617,7 +629,8 @@ def synthesise(
                     )
                 logger.info(
                     "Solver[5/self-refine] best: %.0f%% training for %s",
-                    acc * 100, task.id,
+                    acc * 100,
+                    task.id,
                 )
             except Exception as exc:
                 logger.debug("Strategy 5 failed: %s", exc)
@@ -627,7 +640,9 @@ def synthesise(
         best = max(all_candidates, key=lambda c: c.score)
         logger.info(
             "Solver: best partial for %s: %.0f%% training, method=%s",
-            task.id, best.train_accuracy * 100, best.method,
+            task.id,
+            best.train_accuracy * 100,
+            best.method,
         )
         return _make_task_result(task, best, t_start)
 
@@ -655,13 +670,13 @@ def _make_task_result(
         code = best.ops[0].get("code", "")
         try:
             namespace: dict[str, Any] = {"np": np, "numpy": np}
-            exec(code, namespace)  # noqa: S102
+            exec(code, namespace)
             solve_fn = namespace.get("solve")
             if solve_fn is not None:
                 predictions = [solve_fn(p.input) for p in task.test]
                 correct = all(
                     np.array_equal(pred, p.output)
-                    for pred, p in zip(predictions, task.test)
+                    for pred, p in zip(predictions, task.test, strict=False)
                 )
                 return TaskResult(
                     task_id=task.id,
@@ -685,7 +700,7 @@ def _make_task_result(
 
     correct = all(
         pred is not None and np.array_equal(pred, pair.output)
-        for pred, pair in zip(predictions, task.test)
+        for pred, pair in zip(predictions, task.test, strict=False)
     )
 
     _record_for_library_learning(task, best)
@@ -712,6 +727,7 @@ def _record_for_library_learning(task: ArcTask, best: CandidateProgram) -> None:
         return
     try:
         from isaac.arc.library_learning import get_library_learner
+
         learner = get_library_learner()
         learner.record_solution(
             task_payload={"id": task.id, "n_train": len(task.train)},

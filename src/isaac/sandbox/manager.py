@@ -35,18 +35,26 @@ logger = logging.getLogger(__name__)
 # xdotool command builder (pure function — no I/O)
 # ---------------------------------------------------------------------------
 
+
 def _build_xdotool_command(action: UIAction) -> list[str]:  # type: ignore[name-defined]
     """Convert a ``UIAction`` into an xdotool argv list."""
     t = action.type
     if t == "click":
-        return ["xdotool", "mousemove", "--sync",
-                str(action.x), str(action.y), "click", "1"]
+        return ["xdotool", "mousemove", "--sync", str(action.x), str(action.y), "click", "1"]
     if t == "double_click":
-        return ["xdotool", "mousemove", "--sync",
-                str(action.x), str(action.y), "click", "--repeat", "2", "1"]
+        return [
+            "xdotool",
+            "mousemove",
+            "--sync",
+            str(action.x),
+            str(action.y),
+            "click",
+            "--repeat",
+            "2",
+            "1",
+        ]
     if t == "right_click":
-        return ["xdotool", "mousemove", "--sync",
-                str(action.x), str(action.y), "click", "3"]
+        return ["xdotool", "mousemove", "--sync", str(action.x), str(action.y), "click", "3"]
     if t == "move":
         return ["xdotool", "mousemove", "--sync", str(action.x), str(action.y)]
     if t == "type":
@@ -60,10 +68,19 @@ def _build_xdotool_command(action: UIAction) -> list[str]:  # type: ignore[name-
         return ["xdotool", "click", "--repeat", str(max(1, action.scroll_amount)), btn]
     if t == "drag":
         return [
-            "xdotool", "mousemove", "--sync", str(action.x), str(action.y),
-            "mousedown", "1",
-            "mousemove", "--sync", str(action.target_x), str(action.target_y),
-            "mouseup", "1",
+            "xdotool",
+            "mousemove",
+            "--sync",
+            str(action.x),
+            str(action.y),
+            "mousedown",
+            "1",
+            "mousemove",
+            "--sync",
+            str(action.target_x),
+            str(action.target_y),
+            "mouseup",
+            "1",
         ]
     if t == "wait":
         ms = action.duration_ms or 500
@@ -284,4 +301,3 @@ class SandboxManager:
             duration_ms,
         )
         return result
-

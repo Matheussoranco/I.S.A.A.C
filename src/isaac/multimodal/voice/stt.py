@@ -104,7 +104,7 @@ class SpeechToText:
 
     def transcribe(
         self,
-        audio: str | os.PathLike[str] | "np.ndarray",
+        audio: str | os.PathLike[str] | np.ndarray,
         sample_rate: int = 16000,
     ) -> str:
         """Return transcribed text from a path or 16-kHz mono float32 array."""
@@ -146,10 +146,11 @@ _stt: SpeechToText | None = None
 
 def get_stt() -> SpeechToText:
     """Return the singleton STT engine, configured from settings."""
-    global _stt  # noqa: PLW0603
+    global _stt
     if _stt is None:
         try:
             from isaac.config.settings import settings
+
             _stt = SpeechToText(
                 model_name=settings.voice_stt_model,
                 language=settings.voice_stt_language,
@@ -165,11 +166,13 @@ def is_stt_available() -> bool:
     """Return True if any STT backend can be imported."""
     try:
         import faster_whisper  # noqa: F401
+
         return True
     except ImportError:
         pass
     try:
         import whisper  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -177,5 +180,5 @@ def is_stt_available() -> bool:
 
 def reset_stt() -> None:
     """Reset the singleton (used in tests)."""
-    global _stt  # noqa: PLW0603
+    global _stt
     _stt = None

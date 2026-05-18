@@ -14,10 +14,10 @@ beautiful, Cline/Claude-Code-inspired terminal experience featuring:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 import time
-import threading
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -59,6 +59,7 @@ def _make_prompt_session() -> Any:
             }
         )
         import os
+
         history_path = os.path.expanduser("~/.isaac/history.txt")
         os.makedirs(os.path.dirname(history_path), exist_ok=True)
 
@@ -75,6 +76,7 @@ def _get_input(session: Any, ui: TerminalUI) -> str:
     """Read user input using prompt_toolkit or plain input()."""
     if session is not None:
         from prompt_toolkit.formatted_text import FormattedText
+
         tokens = FormattedText(ui.get_prompt_tokens())
         return session.prompt(tokens).strip()
     return input("\u276f ").strip()  # ❯
@@ -106,18 +108,21 @@ def _handle_slash_command(cmd: str, ui: TerminalUI, state: IsaacState) -> bool:
         model = "unknown"
         try:
             from isaac.config.settings import settings
+
             model = settings.llm.model
         except Exception:
             pass
         tools_count = 0
         try:
             from isaac.tools.base import get_tool_registry
+
             tools_count = len(get_tool_registry().list_all())
         except Exception:
             pass
         memory_ok = False
         try:
             from isaac.memory.manager import get_memory_manager
+
             get_memory_manager()
             memory_ok = True
         except Exception:
@@ -125,6 +130,7 @@ def _handle_slash_command(cmd: str, ui: TerminalUI, state: IsaacState) -> bool:
         scheduler_ok = False
         try:
             from isaac.scheduler.heartbeat import _scheduler
+
             scheduler_ok = _scheduler is not None and _scheduler.running
         except Exception:
             pass
@@ -187,12 +193,19 @@ def run_repl() -> int:
     # Force UTF-8 on Windows
     if sys.platform == "win32":
         import io as _io
+
         try:
             sys.stdout = _io.TextIOWrapper(
-                sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+                sys.stdout.buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
             )
             sys.stderr = _io.TextIOWrapper(
-                sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+                sys.stderr.buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
             )
         except Exception:
             pass
@@ -203,6 +216,7 @@ def run_repl() -> int:
     # -- Register tools & start services -----------------------------------
     try:
         from isaac.tools import register_all_tools
+
         register_all_tools()
     except Exception:
         pass
@@ -211,6 +225,7 @@ def run_repl() -> int:
     try:
         from isaac.scheduler.heartbeat import start_scheduler
         from isaac.scheduler.heartbeat import stop_scheduler as _stop
+
         start_scheduler()
         stop_scheduler = _stop
     except Exception:
@@ -218,6 +233,7 @@ def run_repl() -> int:
 
     try:
         from isaac.security.audit import audit
+
         audit("system", "startup")
     except Exception:
         pass
@@ -230,6 +246,7 @@ def run_repl() -> int:
     def _prewarm() -> None:
         try:
             from isaac.llm.provider import get_direct_response_llm
+
             llm = get_direct_response_llm()
             # Minimal prompt — just enough to trigger model load, no output needed
             for _ in llm.stream("hi"):
@@ -238,6 +255,7 @@ def run_repl() -> int:
             pass
 
     import threading as _threading
+
     _threading.Thread(target=_prewarm, daemon=True, name="isaac-prewarm").start()
 
     # -- prompt_toolkit session --------------------------------------------
@@ -269,6 +287,7 @@ def run_repl() -> int:
             # Sanitize user input before it enters the cognitive graph
             try:
                 from isaac.security.sanitizer import sanitize_input
+
                 user_input = sanitize_input(user_input)
             except Exception:
                 pass
@@ -286,7 +305,7 @@ def run_repl() -> int:
                 is_direct = False
 
                 for event in compiled.stream(dict(state)):
-                    for node_name, node_output in event.items():
+                    for _node_name, node_output in event.items():
                         if isinstance(node_output, dict):
                             result.update(node_output)
 
@@ -353,15 +372,15 @@ def run_repl() -> int:
         # Shutdown
         try:
             from isaac.nodes.computer_use import shutdown_ui_executor
+
             shutdown_ui_executor()
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             stop_scheduler()
-        except Exception:
-            pass
         try:
             from isaac.security.audit import audit
+
             audit("system", "shutdown")
         except Exception:
             pass

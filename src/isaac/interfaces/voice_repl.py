@@ -122,6 +122,7 @@ def run_voice_repl(hands_free: bool = False) -> int:
     # -- Build graph + state ------------------------------------------------
     try:
         from isaac.tools import register_all_tools
+
         register_all_tools()
     except Exception:
         pass
@@ -190,6 +191,7 @@ def run_voice_repl(hands_free: bool = False) -> int:
             # Sanitise
             try:
                 from isaac.security.sanitizer import sanitize_input
+
                 user_text = sanitize_input(user_text)
             except Exception:
                 pass
@@ -233,6 +235,7 @@ def run_voice_repl(hands_free: bool = False) -> int:
     finally:
         try:
             from isaac.nodes.computer_use import shutdown_ui_executor
+
             shutdown_ui_executor()
         except Exception:
             pass

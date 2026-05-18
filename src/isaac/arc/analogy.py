@@ -28,7 +28,6 @@ import numpy as np
 
 from isaac.arc.grid_ops import Grid, GridObject, extract_objects
 from isaac.arc.priors import (
-    ObjectSignature,
     compute_object_signature,
     infer_colour_correspondence,
     objects_same_shape,
@@ -125,9 +124,9 @@ def _match_objects(
     pairs: list[tuple[GridObject | None, GridObject | None]] = []
 
     # Pass 1: exact shape + colour match
-    for i, (io, isig) in enumerate(zip(in_objs, in_sigs)):
+    for _i, (io, isig) in enumerate(zip(in_objs, in_sigs, strict=False)):
         best_j: int | None = None
-        for j, (oo, osig) in enumerate(zip(out_objs, out_sigs)):
+        for j, (_oo, osig) in enumerate(zip(out_objs, out_sigs, strict=False)):
             if j in matched_out:
                 continue
             if isig.colour == osig.colour and objects_same_shape(isig, osig):
@@ -218,7 +217,7 @@ def extract_pair_delta(in_grid: Grid, out_grid: Grid) -> PairDelta:
 
                 same_shape = objects_same_shape(isig, osig)
                 same_colour = isig.colour == osig.colour
-                same_pos = (io.bbox == oo.bbox)
+                same_pos = io.bbox == oo.bbox
 
                 ic = (isig.centroid[0], isig.centroid[1])
                 oc = (osig.centroid[0], osig.centroid[1])
@@ -277,7 +276,7 @@ def _hyp_colour_map(deltas: list[PairDelta]) -> TransformHypothesis | None:
 def _hyp_rotation(deltas: list[PairDelta]) -> list[TransformHypothesis]:
     """Check if a rotation explains all training pairs."""
     hyps: list[TransformHypothesis] = []
-    for angle, k in [(90, -1), (180, 2), (270, -3)]:
+    for angle, _k in [(90, -1), (180, 2), (270, -3)]:
         consistent = True
         for d in deltas:
             # We can only check this at grid level, not from delta alone
@@ -286,12 +285,14 @@ def _hyp_rotation(deltas: list[PairDelta]) -> list[TransformHypothesis]:
                 consistent = False
                 break
         if consistent:
-            hyps.append(TransformHypothesis(
-                name=f"rotate_{angle}",
-                description=f"Rotate the grid {angle}° clockwise",
-                confidence=0.5,  # Will be updated by solver verification
-                dsl_ops=[{"op": f"rotate_{angle}"}],
-            ))
+            hyps.append(
+                TransformHypothesis(
+                    name=f"rotate_{angle}",
+                    description=f"Rotate the grid {angle}° clockwise",
+                    confidence=0.5,  # Will be updated by solver verification
+                    dsl_ops=[{"op": f"rotate_{angle}"}],
+                )
+            )
     return hyps
 
 
@@ -303,10 +304,7 @@ def _hyp_object_moves(deltas: list[PairDelta]) -> list[TransformHypothesis]:
     hyps: list[TransformHypothesis] = []
 
     # All deltas have same number of moved objects?
-    move_deltas = [
-        [od for od in d.object_deltas if od.change_type == "moved"]
-        for d in deltas
-    ]
+    move_deltas = [[od for od in d.object_deltas if od.change_type == "moved"] for d in deltas]
 
     if not all(move_deltas):
         return hyps
@@ -319,13 +317,15 @@ def _hyp_object_moves(deltas: list[PairDelta]) -> list[TransformHypothesis]:
 
     if len(directions) == 1:
         direction = directions.pop()
-        hyps.append(TransformHypothesis(
-            name=f"move_objects_{direction}",
-            description=f"All objects move {direction}",
-            confidence=0.6,
-            requires_custom_code=True,
-            parameters={"direction": direction},
-        ))
+        hyps.append(
+            TransformHypothesis(
+                name=f"move_objects_{direction}",
+                description=f"All objects move {direction}",
+                confidence=0.6,
+                requires_custom_code=True,
+                parameters={"direction": direction},
+            )
+        )
 
     # Consistent position delta?
     all_deltas: list[tuple[int, int]] = []
@@ -335,13 +335,15 @@ def _hyp_object_moves(deltas: list[PairDelta]) -> list[TransformHypothesis]:
 
     if all_deltas and len(set(all_deltas)) == 1:
         dr, dc = all_deltas[0]
-        hyps.append(TransformHypothesis(
-            name="shift_objects",
-            description=f"Objects shift by ({dr}, {dc})",
-            confidence=0.7,
-            requires_custom_code=True,
-            parameters={"row_delta": dr, "col_delta": dc},
-        ))
+        hyps.append(
+            TransformHypothesis(
+                name="shift_objects",
+                description=f"Objects shift by ({dr}, {dc})",
+                confidence=0.7,
+                requires_custom_code=True,
+                parameters={"row_delta": dr, "col_delta": dc},
+            )
+        )
 
     return hyps
 
@@ -352,12 +354,14 @@ def _hyp_gravity(deltas: list[PairDelta]) -> list[TransformHypothesis]:
     # Gravity patterns: all objects "fall" to one side
     directions = ["down", "up", "left", "right"]
     for d in directions:
-        hyps.append(TransformHypothesis(
-            name=f"gravity_{d}",
-            description=f"Apply gravity — non-background cells fall {d}",
-            confidence=0.3,
-            dsl_ops=[{"op": f"gravity_{d}"}],
-        ))
+        hyps.append(
+            TransformHypothesis(
+                name=f"gravity_{d}",
+                description=f"Apply gravity — non-background cells fall {d}",
+                confidence=0.3,
+                dsl_ops=[{"op": f"gravity_{d}"}],
+            )
+        )
     return hyps
 
 
@@ -365,8 +369,7 @@ def _hyp_symmetry_completion(deltas: list[PairDelta]) -> TransformHypothesis | N
     """Detect if output is always the symmetrically completed version of input."""
     # Output always larger or same size, and symmetric
     all_out_larger = all(
-        d.output_shape[0] >= d.input_shape[0] and
-        d.output_shape[1] >= d.input_shape[1]
+        d.output_shape[0] >= d.input_shape[0] and d.output_shape[1] >= d.input_shape[1]
         for d in deltas
     )
     if all_out_larger:
@@ -455,7 +458,11 @@ def _hyp_recolour(deltas: list[PairDelta]) -> list[TransformHypothesis]:
     for d in deltas:
         colour_changes: dict[int, int] = {}
         for od in d.object_deltas:
-            if od.change_type == "recoloured" and od.colour_before is not None and od.colour_after is not None:
+            if (
+                od.change_type == "recoloured"
+                and od.colour_before is not None
+                and od.colour_after is not None
+            ):
                 colour_changes[od.colour_before] = od.colour_after
         if colour_changes:
             all_recolouring.append(colour_changes)
@@ -464,13 +471,17 @@ def _hyp_recolour(deltas: list[PairDelta]) -> list[TransformHypothesis]:
         first = all_recolouring[0]
         if all(r == first for r in all_recolouring):
             for fc, tc in first.items():
-                hyps.append(TransformHypothesis(
-                    name=f"recolour_{fc}_to_{tc}",
-                    description=f"Replace colour {fc} with colour {tc}",
-                    confidence=0.9,
-                    dsl_ops=[{"op": "fill_colour", "args": {"from_colour": fc, "to_colour": tc}}],
-                    parameters={"from_colour": fc, "to_colour": tc},
-                ))
+                hyps.append(
+                    TransformHypothesis(
+                        name=f"recolour_{fc}_to_{tc}",
+                        description=f"Replace colour {fc} with colour {tc}",
+                        confidence=0.9,
+                        dsl_ops=[
+                            {"op": "fill_colour", "args": {"from_colour": fc, "to_colour": tc}}
+                        ],
+                        parameters={"from_colour": fc, "to_colour": tc},
+                    )
+                )
     return hyps
 
 
@@ -613,9 +624,7 @@ def format_analogy_for_prompt(result: AnalogyResult) -> str:
     if result.hypotheses:
         lines.append("\n### Top transformation hypotheses (by confidence):")
         for i, h in enumerate(result.hypotheses[:8]):
-            lines.append(
-                f"  {i + 1}. [{h.confidence:.0%}] **{h.name}**: {h.description}"
-            )
+            lines.append(f"  {i + 1}. [{h.confidence:.0%}] **{h.name}**: {h.description}")
             if h.parameters:
                 lines.append(f"     Parameters: {h.parameters}")
 

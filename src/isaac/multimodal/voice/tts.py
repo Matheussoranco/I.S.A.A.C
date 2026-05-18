@@ -13,6 +13,7 @@ array suitable for direct playback.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import tempfile
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import numpy as np
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -138,9 +139,8 @@ class TextToSpeech:
             raise ValueError("TextToSpeech.synthesize: empty text.")
 
         if out_path is None:
-            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            tmp.close()
-            out_path = tmp.name
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                out_path = tmp.name
         out_path = str(out_path)
 
         if self._engine_kind == "piper":
@@ -169,12 +169,11 @@ class TextToSpeech:
         path = self.synthesize(text)
         try:
             from isaac.multimodal.voice.audio_io import play_wav
+
             play_wav(path)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(path)
-            except OSError:
-                pass
 
     def is_loaded(self) -> bool:
         return self._engine is not None
@@ -189,10 +188,11 @@ _tts: TextToSpeech | None = None
 
 def get_tts() -> TextToSpeech:
     """Return the singleton TTS engine, configured from settings."""
-    global _tts  # noqa: PLW0603
+    global _tts
     if _tts is None:
         try:
             from isaac.config.settings import settings
+
             _tts = TextToSpeech(
                 voice=settings.voice_tts_voice,
                 rate=settings.voice_tts_rate,
@@ -216,5 +216,5 @@ def is_tts_available() -> bool:
 
 def reset_tts() -> None:
     """Reset the singleton (used in tests)."""
-    global _tts  # noqa: PLW0603
+    global _tts
     _tts = None

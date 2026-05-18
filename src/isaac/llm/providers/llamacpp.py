@@ -19,7 +19,7 @@ def build(
     base_url: str = DEFAULT_BASE_URL,
     temperature: float = 0.2,
     max_tokens: int | None = None,
-    vision: bool = False,  # noqa: ARG001
+    vision: bool = False,
     **extra: Any,
 ) -> BaseChatModel:
     """Build an OpenAI-compatible client pointed at a llama.cpp server."""

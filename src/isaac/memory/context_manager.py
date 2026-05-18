@@ -12,7 +12,6 @@ import logging
 from typing import Any
 
 from langchain_core.messages import (
-    AIMessage,
     BaseMessage,
     HumanMessage,
     SystemMessage,
@@ -29,8 +28,7 @@ DEFAULT_SUMMARY_PREFIX = "[Context Summary] "
 def _estimate_tokens(messages: list[BaseMessage]) -> int:
     """Rough token estimate — ~4 chars per token heuristic."""
     total_chars = sum(
-        len(m.content) if isinstance(m.content, str) else len(str(m.content))
-        for m in messages
+        len(m.content) if isinstance(m.content, str) else len(str(m.content)) for m in messages
     )
     return total_chars // 4
 
@@ -90,11 +88,7 @@ def _summarise_with_llm(messages: list[BaseMessage], llm: Any) -> str:
     ]
     try:
         response = llm.invoke(prompt)
-        return (
-            response.content
-            if isinstance(response.content, str)
-            else str(response.content)
-        )
+        return response.content if isinstance(response.content, str) else str(response.content)
     except Exception:
         logger.warning("LLM summarisation failed — using extractive fallback.", exc_info=True)
         return _summarise_extractive(messages)
@@ -150,11 +144,9 @@ def compress_messages(
     recent = non_system[-keep_recent:]
 
     summary_text = summarise_messages(old, llm)
-    summary_msg = SystemMessage(
-        content=f"{DEFAULT_SUMMARY_PREFIX}{summary_text}"
-    )
+    summary_msg = SystemMessage(content=f"{DEFAULT_SUMMARY_PREFIX}{summary_text}")
 
-    compressed = system_prefix + [summary_msg] + recent
+    compressed = [*system_prefix, summary_msg, *recent]
     logger.info(
         "Context compressed: %d messages → %d (summarised %d old messages).",
         len(messages),

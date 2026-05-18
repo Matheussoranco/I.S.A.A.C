@@ -10,9 +10,9 @@ The scheduler is started once by the CLI or ``__main__`` entry point.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ _scheduler: Any | None = None
 
 def _get_settings() -> Any:
     from isaac.config.settings import get_settings
+
     return get_settings()
 
 
@@ -39,6 +40,7 @@ def heartbeat_job() -> None:
 
     try:
         from isaac.interfaces.telegram_gateway import send_notification
+
         send_notification(message)
     except Exception:
         pass
@@ -74,6 +76,7 @@ def tasks_scan_job() -> None:
 
     try:
         from isaac.interfaces.telegram_gateway import send_notification
+
         send_notification(text)
     except Exception:
         pass
@@ -98,12 +101,15 @@ def improvement_job() -> None:
     """Periodic self-improvement cycle — only runs when explicitly enabled."""
     try:
         from isaac.improvement import run_improvement_cycle
+
         result = run_improvement_cycle()
         promoted = sum(1 for d in result.curation_decisions if d.get("action") == "promote")
         deprecated = sum(1 for d in result.curation_decisions if d.get("action") == "deprecate")
         logger.info(
             "Improvement cycle: promoted=%d deprecated=%d critique=%r",
-            promoted, deprecated, (result.critique_summary or "")[:120],
+            promoted,
+            deprecated,
+            (result.critique_summary or "")[:120],
         )
     except Exception as exc:  # pragma: no cover
         logger.warning("Improvement cycle failed: %s", exc)
@@ -127,7 +133,9 @@ def start_scheduler() -> None:
         return
 
     try:
-        from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
+        from apscheduler.schedulers.background import (
+            BackgroundScheduler,  # type: ignore[import-untyped]
+        )
         from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
     except ImportError:
         logger.warning("APScheduler not installed — heartbeat disabled.")
@@ -184,10 +192,8 @@ def stop_scheduler() -> None:
     """Shutdown the scheduler gracefully."""
     global _scheduler
     if _scheduler is not None:
-        try:
+        with contextlib.suppress(Exception):
             _scheduler.shutdown(wait=False)
-        except Exception:
-            pass
         _scheduler = None
         logger.info("Heartbeat scheduler stopped.")
 

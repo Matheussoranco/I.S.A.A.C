@@ -16,9 +16,8 @@ Defences
 from __future__ import annotations
 
 import logging
-import os
 import re
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -54,7 +53,7 @@ _HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 _TRAVERSAL_RE = re.compile(r"(?:^|[/\\])\.\.(?:[/\\]|$)")
 
 # Default max lengths
-MAX_INPUT_LENGTH = 100_000   # 100 KB
+MAX_INPUT_LENGTH = 100_000  # 100 KB
 MAX_OUTPUT_LENGTH = 200_000  # 200 KB
 MAX_PATH_LENGTH = 500
 
@@ -145,7 +144,7 @@ def sanitize_path(
     path_str:
         The raw path string.
     root:
-        If provided, the path must resolve within this root. 
+        If provided, the path must resolve within this root.
     allow_absolute:
         If ``False``, reject absolute paths.
     """
@@ -205,13 +204,12 @@ def sanitize_json_value(value: Any, *, max_depth: int = 10, _depth: int = 0) -> 
         return sanitize_text(value, max_length=MAX_INPUT_LENGTH)
     elif isinstance(value, dict):
         return {
-            sanitize_text(str(k), max_length=200): sanitize_json_value(v, max_depth=max_depth, _depth=_depth + 1)
+            sanitize_text(str(k), max_length=200): sanitize_json_value(
+                v, max_depth=max_depth, _depth=_depth + 1
+            )
             for k, v in value.items()
         }
     elif isinstance(value, list):
-        return [
-            sanitize_json_value(v, max_depth=max_depth, _depth=_depth + 1)
-            for v in value
-        ]
+        return [sanitize_json_value(v, max_depth=max_depth, _depth=_depth + 1) for v in value]
     else:
         return value

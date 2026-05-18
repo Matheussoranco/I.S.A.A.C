@@ -72,13 +72,14 @@ class UIExecutor:
         }
         # Long-lived: no command override; entrypoint idles via wait
         self._container = self._manager.create_container(
-            command=[],   # entrypoint handles idle loop
+            command=[],  # entrypoint handles idle loop
             environment=env,
         )
         self._manager.start(self._container)
 
         # Wait for Xvfb to be ready
         import time
+
         timeout = 10.0
         t0 = time.monotonic()
         while time.monotonic() - t0 < timeout:
@@ -185,6 +186,4 @@ class UIExecutor:
 
     def _require_running(self) -> None:
         if self._container is None:
-            raise RuntimeError(
-                "UIExecutor has no running container.  Call start() first."
-            )
+            raise RuntimeError("UIExecutor has no running container.  Call start() first.")

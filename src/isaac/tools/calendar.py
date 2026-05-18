@@ -5,7 +5,6 @@ Write operations carry risk_level 4 and require approval.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -19,6 +18,7 @@ def _caldav_client() -> Any | None:
     """Create a CalDAV client from environment settings."""
     try:
         import caldav  # type: ignore[import-untyped]
+
         from isaac.config.settings import get_settings
 
         s = get_settings()
@@ -79,9 +79,7 @@ class CalendarReadTool(IsaacTool):
                     summary = str(getattr(vevent, "summary", "(no title)"))
                     dtstart = str(getattr(vevent, "dtstart", ""))
                     dtend = str(getattr(vevent, "dtend", ""))
-                    events_out.append(
-                        f"[{cal_name}] {summary} | {dtstart} → {dtend}"
-                    )
+                    events_out.append(f"[{cal_name}] {summary} | {dtstart} → {dtend}")
 
             return ToolResult(
                 success=True,
@@ -135,11 +133,7 @@ class CalendarWriteTool(IsaacTool):
 
         try:
             start_dt = datetime.fromisoformat(start_str)
-            end_dt = (
-                datetime.fromisoformat(end_str)
-                if end_str
-                else start_dt + timedelta(hours=1)
-            )
+            end_dt = datetime.fromisoformat(end_str) if end_str else start_dt + timedelta(hours=1)
         except ValueError as exc:
             return ToolResult(success=False, error=f"Invalid datetime: {exc}")
 

@@ -66,6 +66,7 @@ class MemoryManager:
         """Episodic memory (session-scoped experiences)."""
         if self._episodic is None:
             from isaac.memory.episodic import get_episodic_memory
+
             self._episodic = get_episodic_memory()
         return self._episodic
 
@@ -74,6 +75,7 @@ class MemoryManager:
         """Semantic memory (knowledge graph)."""
         if self._semantic is None:
             from isaac.memory.semantic import SemanticMemory
+
             db_path = self._isaac_home / "memory" / "semantic.db"
             self._semantic = SemanticMemory(db_path=db_path)
         return self._semantic
@@ -83,6 +85,7 @@ class MemoryManager:
         """Procedural memory (versioned skill library)."""
         if self._procedural is None:
             from isaac.memory.procedural import ProceduralMemory
+
             self._procedural = ProceduralMemory(skills_dir=self._skills_dir)
         return self._procedural
 
@@ -91,6 +94,7 @@ class MemoryManager:
         """World-model knowledge graph (NetworkX + SQLite)."""
         if self._kg is None:
             from isaac.memory.world_model_kg import WorldModelKG
+
             persist_dir = self._isaac_home / "memory"
             self._kg = WorldModelKG(persist_dir=persist_dir)
         return self._kg
@@ -129,9 +133,11 @@ class MemoryManager:
             # SOTA Embedding-based semantic search
             all_facts: list[dict[str, Any]] = []
             if hasattr(self.semantic, "search_similar_facts"):
-                facts_semantic = self.semantic.search_similar_facts(query, top_k=k*2)
-                all_facts.extend(f.to_dict() if hasattr(f, "to_dict") else f for f in facts_semantic)
-            
+                facts_semantic = self.semantic.search_similar_facts(query, top_k=k * 2)
+                all_facts.extend(
+                    f.to_dict() if hasattr(f, "to_dict") else f for f in facts_semantic
+                )
+
             # Fallback/additive word exact match query
             words = query.lower().split()
             for word in words[:3]:
@@ -198,15 +204,18 @@ class MemoryManager:
     ) -> None:
         """Store an episode in episodic memory."""
         from isaac.memory.episodic import Episode
-        self.episodic.record(Episode(
-            task=task,
-            hypothesis=hypothesis,
-            code=code,
-            result_summary=result_summary,
-            success=success,
-            node=node,
-            iteration=iteration,
-        ))
+
+        self.episodic.record(
+            Episode(
+                task=task,
+                hypothesis=hypothesis,
+                code=code,
+                result_summary=result_summary,
+                success=success,
+                node=node,
+                iteration=iteration,
+            )
+        )
 
     def store_fact(
         self,
@@ -241,7 +250,7 @@ _manager: MemoryManager | None = None
 
 def get_memory_manager() -> MemoryManager:
     """Return the session-scoped memory manager singleton."""
-    global _manager  # noqa: PLW0603
+    global _manager
     if _manager is None:
         _manager = MemoryManager()
     return _manager
@@ -249,7 +258,7 @@ def get_memory_manager() -> MemoryManager:
 
 def reset_memory_manager() -> None:
     """Reset the singleton (used in tests)."""
-    global _manager  # noqa: PLW0603
+    global _manager
     if _manager is not None:
         _manager.close()
     _manager = None

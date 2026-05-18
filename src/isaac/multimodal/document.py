@@ -59,6 +59,7 @@ def extract_pages(pdf_path: str | Path, max_pages: int = 100) -> list[str]:
     """Extract text page-by-page from a PDF. Returns list[str]."""
     try:
         import fitz  # type: ignore[import-untyped]  # pymupdf
+
         doc = fitz.open(str(pdf_path))
         pages = []
         for i, page in enumerate(doc):
@@ -82,27 +83,33 @@ def extract_metadata(doc_path: str | Path) -> dict[str, Any]:
     if suffix == ".pdf":
         try:
             import fitz
+
             doc = fitz.open(str(path))
             raw = doc.metadata or {}
-            meta.update({
-                "title": raw.get("title", ""),
-                "author": raw.get("author", ""),
-                "pages": len(doc),
-                "format": "PDF",
-            })
+            meta.update(
+                {
+                    "title": raw.get("title", ""),
+                    "author": raw.get("author", ""),
+                    "pages": len(doc),
+                    "format": "PDF",
+                }
+            )
         except ImportError:
             pass
     elif suffix in (".docx", ".doc"):
         try:
             import docx  # type: ignore[import-untyped]
+
             d = docx.Document(str(path))
             props = d.core_properties
-            meta.update({
-                "title": props.title or "",
-                "author": props.author or "",
-                "paragraphs": len(d.paragraphs),
-                "format": "DOCX",
-            })
+            meta.update(
+                {
+                    "title": props.title or "",
+                    "author": props.author or "",
+                    "paragraphs": len(d.paragraphs),
+                    "format": "DOCX",
+                }
+            )
         except ImportError:
             pass
 
@@ -119,7 +126,12 @@ def analyse_image(
     Returns a dict with 'ocr_text', 'description', and 'structured_data'.
     """
     path = Path(image_path)
-    result: dict[str, Any] = {"path": str(path), "ocr_text": "", "description": "", "structured_data": {}}
+    result: dict[str, Any] = {
+        "path": str(path),
+        "ocr_text": "",
+        "description": "",
+        "structured_data": {},
+    }
 
     # OCR layer
     try:
@@ -146,6 +158,7 @@ def _extract_pdf(path: Path, max_pages: int) -> str:
     # 1. pymupdf (fastest, best quality)
     try:
         import fitz
+
         doc = fitz.open(str(path))
         texts = []
         for i, page in enumerate(doc):
@@ -159,12 +172,12 @@ def _extract_pdf(path: Path, max_pages: int) -> str:
     # 2. pdfminer.six fallback
     try:
         from pdfminer.high_level import extract_text as pm_extract  # type: ignore[import-untyped]
+
         return pm_extract(str(path), maxpages=max_pages)
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
-            "PDF extraction requires pymupdf or pdfminer.six. "
-            "Install with: pip install pymupdf"
-        )
+            "PDF extraction requires pymupdf or pdfminer.six. Install with: pip install pymupdf"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -175,10 +188,13 @@ def _extract_pdf(path: Path, max_pages: int) -> str:
 def _extract_docx(path: Path) -> str:
     try:
         import docx  # type: ignore[import-untyped]
+
         d = docx.Document(str(path))
         return "\n".join(para.text for para in d.paragraphs if para.text.strip())
-    except ImportError:
-        raise ImportError("DOCX extraction requires python-docx. Install with: pip install python-docx")
+    except ImportError as exc:
+        raise ImportError(
+            "DOCX extraction requires python-docx. Install with: pip install python-docx"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +205,7 @@ def _extract_docx(path: Path) -> str:
 def _extract_pptx(path: Path) -> str:
     try:
         from pptx import Presentation  # type: ignore[import-untyped]
+
         prs = Presentation(str(path))
         slides_text = []
         for slide in prs.slides:
@@ -198,8 +215,10 @@ def _extract_pptx(path: Path) -> str:
                     parts.append(shape.text)
             slides_text.append("\n".join(parts))
         return "\n\n---\n\n".join(slides_text)
-    except ImportError:
-        raise ImportError("PPTX extraction requires python-pptx. Install with: pip install python-pptx")
+    except ImportError as exc:
+        raise ImportError(
+            "PPTX extraction requires python-pptx. Install with: pip install python-pptx"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -209,16 +228,17 @@ def _extract_pptx(path: Path) -> str:
 
 def _ocr_image(path: Path) -> str:
     try:
-        from PIL import Image  # type: ignore[import-untyped]
         import pytesseract  # type: ignore[import-untyped]
+        from PIL import Image  # type: ignore[import-untyped]
+
         img = Image.open(str(path))
         return pytesseract.image_to_string(img)
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "Image OCR requires pytesseract and Pillow. "
             "Install with: pip install pytesseract Pillow\n"
             "Also install Tesseract OCR: https://github.com/UB-Mannheim/tesseract/wiki"
-        )
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -228,18 +248,26 @@ def _ocr_image(path: Path) -> str:
 
 def _vision_llm(path: Path, prompt: str) -> str:
     """Send image to a vision-capable LLM and return the response."""
-    from isaac.llm.provider import get_llm
     from langchain_core.messages import HumanMessage
+
+    from isaac.llm.provider import get_llm
 
     img_b64 = base64.b64encode(path.read_bytes()).decode()
     suffix = path.suffix.lower().lstrip(".")
-    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-            "webp": "image/webp", "gif": "image/gif"}.get(suffix, "image/png")
+    mime = {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+        "gif": "image/gif",
+    }.get(suffix, "image/png")
 
     llm = get_llm("strong")
-    msg = HumanMessage(content=[
-        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}},
-        {"type": "text", "text": prompt},
-    ])
+    msg = HumanMessage(
+        content=[
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}},
+            {"type": "text", "text": prompt},
+        ]
+    )
     response = llm.invoke([msg])
     return str(response.content)

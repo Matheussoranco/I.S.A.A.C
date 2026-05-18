@@ -15,6 +15,7 @@ All columns are append-only.  Aggregations are computed on demand.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sqlite3
 import threading
@@ -89,6 +90,7 @@ class PerformanceTracker:
         if db_path is None:
             try:
                 from isaac.config.settings import settings
+
                 db_path = settings.isaac_home / "performance.db"
             except Exception:
                 db_path = Path.home() / ".isaac" / "performance.db"
@@ -112,9 +114,18 @@ class PerformanceTracker:
     ) -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT INTO node_runs (ts, node, duration_ms, success, iteration, session_id, error) "
+                "INSERT INTO node_runs "
+                "(ts, node, duration_ms, success, iteration, session_id, error) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (time.time(), node, duration_ms, int(success), iteration, session_id, error[:500]),
+                (
+                    time.time(),
+                    node,
+                    duration_ms,
+                    int(success),
+                    iteration,
+                    session_id,
+                    error[:500],
+                ),
             )
             self._conn.commit()
 
@@ -128,9 +139,17 @@ class PerformanceTracker:
     ) -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT INTO skill_runs (ts, skill_name, duration_ms, success, error, task_context) "
+                "INSERT INTO skill_runs "
+                "(ts, skill_name, duration_ms, success, error, task_context) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (time.time(), skill_name, duration_ms, int(success), error[:500], task_context[:500]),
+                (
+                    time.time(),
+                    skill_name,
+                    duration_ms,
+                    int(success),
+                    error[:500],
+                    task_context[:500],
+                ),
             )
             self._conn.commit()
 
@@ -170,7 +189,8 @@ class PerformanceTracker:
             for r_node, runs, sr, avg_d in rows:
                 # P95 — quantile via Python (SQLite has no native percentile)
                 durations = [
-                    row[0] for row in self._conn.execute(
+                    row[0]
+                    for row in self._conn.execute(
                         "SELECT duration_ms FROM node_runs WHERE node=? AND ts>=?",
                         (r_node, since_ts),
                     )
@@ -185,14 +205,16 @@ class PerformanceTracker:
                     (r_node, since_ts),
                 ).fetchall()
 
-                out.append(NodeStats(
-                    node=r_node,
-                    runs=int(runs),
-                    success_rate=float(sr or 0.0),
-                    avg_duration_ms=float(avg_d or 0.0),
-                    p95_duration_ms=p95,
-                    common_errors=[(e, int(c)) for e, c in err_rows],
-                ))
+                out.append(
+                    NodeStats(
+                        node=r_node,
+                        runs=int(runs),
+                        success_rate=float(sr or 0.0),
+                        avg_duration_ms=float(avg_d or 0.0),
+                        p95_duration_ms=p95,
+                        common_errors=[(e, int(c)) for e, c in err_rows],
+                    )
+                )
             return out
 
     def skill_stats(self, since_ts: float = 0.0) -> list[SkillStats]:
@@ -238,18 +260,15 @@ class PerformanceTracker:
             return int(c1 + c2 + c3)
 
     def close(self) -> None:
-        with self._lock:
-            try:
-                self._conn.close()
-            except Exception:
-                pass
+        with self._lock, contextlib.suppress(Exception):
+            self._conn.close()
 
 
 def _percentile(values: list[float], q: float) -> float:
     if not values:
         return 0.0
     s = sorted(values)
-    k = int(round((len(s) - 1) * q))
+    k = round((len(s) - 1) * q)
     return float(s[max(0, min(k, len(s) - 1))])
 
 
@@ -261,7 +280,7 @@ _tracker: PerformanceTracker | None = None
 
 
 def get_tracker() -> PerformanceTracker:
-    global _tracker  # noqa: PLW0603
+    global _tracker
     if _tracker is None:
         _tracker = PerformanceTracker()
     return _tracker
@@ -269,7 +288,7 @@ def get_tracker() -> PerformanceTracker:
 
 def reset_tracker() -> None:
     """Reset the singleton (used in tests)."""
-    global _tracker  # noqa: PLW0603
+    global _tracker
     if _tracker is not None:
         _tracker.close()
     _tracker = None

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -49,7 +48,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "query": {"type": "string", "description": "Natural-language search query."},
                 "layers": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["episodic", "semantic", "long_term", "procedural", "all"]},
+                    "items": {
+                        "type": "string",
+                        "enum": ["episodic", "semantic", "long_term", "procedural", "all"],
+                    },
                     "description": "Memory layers to search.",
                     "default": ["all"],
                 },
@@ -80,7 +82,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "code": {"type": "string", "description": "Python code to execute."},
-                "timeout": {"type": "integer", "description": "Timeout in seconds (max 120).", "default": 30},
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (max 120).",
+                    "default": 30,
+                },
             },
             "required": ["code"],
         },
@@ -92,7 +98,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Search query."},
-                "max_results": {"type": "integer", "description": "Number of results.", "default": 5},
+                "max_results": {
+                    "type": "integer",
+                    "description": "Number of results.",
+                    "default": 5,
+                },
             },
             "required": ["query"],
         },
@@ -104,7 +114,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "subject": {"type": "string", "description": "Subject entity (optional)."},
-                "predicate": {"type": "string", "description": "Relationship predicate (optional)."},
+                "predicate": {
+                    "type": "string",
+                    "description": "Relationship predicate (optional).",
+                },
                 "query": {"type": "string", "description": "Free-text query against the KG."},
             },
         },
@@ -118,8 +131,15 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "subtask": {"type": "string", "description": "The specific subtask for the sub-agent."},
-                "context": {"type": "string", "description": "Context to pass to the sub-agent.", "default": ""},
+                "subtask": {
+                    "type": "string",
+                    "description": "The specific subtask for the sub-agent.",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Context to pass to the sub-agent.",
+                    "default": "",
+                },
                 "role": {
                     "type": "string",
                     "enum": ["researcher", "coder", "analyst", "planner", "critic"],
@@ -132,7 +152,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "isaac_meta_stats",
-        "description": "Get I.S.A.A.C.'s self-improvement statistics: task success rates, strategy rankings, error patterns.",
+        "description": (
+            "Get I.S.A.A.C.'s self-improvement statistics: "
+            "task success rates, strategy rankings, error patterns."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -151,7 +174,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 def _handle_ask(args: dict[str, Any]) -> dict[str, Any]:
     """Run a full Isaac cognitive cycle and return the result."""
     import uuid
+
     from langchain_core.messages import HumanMessage
+
     from isaac.core.graph import build_graph
     from isaac.core.state import make_initial_state
 
@@ -176,6 +201,7 @@ def _handle_ask(args: dict[str, Any]) -> dict[str, Any]:
                 result.update(node_output)
 
     from langchain_core.messages import AIMessage
+
     response_text = ""
     for msg in result.get("messages", []):
         if isinstance(msg, AIMessage):
@@ -204,9 +230,10 @@ def _handle_ask(args: dict[str, Any]) -> dict[str, Any]:
 
 def _handle_memory_search(args: dict[str, Any]) -> dict[str, Any]:
     from isaac.memory.manager import MemoryManager
+
     query = args["query"]
     top_k = args.get("top_k", 5)
-    layers = args.get("layers", ["all"])
+    args.get("layers", ["all"])
 
     mgr = MemoryManager()
     results = mgr.recall(query, top_k=top_k)
@@ -214,8 +241,9 @@ def _handle_memory_search(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _handle_skill_search(args: dict[str, Any]) -> dict[str, Any]:
-    from isaac.memory.skill_library import SkillLibrary
     from isaac.config.settings import settings
+    from isaac.memory.skill_library import SkillLibrary
+
     query = args["query"]
     top_k = args.get("top_k", 3)
 
@@ -226,7 +254,9 @@ def _handle_skill_search(args: dict[str, Any]) -> dict[str, Any]:
 
 def _handle_code_execute(args: dict[str, Any]) -> dict[str, Any]:
     import asyncio
+
     from isaac.sandbox.executor import SandboxExecutor
+
     code = args["code"]
     timeout = min(args.get("timeout", 30), 120)
 
@@ -245,6 +275,7 @@ def _handle_code_execute(args: dict[str, Any]) -> dict[str, Any]:
 
 def _handle_web_search(args: dict[str, Any]) -> dict[str, Any]:
     from isaac.skills.connectors.web_search import WebSearchConnector
+
     query = args["query"]
     max_results = args.get("max_results", 5)
 
@@ -255,6 +286,7 @@ def _handle_web_search(args: dict[str, Any]) -> dict[str, Any]:
 
 def _handle_knowledge_query(args: dict[str, Any]) -> dict[str, Any]:
     from isaac.memory.semantic import SemanticMemory
+
     subject = args.get("subject", "")
     predicate = args.get("predicate", "")
     query = args.get("query", "")
@@ -269,6 +301,7 @@ def _handle_knowledge_query(args: dict[str, Any]) -> dict[str, Any]:
 
 def _handle_spawn_subagent(args: dict[str, Any]) -> dict[str, Any]:
     from isaac.agents.claude_subagent import ClaudeSubAgent
+
     subtask = args["subtask"]
     context = args.get("context", "")
     role = args.get("role", "coder")
@@ -280,6 +313,7 @@ def _handle_spawn_subagent(args: dict[str, Any]) -> dict[str, Any]:
 
 def _handle_meta_stats(args: dict[str, Any]) -> dict[str, Any]:
     from isaac.meta.learner import MetaLearner
+
     task_type = args.get("task_type", "")
     learner = MetaLearner()
     return learner.get_stats(task_type=task_type or None)

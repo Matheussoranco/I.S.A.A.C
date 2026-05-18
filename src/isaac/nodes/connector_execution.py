@@ -8,7 +8,6 @@ connectors (web search, GitHub, filesystem, etc.) should be invoked
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -67,6 +66,7 @@ def _extract_kwargs_from_description(connector_name: str, description: str) -> d
     elif connector_name == "web_fetch":
         # Look for URLs in the description
         import re
+
         urls = re.findall(r"https?://[^\s\"'>]+", description)
         if urls:
             kwargs["url"] = urls[0]
@@ -129,6 +129,7 @@ def connector_execution_node(state: IsaacState) -> dict[str, Any]:
         # connector before execution. Auto-issue one if absent (audit-logged).
         try:
             from isaac.security.capabilities import get_token_store
+
             store = get_token_store()
             active_tokens = store.list_active()
             token_ok = any(t.matches(connector_name) for t in active_tokens)

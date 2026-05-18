@@ -31,6 +31,7 @@ AwaitApproval is inserted dynamically when pending_approvals exist.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 from typing import Any
@@ -44,7 +45,6 @@ from isaac.core.transitions import (
     NODE_COMPUTER_USE,
     NODE_DIRECT_RESPONSE,
     NODE_EXPLORER,
-    NODE_META_LEARNER,
     NODE_MULTIMODAL_INPUT,
     NODE_PARALLEL_SYNTHESIS,
     NODE_PERCEPTION,
@@ -52,15 +52,14 @@ from isaac.core.transitions import (
     NODE_SANDBOX,
     NODE_SYNTHESIS,
     after_clarification,
-    after_guard,
     after_guard_multimodal,
     after_meta_learner,
     after_perception,
     after_planner,
     after_reflection,
-    after_skill_abstraction,
     after_synthesis,
 )
+from isaac.memory.context_manager import compress_messages
 from isaac.nodes.approval import await_approval_node
 from isaac.nodes.clarification import clarification_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
@@ -77,7 +76,6 @@ from isaac.nodes.reflection import reflection_node
 from isaac.nodes.sandbox import sandbox_node
 from isaac.nodes.skill_abstraction import skill_abstraction_node
 from isaac.nodes.synthesis import synthesis_node
-from isaac.memory.context_manager import compress_messages
 
 logger = logging.getLogger(__name__)
 
@@ -276,16 +274,24 @@ def build_and_run() -> int:
     # Force UTF-8 on Windows so Unicode characters work in the terminal
     if sys.platform == "win32":
         import io
+
         sys.stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+            sys.stdout.buffer,
+            encoding="utf-8",
+            errors="replace",
+            line_buffering=True,
         )
         sys.stderr = io.TextIOWrapper(
-            sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+            sys.stderr.buffer,
+            encoding="utf-8",
+            errors="replace",
+            line_buffering=True,
         )
 
     # Register tools and start background services
     try:
         from isaac.tools import register_all_tools
+
         register_all_tools()
     except Exception:
         pass
@@ -294,6 +300,7 @@ def build_and_run() -> int:
     try:
         from isaac.scheduler.heartbeat import start_scheduler
         from isaac.scheduler.heartbeat import stop_scheduler as _stop_sched
+
         stop_scheduler = _stop_sched
         start_scheduler()
     except Exception:
@@ -302,11 +309,13 @@ def build_and_run() -> int:
     # Audit system startup
     try:
         from isaac.security.audit import audit
+
         audit("system", "startup")
     except Exception:
         pass
 
     import uuid
+
     compiled = build_graph()
     state = make_initial_state()
     state["session_id"] = str(uuid.uuid4())
@@ -329,6 +338,7 @@ def build_and_run() -> int:
             # Sanitize user input before it enters the cognitive graph
             try:
                 from isaac.security.sanitizer import sanitize_input
+
                 user_input = sanitize_input(user_input)
             except Exception:
                 pass
@@ -347,7 +357,7 @@ def build_and_run() -> int:
 
                 for event in compiled.stream(dict(state)):
                     # event is {node_name: state_update}
-                    for node_name, node_output in event.items():
+                    for _node_name, node_output in event.items():
                         if isinstance(node_output, dict):
                             result.update(node_output)
 
@@ -359,10 +369,7 @@ def build_and_run() -> int:
                             if not is_direct and phase and phase not in seen_phases:
                                 seen_phases.add(phase)
                                 _phase_label = phase.replace("_", " ").title()
-                                sys.stdout.write(
-                                    f"\r  > {_phase_label}..."
-                                    f"{'': <40}"
-                                )
+                                sys.stdout.write(f"\r  > {_phase_label}...{'': <40}")
                                 sys.stdout.flush()
 
                 if not is_direct and seen_phases:
@@ -414,13 +421,12 @@ def build_and_run() -> int:
         # Tear down the UI container if one was started
         shutdown_ui_executor()
         # Stop background scheduler
-        try:
+        with contextlib.suppress(Exception):
             stop_scheduler()
-        except Exception:
-            pass
         # Audit system shutdown
         try:
             from isaac.security.audit import audit
+
             audit("system", "shutdown")
         except Exception:
             pass

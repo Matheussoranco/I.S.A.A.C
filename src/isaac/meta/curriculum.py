@@ -21,6 +21,7 @@ continuously when idle.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
@@ -89,7 +90,7 @@ class Curriculum:
             return []
 
         learner = get_learner()
-        rows = learner._conn.execute(  # noqa: SLF001 — internal access for now
+        rows = learner._conn.execute(
             "SELECT task_desc, task_type, error_type, error_msg "
             "FROM task_outcomes WHERE success=0 ORDER BY ts DESC LIMIT ?",
             (limit,),
@@ -100,21 +101,25 @@ class Curriculum:
         new_tasks: list[PracticeTask] = []
         for row in rows:
             for variant in self._mutate(row["task_desc"]):
-                new_tasks.append(self._store(
-                    description=variant,
-                    derived_from=row["task_desc"][:200],
-                    task_type=row["task_type"] or "general",
-                    difficulty=0.4,
-                ))
+                new_tasks.append(
+                    self._store(
+                        description=variant,
+                        derived_from=row["task_desc"][:200],
+                        task_type=row["task_type"] or "general",
+                        difficulty=0.4,
+                    )
+                )
             try:
                 synth = self._synthesise(row["task_desc"], row["error_msg"] or "")
                 if synth:
-                    new_tasks.append(self._store(
-                        description=synth,
-                        derived_from=row["task_desc"][:200],
-                        task_type=row["task_type"] or "general",
-                        difficulty=0.3,
-                    ))
+                    new_tasks.append(
+                        self._store(
+                            description=synth,
+                            derived_from=row["task_desc"][:200],
+                            task_type=row["task_type"] or "general",
+                            difficulty=0.3,
+                        )
+                    )
             except Exception as exc:
                 logger.debug("synth failed: %s", exc)
         return new_tasks
@@ -136,8 +141,9 @@ class Curriculum:
     def _synthesise(failed_task: str, error: str) -> str | None:
         """Ask the language expert to invent a related, slightly easier task."""
         try:
-            from isaac.llm.provider import get_llm
             from langchain_core.messages import HumanMessage
+
+            from isaac.llm.provider import get_llm
 
             llm = get_llm("fast")
             prompt = (
@@ -171,8 +177,14 @@ class Curriculum:
             "INSERT INTO practice_tasks "
             "(created_at, derived_from, task_type, description, difficulty, metadata) "
             "VALUES (?,?,?,?,?,?)",
-            (time.time(), derived_from, task_type, description, difficulty,
-             json.dumps(metadata or {})),
+            (
+                time.time(),
+                derived_from,
+                task_type,
+                description,
+                difficulty,
+                json.dumps(metadata or {}),
+            ),
         )
         self._conn.commit()
         return PracticeTask(
@@ -188,8 +200,8 @@ class Curriculum:
         where = "WHERE task_type = ?" if task_type else ""
         params = (task_type,) if task_type else ()
         row = self._conn.execute(
-            f"SELECT * FROM practice_tasks {where} "
-            "ORDER BY attempts ASC, difficulty ASC LIMIT 1", params,
+            f"SELECT * FROM practice_tasks {where} ORDER BY attempts ASC, difficulty ASC LIMIT 1",
+            params,
         ).fetchone()
         if row is None:
             return None
@@ -254,10 +266,8 @@ def schedule_self_play(every_seconds: int = 1800, batch_size: int = 3) -> Any:
     def _tick() -> None:
         curriculum = get_curriculum()
         # Generate fresh tasks from recent failures
-        try:
+        with contextlib.suppress(Exception):
             curriculum.generate_from_failures(limit=2)
-        except Exception:
-            pass
         # Practice a batch
         for _ in range(batch_size):
             task = curriculum.next_task()
@@ -265,6 +275,7 @@ def schedule_self_play(every_seconds: int = 1800, batch_size: int = 3) -> Any:
                 break
             try:
                 from isaac.experts import answer
+
                 result = answer(task.description)
                 curriculum.record_attempt(task.id, success=result.confidence >= 0.6)
             except Exception as exc:

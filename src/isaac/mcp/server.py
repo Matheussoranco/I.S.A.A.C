@@ -65,13 +65,16 @@ def _send(obj: dict[str, Any]) -> None:
 
 
 def _handle_initialize(req: dict[str, Any]) -> dict[str, Any]:
-    return _ok(req.get("id"), {
-        "protocolVersion": MCP_VERSION,
-        "capabilities": {
-            "tools": {"listChanged": False},
+    return _ok(
+        req.get("id"),
+        {
+            "protocolVersion": MCP_VERSION,
+            "capabilities": {
+                "tools": {"listChanged": False},
+            },
+            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
         },
-        "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-    })
+    )
 
 
 def _handle_tools_list(req: dict[str, Any]) -> dict[str, Any]:
@@ -129,8 +132,11 @@ def run_server() -> None:
     # Windows UTF-8 fix
     if sys.platform == "win32":
         import io
+
         sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+        )
 
     logger.info("I.S.A.A.C. MCP server started (protocol %s)", MCP_VERSION)
 

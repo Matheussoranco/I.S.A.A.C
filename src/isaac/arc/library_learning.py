@@ -33,9 +33,10 @@ import logging
 import sqlite3
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from isaac.arc.dsl import PRIMITIVES, apply_program
 from isaac.arc.grid_ops import Grid
@@ -90,9 +91,8 @@ class Abstraction:
             return apply_program(fragment, grid)
 
         _composite.__name__ = self.name
-        _composite.__doc__ = (
-            f"Learned abstraction: {self.name} = " +
-            " >> ".join(s.get("op", "?") for s in fragment)
+        _composite.__doc__ = f"Learned abstraction: {self.name} = " + " >> ".join(
+            s.get("op", "?") for s in fragment
         )
         return _composite
 
@@ -163,9 +163,7 @@ class LibraryLearner:
 
         Returns the list of *newly* promoted abstractions.
         """
-        rows = self._conn.execute(
-            "SELECT program FROM solved_programs"
-        ).fetchall()
+        rows = self._conn.execute("SELECT program FROM solved_programs").fetchall()
         programs: list[list[dict[str, Any]]] = []
         for (prog_json,) in rows:
             try:
@@ -193,8 +191,9 @@ class LibraryLearner:
             )
             self._register(abstraction)
             promoted.append(abstraction)
-            logger.info("Promoted ARC abstraction %s (support=%d, len=%d).",
-                        name, count, len(fragment))
+            logger.info(
+                "Promoted ARC abstraction %s (support=%d, len=%d).", name, count, len(fragment)
+            )
 
         return promoted
 
@@ -219,12 +218,8 @@ class LibraryLearner:
         ]
 
     def stats(self) -> dict[str, Any]:
-        n_solutions = self._conn.execute(
-            "SELECT COUNT(*) FROM solved_programs"
-        ).fetchone()[0]
-        n_abstractions = self._conn.execute(
-            "SELECT COUNT(*) FROM abstractions"
-        ).fetchone()[0]
+        n_solutions = self._conn.execute("SELECT COUNT(*) FROM solved_programs").fetchone()[0]
+        n_abstractions = self._conn.execute("SELECT COUNT(*) FROM abstractions").fetchone()[0]
         return {
             "solutions_recorded": n_solutions,
             "abstractions_learned": n_abstractions,
@@ -245,7 +240,7 @@ class LibraryLearner:
             seen: set[str] = set()
             for n in range(self.min_len, min(self.max_len, len(prog)) + 1):
                 for i in range(len(prog) - n + 1):
-                    fragment = prog[i:i + n]
+                    fragment = prog[i : i + n]
                     key = json.dumps(fragment, sort_keys=True)
                     seen.add(key)
             for key in seen:
@@ -260,9 +255,7 @@ class LibraryLearner:
     def _mint_name(fragment: list[dict[str, Any]], count: int) -> str:
         ops = [s.get("op", "x") for s in fragment]
         base = "lib_" + "_".join(ops)[:40]
-        suffix = hashlib.md5(  # noqa: S324
-            json.dumps(fragment, sort_keys=True).encode()
-        ).hexdigest()[:6]
+        suffix = hashlib.md5(json.dumps(fragment, sort_keys=True).encode()).hexdigest()[:6]
         return f"{base}_{suffix}"
 
     def _register(self, abstraction: Abstraction) -> None:

@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import time
 from enum import Enum
-from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -177,9 +176,15 @@ class LLMRouter:
 
         # Last resort: try Ollama anyway (may raise)
         logger.warning("Router: no fallback configured — attempting Ollama regardless.")
-        model = self._light_model if complexity in (
-            TaskComplexity.SIMPLE, TaskComplexity.MODERATE,
-        ) else self._heavy_model
+        model = (
+            self._light_model
+            if complexity
+            in (
+                TaskComplexity.SIMPLE,
+                TaskComplexity.MODERATE,
+            )
+            else self._heavy_model
+        )
         return self._build_ollama_model(model)
 
     def route_for_guard(self) -> BaseChatModel:
@@ -205,7 +210,7 @@ _router: LLMRouter | None = None
 
 def get_router() -> LLMRouter:
     """Return the module-level LLM router singleton."""
-    global _router  # noqa: PLW0603
+    global _router
     if _router is None:
         from isaac.config.settings import settings
 
@@ -220,5 +225,5 @@ def get_router() -> LLMRouter:
 
 def reset_router() -> None:
     """Reset the singleton (used in tests)."""
-    global _router  # noqa: PLW0603
+    global _router
     _router = None

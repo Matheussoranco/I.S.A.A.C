@@ -17,9 +17,22 @@ from isaac.experts.base import Expert, ExpertNotApplicable, ExpertResponse
 logger = logging.getLogger(__name__)
 
 _MATH_KEYWORDS = (
-    "solve", "integrate", "differentiate", "derivative", "factor",
-    "simplify", "expand", "limit", "matrix", "determinant", "eigen",
-    "polynomial", "equation", "compute", "evaluate", "calculate",
+    "solve",
+    "integrate",
+    "differentiate",
+    "derivative",
+    "factor",
+    "simplify",
+    "expand",
+    "limit",
+    "matrix",
+    "determinant",
+    "eigen",
+    "polynomial",
+    "equation",
+    "compute",
+    "evaluate",
+    "calculate",
 )
 _MATH_SYMBOL_RE = re.compile(
     r"(?:[\^\=]|\bdx\b|\bsin\b|\bcos\b|\btan\b|\blog\b|\bln\b|\bsqrt\b|"
@@ -38,6 +51,7 @@ class MathExpert(Expert):
     def __init__(self) -> None:
         try:
             import sympy  # noqa: F401
+
             self._available = True
         except ImportError:
             self._available = False
@@ -81,7 +95,7 @@ class MathExpert(Expert):
         import sympy as sp
 
         q = query.strip().rstrip("?.")
-        q_lower = q.lower()
+        q.lower()
 
         # Pattern 1: 'solve <eq>' or 'solve <eq> for <var>'
         m = re.match(r"\s*solve\s+(.+?)(?:\s+for\s+([a-zA-Z]\w*))?\s*$", q, re.I)
@@ -104,7 +118,9 @@ class MathExpert(Expert):
                 logger.debug("solve failed: %s", exc)
 
         # Pattern 2: integration
-        m = re.match(r"\s*integrate\s+(.+?)(?:\s+(?:dx|with\s+respect\s+to\s+([a-zA-Z]\w*)))?\s*$", q, re.I)
+        m = re.match(
+            r"\s*integrate\s+(.+?)(?:\s+(?:dx|with\s+respect\s+to\s+([a-zA-Z]\w*)))?\s*$", q, re.I
+        )
         if m:
             try:
                 expr = sp.sympify(m.group(1))
@@ -120,7 +136,11 @@ class MathExpert(Expert):
                 logger.debug("integrate failed: %s", exc)
 
         # Pattern 3: differentiation
-        m = re.match(r"\s*(?:differentiate|derivative\s+of)\s+(.+?)(?:\s+(?:with\s+respect\s+to\s+([a-zA-Z]\w*)|wrt\s+([a-zA-Z]\w*)))?\s*$", q, re.I)
+        m = re.match(
+            r"\s*(?:differentiate|derivative\s+of)\s+(.+?)(?:\s+(?:with\s+respect\s+to\s+([a-zA-Z]\w*)|wrt\s+([a-zA-Z]\w*)))?\s*$",
+            q,
+            re.I,
+        )
         if m:
             try:
                 expr = sp.sympify(m.group(1))
@@ -175,6 +195,7 @@ class MathExpert(Expert):
     @staticmethod
     def _parse_equation(s: str) -> Any:
         import sympy as sp
+
         s = s.replace("^", "**")
         if "=" in s:
             lhs, rhs = s.split("=", 1)

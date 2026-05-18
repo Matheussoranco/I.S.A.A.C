@@ -88,10 +88,10 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str, str]:
     analogy_context = ""
 
     try:
-        from isaac.arc.grid_ops import analyse_grid, format_grid_for_prompt, grid_diff
+        from isaac.arc.analogy import format_analogy_for_prompt, run_analogy_engine
         from isaac.arc.dsl import PRIMITIVES
-        from isaac.arc.priors import full_prior_analysis, describe_prior_analysis
-        from isaac.arc.analogy import run_analogy_engine, format_analogy_for_prompt
+        from isaac.arc.grid_ops import analyse_grid, grid_diff
+        from isaac.arc.priors import describe_prior_analysis, full_prior_analysis
     except ImportError as exc:
         logger.warning("ARC modules unavailable: %s", exc)
         return observations, hypothesis, analogy_context
@@ -136,12 +136,13 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str, str]:
                 for name, fn in list(PRIMITIVES.items())[:30]:
                     try:
                         result = fn(in_grid)
-                        if isinstance(result, np.ndarray) and result.shape == out_grid.shape:
-                            if np.array_equal(result, out_grid):
-                                observations.append(
-                                    f"  {prefix} EXACT MATCH with primitive '{name}'"
-                                )
-                                hypothesis = f"Single primitive '{name}' solves this task."
+                        if (
+                            isinstance(result, np.ndarray)
+                            and result.shape == out_grid.shape
+                            and np.array_equal(result, out_grid)
+                        ):
+                            observations.append(f"  {prefix} EXACT MATCH with primitive '{name}'")
+                            hypothesis = f"Single primitive '{name}' solves this task."
                     except Exception:
                         continue
 
@@ -158,12 +159,9 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str, str]:
         if analogy_result.hypotheses and not hypothesis:
             top_hyp = analogy_result.hypotheses[0]
             hypothesis = (
-                f"{top_hyp.name}: {top_hyp.description} "
-                f"(confidence: {top_hyp.confidence:.0%})"
+                f"{top_hyp.name}: {top_hyp.description} (confidence: {top_hyp.confidence:.0%})"
             )
-            observations.append(
-                f"\n[Analogy] Top hypothesis: {hypothesis}"
-            )
+            observations.append(f"\n[Analogy] Top hypothesis: {hypothesis}")
 
         if len(analogy_result.hypotheses) > 1:
             observations.append("[Analogy] Other candidates:")
@@ -205,8 +203,9 @@ def _explore_general(state: IsaacState) -> list[str]:
         return observations
 
     try:
-        from isaac.tools.base import get_tool_registry
         import asyncio
+
+        from isaac.tools.base import get_tool_registry
 
         registry = get_tool_registry()
         search_tool = registry.get("web_search")
@@ -216,6 +215,7 @@ def _explore_general(state: IsaacState) -> list[str]:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     import concurrent.futures
+
                     with concurrent.futures.ThreadPoolExecutor() as pool:
                         result = pool.submit(
                             asyncio.run,
@@ -245,6 +245,7 @@ def _explore_general(state: IsaacState) -> list[str]:
 def _store_exploration_facts(observations: list[str]) -> None:
     try:
         from isaac.memory.manager import get_memory_manager
+
         mm = get_memory_manager()
         for obs in observations[:20]:
             if len(obs) > 10:

@@ -106,7 +106,7 @@ class ToolRegistry:
         """Return schemas for all registered tools."""
         return [t.to_schema() for t in self._tools.values()]
 
-    def list_all(self) -> list["IsaacTool"]:
+    def list_all(self) -> list[IsaacTool]:
         """Return all registered tool instances."""
         return list(self._tools.values())
 
@@ -125,7 +125,7 @@ _registry: ToolRegistry | None = None
 
 def get_tool_registry() -> ToolRegistry:
     """Return the global tool registry singleton."""
-    global _registry  # noqa: PLW0603
+    global _registry
     if _registry is None:
         _registry = ToolRegistry()
     return _registry

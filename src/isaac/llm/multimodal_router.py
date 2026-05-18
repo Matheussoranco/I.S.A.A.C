@@ -129,7 +129,8 @@ class MultimodalRouter:
         else:
             logger.warning(
                 "Router: %s NOT healthy at %s — will skip.",
-                route.provider, route.base_url or "default",
+                route.provider,
+                route.base_url or "default",
             )
         return ok
 
@@ -137,13 +138,16 @@ class MultimodalRouter:
     def _probe(route: Route) -> bool:
         if route.provider == "ollama":
             from isaac.llm.providers.ollama import health_check
+
             return health_check(route.base_url or "http://localhost:11434")
         if route.provider == "llamacpp":
             from isaac.llm.providers.llamacpp import health_check
+
             return health_check(route.base_url or "http://localhost:8080")
         if route.provider == "openai_compat":
             # No standard health endpoint — try a HEAD on the base URL
             import httpx
+
             try:
                 with httpx.Client(timeout=3.0) as client:
                     client.get(route.base_url.rstrip("/v").rstrip("/") + "/v1/models")
@@ -185,7 +189,8 @@ class MultimodalRouter:
                 if self._is_healthy(candidate):
                     logger.info(
                         "Router: primary %s unavailable, falling back to %s.",
-                        primary.provider, candidate.provider,
+                        primary.provider,
+                        candidate.provider,
                     )
                     return candidate.build()
 
@@ -211,7 +216,7 @@ _router: MultimodalRouter | None = None
 
 def get_multimodal_router() -> MultimodalRouter:
     """Return a process-wide router built from :data:`isaac.config.settings`."""
-    global _router  # noqa: PLW0603
+    global _router
     if _router is not None:
         return _router
 
@@ -281,5 +286,5 @@ def get_multimodal_router() -> MultimodalRouter:
 
 def reset_multimodal_router() -> None:
     """Reset the singleton (used in tests)."""
-    global _router  # noqa: PLW0603
+    global _router
     _router = None

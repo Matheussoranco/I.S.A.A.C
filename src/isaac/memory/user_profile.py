@@ -37,6 +37,7 @@ class UserProfile:
         if profile_path is None:
             try:
                 from isaac.config.settings import settings
+
                 profile_path = Path(settings.user_profile_path).expanduser()
             except Exception:
                 profile_path = Path.home() / ".isaac" / "user_profile.json"
@@ -166,7 +167,7 @@ _instance: UserProfile | None = None
 
 def get_user_profile() -> UserProfile:
     """Return the singleton UserProfile instance."""
-    global _instance  # noqa: PLW0603
+    global _instance
     if _instance is None:
         _instance = UserProfile()
     return _instance
@@ -174,5 +175,5 @@ def get_user_profile() -> UserProfile:
 
 def reset_user_profile() -> None:
     """Reset the singleton (used in tests)."""
-    global _instance  # noqa: PLW0603
+    global _instance
     _instance = None

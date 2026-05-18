@@ -9,10 +9,9 @@ Persistence: SQLite at ``~/.isaac/memory/semantic.db``.
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -67,6 +66,7 @@ class SemanticMemory:
         self._chroma_collection: Any = None
         try:
             import chromadb  # type: ignore[import-untyped]
+
             chroma_path = self._db_path.parent / "chroma_db"
             self._chroma_client = chromadb.PersistentClient(path=str(chroma_path))
             self._chroma_collection = self._chroma_client.get_or_create_collection(
@@ -75,7 +75,8 @@ class SemanticMemory:
             logger.debug("SemanticMemory: ChromaDB initialised at %s.", chroma_path)
         except Exception as exc:
             logger.warning(
-                "SemanticMemory: ChromaDB unavailable (%s) — falling back to in-memory exact-match only.",
+                "SemanticMemory: ChromaDB unavailable (%s) — "
+                "falling back to in-memory exact-match only.",
                 exc,
             )
 
@@ -105,17 +106,22 @@ class SemanticMemory:
         """Load all facts from SQLite into the NetworkX graph."""
         if self._conn is None:
             return
-        cursor = self._conn.execute("SELECT subject, predicate, object, confidence, timestamp, source FROM facts")
+        cursor = self._conn.execute(
+            "SELECT subject, predicate, object, confidence, timestamp, source FROM facts"
+        )
         for row in cursor.fetchall():
             subj, pred, obj, conf, ts, src = row
             self._graph.add_edge(
-                subj, obj,
+                subj,
+                obj,
                 predicate=pred,
                 confidence=conf,
                 timestamp=ts,
                 source=src,
             )
-        logger.info("SemanticMemory: loaded %d facts from %s.", self._graph.number_of_edges(), self._db_path)
+        logger.info(
+            "SemanticMemory: loaded %d facts from %s.", self._graph.number_of_edges(), self._db_path
+        )
 
     # -- Write --------------------------------------------------------------
 
@@ -144,7 +150,8 @@ class SemanticMemory:
         """
         ts = datetime.now(tz=timezone.utc).isoformat()
         self._graph.add_edge(
-            subject, object,
+            subject,
+            object,
             predicate=predicate,
             confidence=confidence,
             timestamp=ts,
@@ -152,8 +159,8 @@ class SemanticMemory:
         )
         if self._conn is not None:
             self._conn.execute(
-                """INSERT OR REPLACE INTO facts 
-                   (subject, predicate, object, confidence, timestamp, source) 
+                """INSERT OR REPLACE INTO facts
+                   (subject, predicate, object, confidence, timestamp, source)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (subject, predicate, object, confidence, ts, source),
             )
@@ -164,30 +171,29 @@ class SemanticMemory:
             fact_id = f"{subject}_{predicate}_{object}".replace(" ", "_").replace("/", "_")
             self._chroma_collection.upsert(
                 documents=[fact_str],
-                metadatas=[{
-                    "subject": subject, 
-                    "predicate": predicate, 
-                    "object": object, 
-                }],
-                ids=[fact_id]
+                metadatas=[
+                    {
+                        "subject": subject,
+                        "predicate": predicate,
+                        "object": object,
+                    }
+                ],
+                ids=[fact_id],
             )
 
         logger.debug("SemanticMemory: added fact (%s, %s, %s).", subject, predicate, object)
 
     def search_similar_facts(self, query: str, top_k: int = 5) -> list[Fact]:
         """Search for facts semantically similar to the given query.
-        
+
         Uses the underlying Chroma database to retrieve related knowledge graph facts.
         """
         if not hasattr(self, "_chroma_collection") or self._chroma_collection is None:
             logger.warning("Chroma collection not initialized. Cannot perform semantic search.")
             return []
-            
-        results = self._chroma_collection.query(
-            query_texts=[query],
-            n_results=top_k
-        )
-        
+
+        results = self._chroma_collection.query(query_texts=[query], n_results=top_k)
+
         matches = []
         if results and "metadatas" in results and results["metadatas"]:
             metadata_batch = results["metadatas"][0]
@@ -199,7 +205,7 @@ class SemanticMemory:
                         object=str(meta.get("object", "")),
                     )
                 )
-                
+
         return matches
 
     # -- Read ---------------------------------------------------------------
@@ -223,14 +229,16 @@ class SemanticMemory:
                 continue
             if object is not None and v != object:
                 continue
-            results.append(Fact(
-                subject=u,
-                predicate=edge_pred,
-                object=v,
-                confidence=data.get("confidence", 1.0),
-                timestamp=data.get("timestamp", ""),
-                source=data.get("source", ""),
-            ))
+            results.append(
+                Fact(
+                    subject=u,
+                    predicate=edge_pred,
+                    object=v,
+                    confidence=data.get("confidence", 1.0),
+                    timestamp=data.get("timestamp", ""),
+                    source=data.get("source", ""),
+                )
+            )
         return results
 
     def infer_transitive(
@@ -257,14 +265,16 @@ class SemanticMemory:
 
             for _u, v, data in self._graph.out_edges(current, data=True):
                 if data.get("predicate") == predicate:
-                    results.append(Fact(
-                        subject=current,
-                        predicate=predicate,
-                        object=v,
-                        confidence=data.get("confidence", 1.0) * (0.9 ** current_depth),
-                        timestamp=data.get("timestamp", ""),
-                        source=f"inferred(depth={current_depth + 1})",
-                    ))
+                    results.append(
+                        Fact(
+                            subject=current,
+                            predicate=predicate,
+                            object=v,
+                            confidence=data.get("confidence", 1.0) * (0.9**current_depth),
+                            timestamp=data.get("timestamp", ""),
+                            source=f"inferred(depth={current_depth + 1})",
+                        )
+                    )
                     queue.append((v, current_depth + 1))
 
         return results
@@ -275,21 +285,25 @@ class SemanticMemory:
 
         # As subject
         for _u, v, data in self._graph.out_edges(entity, data=True):
-            results.append(Fact(
-                subject=entity,
-                predicate=data.get("predicate", ""),
-                object=v,
-                confidence=data.get("confidence", 1.0),
-            ))
+            results.append(
+                Fact(
+                    subject=entity,
+                    predicate=data.get("predicate", ""),
+                    object=v,
+                    confidence=data.get("confidence", 1.0),
+                )
+            )
 
         # As object
         for u, _v, data in self._graph.in_edges(entity, data=True):
-            results.append(Fact(
-                subject=u,
-                predicate=data.get("predicate", ""),
-                object=entity,
-                confidence=data.get("confidence", 1.0),
-            ))
+            results.append(
+                Fact(
+                    subject=u,
+                    predicate=data.get("predicate", ""),
+                    object=entity,
+                    confidence=data.get("confidence", 1.0),
+                )
+            )
 
         return results
 
@@ -300,10 +314,7 @@ class SemanticMemory:
         *different* object with high confidence, it's a contradiction.
         """
         existing = self.query_facts(subject=subject, predicate=predicate)
-        for fact in existing:
-            if fact.object != object and fact.confidence >= 0.8:
-                return True
-        return False
+        return any(fact.object != object and fact.confidence >= 0.8 for fact in existing)
 
     def to_context_string(self, max_facts: int = 50) -> str:
         """Compact string representation for LLM prompts."""
@@ -343,7 +354,7 @@ _semantic_memory: SemanticMemory | None = None
 
 def get_semantic_memory() -> SemanticMemory:
     """Return the session-scoped semantic memory singleton."""
-    global _semantic_memory  # noqa: PLW0603
+    global _semantic_memory
     if _semantic_memory is None:
         _semantic_memory = SemanticMemory()
     return _semantic_memory
@@ -351,7 +362,7 @@ def get_semantic_memory() -> SemanticMemory:
 
 def reset_semantic_memory() -> None:
     """Reset the singleton (used in tests)."""
-    global _semantic_memory  # noqa: PLW0603
+    global _semantic_memory
     if _semantic_memory is not None:
         _semantic_memory.close()
     _semantic_memory = None

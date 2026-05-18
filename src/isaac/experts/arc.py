@@ -20,7 +20,9 @@ class ArcExpert(Expert):
 
     name: ClassVar[str] = "arc"
     domains: ClassVar[tuple[str, ...]] = ("arc", "grid", "abstraction")
-    description: ClassVar[str] = "ARC-AGI grid synthesis (analogy + beam + object + LLM + refinement)."
+    description: ClassVar[str] = (
+        "ARC-AGI grid synthesis (analogy + beam + object + LLM + refinement)."
+    )
     cost: ClassVar[float] = 4.0
 
     def can_handle(self, query: str, context: dict[str, Any] | None = None) -> float:
@@ -37,6 +39,7 @@ class ArcExpert(Expert):
     def _answer(self, query: str, context: dict[str, Any]) -> ExpertResponse:
         try:
             import numpy as np
+
             from isaac.arc.evaluator import ArcPair, ArcTask
             from isaac.arc.solver import synthesise
         except ImportError as exc:
@@ -51,11 +54,14 @@ class ArcExpert(Expert):
         elif context.get("train_pairs"):
             task = ArcTask(
                 id=str(context.get("task_id", "expert")),
-                train=[ArcPair(np.asarray(p["input"]), np.asarray(p["output"]))
-                       for p in context["train_pairs"]],
-                test=[ArcPair(np.asarray(p["input"]),
-                              np.asarray(p.get("output", p["input"])))
-                      for p in (context.get("test_pairs") or [])],
+                train=[
+                    ArcPair(np.asarray(p["input"]), np.asarray(p["output"]))
+                    for p in context["train_pairs"]
+                ],
+                test=[
+                    ArcPair(np.asarray(p["input"]), np.asarray(p.get("output", p["input"])))
+                    for p in (context.get("test_pairs") or [])
+                ],
             )
         else:
             raise ExpertNotApplicable("ARC task payload missing (need arc_task / train_pairs)")
@@ -69,10 +75,7 @@ class ArcExpert(Expert):
 
         return ExpertResponse(
             expert=self.name,
-            answer=(
-                f"ARC solver finished — method={method}, correct={correct}, "
-                f"program={program}"
-            ),
+            answer=(f"ARC solver finished — method={method}, correct={correct}, program={program}"),
             confidence=confidence,
             evidence=[f"method={method}", f"correct={correct}"],
             artifacts={
@@ -85,7 +88,9 @@ class ArcExpert(Expert):
     @staticmethod
     def _dict_to_task(arc_dict: dict[str, Any]) -> Any:
         import numpy as np
+
         from isaac.arc.evaluator import ArcPair, ArcTask
+
         return ArcTask(
             id=str(arc_dict.get("id", "expert")),
             train=[

@@ -11,6 +11,7 @@ pipeline to a **single** LLM call with streaming output.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 from typing import Any
@@ -27,10 +28,8 @@ def _build_direct_prompt(user_text: str, hypothesis: str) -> list[Any]:
     from isaac.identity.soul import soul_system_prompt
 
     soul = ""
-    try:
+    with contextlib.suppress(Exception):
         soul = soul_system_prompt()
-    except Exception:
-        pass
 
     system_content = (
         f"{soul}\n\n"
@@ -80,6 +79,7 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
     ui = None
     try:
         from isaac.interfaces.repl import get_active_ui
+
         ui = get_active_ui()
     except ImportError:
         pass
@@ -111,7 +111,9 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
     except (AttributeError, TypeError):
         # Fallback: non-streaming
         response = llm.invoke(prompt)
-        full_response = response.content if isinstance(response.content, str) else str(response.content)
+        full_response = (
+            response.content if isinstance(response.content, str) else str(response.content)
+        )
         if ui is not None:
             ui.start_stream()
             ui.stream_token(full_response)

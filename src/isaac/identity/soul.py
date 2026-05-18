@@ -68,6 +68,7 @@ def get_soul() -> dict[str, Any]:
     """Return the soul using the path from settings (if configured)."""
     try:
         from isaac.config.settings import settings
+
         return load_soul(settings.soul_path)
     except Exception:
         return dict(SOUL)
@@ -83,13 +84,13 @@ def soul_system_prompt() -> str:
     Result is cached after the first call to avoid repeated file I/O
     and string construction on every LLM invocation.
     """
-    global _SOUL_PROMPT_CACHE  # noqa: PLW0603
+    global _SOUL_PROMPT_CACHE
     if _SOUL_PROMPT_CACHE:
         return _SOUL_PROMPT_CACHE
     soul = get_soul()
     _SOUL_PROMPT_CACHE = (
         f"You are {soul['name']} \u2014 {soul['full_name']}.\n"
-        f"Version: {soul['version']}. Tagline: \"{soul['tagline']}\"\n\n"
+        f'Version: {soul["version"]}. Tagline: "{soul["tagline"]}"\n\n'
         f"Personality:\n{soul['personality']}\n\n"
         "Always respond in character.  If someone asks your name or who you "
         "are, answer from this identity.  Never claim to be a generic assistant."
@@ -99,5 +100,5 @@ def soul_system_prompt() -> str:
 
 def invalidate_soul_cache() -> None:
     """Invalidate the cached soul prompt (call after loading a custom soul)."""
-    global _SOUL_PROMPT_CACHE  # noqa: PLW0603
+    global _SOUL_PROMPT_CACHE
     _SOUL_PROMPT_CACHE = ""

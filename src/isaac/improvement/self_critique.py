@@ -121,6 +121,7 @@ def build_critique() -> CritiqueReport:
     # Mirror to long-term memory for the next planning cycle
     try:
         from isaac.memory.long_term import get_long_term_memory
+
         ltm = get_long_term_memory()
         ltm.store(
             f"[self-critique] {summary}",
@@ -135,9 +136,10 @@ def build_critique() -> CritiqueReport:
 def _heuristic_critique(node_stats: list, skill_stats: list) -> str:
     weakest_n = min(node_stats, key=lambda n: n.success_rate, default=None)
     weakest_s = min(skill_stats, key=lambda s: s.success_rate, default=None)
+    target = weakest_n.node if weakest_n else "planner"
     return (
         f"WEAKEST_NODE: {weakest_n.node if weakest_n else 'none'}\n"
         f"WEAKEST_SKILL: {weakest_s.skill_name if weakest_s else 'none'}\n"
         f"SUMMARY: heuristic mode — LLM unavailable\n"
-        f"ACTION: investigate {weakest_n.node if weakest_n else 'planner'} latency and error patterns\n"
+        f"ACTION: investigate {target} latency and error patterns\n"
     )

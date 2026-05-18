@@ -23,7 +23,9 @@ class BrowserTool(IsaacTool):
     """
 
     name = "browser"
-    description = "Web browser automation: navigate URLs, extract text, click elements, take screenshots."
+    description = (
+        "Web browser automation: navigate URLs, extract text, click elements, take screenshots."
+    )
     risk_level = 3
     requires_approval = False
     sandbox_required = True

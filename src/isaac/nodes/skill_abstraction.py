@@ -57,6 +57,7 @@ def _advance_plan(plan: list[PlanStep]) -> None:
 # UI / Playwright abstraction
 # ---------------------------------------------------------------------------
 
+
 def _abstract_ui_skill(
     candidate: SkillCandidate,
     state: IsaacState,
@@ -96,7 +97,8 @@ def _abstract_ui_skill(
             key=a.get("key"),
             description=a.get("description", ""),
         )
-        if isinstance(a, dict) else a
+        if isinstance(a, dict)
+        else a
         for a in action_trace_raw
     ]
 
@@ -105,12 +107,10 @@ def _abstract_ui_skill(
         buf = state.get("code_buffer", "")
         try:
             buf_payload = json.loads(buf)
-            screenshot_before_b64 = (
-                screenshot_before_b64 or buf_payload.get("screenshot_before", "")
+            screenshot_before_b64 = screenshot_before_b64 or buf_payload.get(
+                "screenshot_before", ""
             )
-            screenshot_after_b64 = (
-                screenshot_after_b64 or buf_payload.get("screenshot_after", "")
-            )
+            screenshot_after_b64 = screenshot_after_b64 or buf_payload.get("screenshot_after", "")
         except (json.JSONDecodeError, AttributeError):
             pass
 
@@ -121,17 +121,14 @@ def _abstract_ui_skill(
         screenshot_after_b64=screenshot_after_b64,
     )
     response = llm.invoke(prompt)
-    content = (
-        response.content
-        if isinstance(response.content, str)
-        else str(response.content)
-    )
+    content = response.content if isinstance(response.content, str) else str(response.content)
     return _extract_code(content)
 
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: Skill Abstraction.
@@ -183,11 +180,7 @@ def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
             task_context=candidate.task_context,
         )
         response = llm.invoke(prompt)
-        content = (
-            response.content
-            if isinstance(response.content, str)
-            else str(response.content)
-        )
+        content = response.content if isinstance(response.content, str) else str(response.content)
         generalised_code = _extract_code(content)
         candidate.code = generalised_code
         candidate.success_count += 1

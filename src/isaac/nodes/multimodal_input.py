@@ -21,7 +21,6 @@ from __future__ import annotations
 import base64
 import logging
 import tempfile
-from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage
@@ -90,6 +89,7 @@ def multimodal_input_node(state: IsaacState) -> dict[str, Any]:
 
 def _handle_audio(att: dict[str, Any]) -> str:
     from isaac.multimodal.audio import transcribe
+
     path = att.get("path", "")
     model = att.get("model", "base")
     language = att.get("language")
@@ -98,6 +98,7 @@ def _handle_audio(att: dict[str, Any]) -> str:
 
 def _handle_document(att: dict[str, Any]) -> str:
     from isaac.multimodal.document import extract_text
+
     path = att.get("path", "")
     max_pages = att.get("max_pages", 50)
     return extract_text(path, max_pages=max_pages)[:8000]  # cap to avoid context overflow
@@ -105,6 +106,7 @@ def _handle_document(att: dict[str, Any]) -> str:
 
 def _handle_image_path(att: dict[str, Any]) -> dict[str, Any]:
     from isaac.multimodal.document import analyse_image
+
     path = att.get("path", "")
     prompt = att.get("prompt", "Describe this image. Extract any visible text, data, or diagrams.")
     return analyse_image(path, prompt=prompt)
@@ -122,4 +124,5 @@ def _handle_image_b64(att: dict[str, Any]) -> dict[str, Any]:
         tmp_path = f.name
 
     from isaac.multimodal.document import analyse_image
+
     return analyse_image(tmp_path, prompt=prompt)

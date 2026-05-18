@@ -33,24 +33,24 @@ from __future__ import annotations
 
 from isaac.experts.base import (
     Expert,
+    ExpertNotApplicable,
     ExpertResponse,
     ExpertSelection,
-    ExpertNotApplicable,
 )
+from isaac.experts.moe import MixtureOfExperts, answer, get_moe
 from isaac.experts.registry import ExpertRegistry, get_registry
 from isaac.experts.router import HybridRouter, RoutingFeatures
-from isaac.experts.moe import MixtureOfExperts, get_moe, answer
 
 __all__ = [
     "Expert",
-    "ExpertResponse",
-    "ExpertSelection",
     "ExpertNotApplicable",
     "ExpertRegistry",
-    "get_registry",
+    "ExpertResponse",
+    "ExpertSelection",
     "HybridRouter",
-    "RoutingFeatures",
     "MixtureOfExperts",
-    "get_moe",
+    "RoutingFeatures",
     "answer",
+    "get_moe",
+    "get_registry",
 ]

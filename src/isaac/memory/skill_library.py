@@ -25,13 +25,11 @@ logger = logging.getLogger(__name__)
 def _get_chroma_client() -> Any | None:
     """Lazy-load a persistent ChromaDB client, returning None on failure."""
     try:
-        import chromadb  # noqa: PLC0415
+        import chromadb
 
         return chromadb
     except ImportError:
-        logger.warning(
-            "ChromaDB not installed — falling back to keyword skill search."
-        )
+        logger.warning("ChromaDB not installed — falling back to keyword skill search.")
         return None
 
 
@@ -77,7 +75,9 @@ class SkillLibrary:
             self._sync_index_to_collection()
             return self._collection
         except Exception:
-            logger.warning("ChromaDB initialisation failed — using keyword fallback.", exc_info=True)
+            logger.warning(
+                "ChromaDB initialisation failed — using keyword fallback.", exc_info=True
+            )
             return None
 
     def _sync_index_to_collection(self) -> None:
@@ -197,7 +197,10 @@ class SkillLibrary:
         return self._search_keyword(query, top_k)
 
     def _search_chromadb(
-        self, collection: Any, query: str, top_k: int,
+        self,
+        collection: Any,
+        query: str,
+        top_k: int,
     ) -> list[str]:
         """Semantic search via ChromaDB embedding similarity."""
         try:

@@ -23,7 +23,7 @@ def build(
     api_key: str = "not-needed",
     temperature: float = 0.2,
     max_tokens: int | None = None,
-    vision: bool = False,  # noqa: ARG001
+    vision: bool = False,
     **extra: Any,
 ) -> BaseChatModel:
     """Build a ChatOpenAI client against any OpenAI-compatible endpoint."""

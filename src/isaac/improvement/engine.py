@@ -36,6 +36,7 @@ class ImprovementEngine:
 
     def __init__(self) -> None:
         from isaac.improvement.skill_curation import SkillCurator
+
         self._curator = SkillCurator()
 
     def run_cycle(self) -> ImprovementResult:
@@ -49,7 +50,9 @@ class ImprovementEngine:
             result.curation_decisions = [asdict(d) for d in decisions]
             promoted = sum(1 for d in decisions if d.action == "promote")
             deprecated = sum(1 for d in decisions if d.action == "deprecate")
-            logger.info("Improvement: curated skills — promoted=%d, deprecated=%d", promoted, deprecated)
+            logger.info(
+                "Improvement: curated skills — promoted=%d, deprecated=%d", promoted, deprecated
+            )
         except Exception as exc:
             logger.exception("Improvement: skill curation failed.")
             result.errors.append(f"curation: {exc}")
@@ -57,6 +60,7 @@ class ImprovementEngine:
         # 2. Self-critique
         try:
             from isaac.improvement.self_critique import build_critique
+
             report = build_critique()
             result.critique_summary = report.summary
             result.critique_action = report.improvement_note
@@ -74,6 +78,7 @@ class ImprovementEngine:
         # 4. Memory consolidation hand-off
         try:
             from isaac.memory.manager import get_memory_manager
+
             mm = get_memory_manager()
             if hasattr(mm, "consolidate"):
                 mm.consolidate()
@@ -93,7 +98,7 @@ _engine: ImprovementEngine | None = None
 
 
 def get_engine() -> ImprovementEngine:
-    global _engine  # noqa: PLW0603
+    global _engine
     if _engine is None:
         _engine = ImprovementEngine()
     return _engine

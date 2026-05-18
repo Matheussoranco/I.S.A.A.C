@@ -16,10 +16,8 @@ Provides:
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -98,14 +96,27 @@ class MetaLearner:
                (ts, task_desc, task_type, strategy, success, error_type, error_msg,
                 iterations, duration_ms, input_tokens, output_tokens, session_id)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (ts, task_desc[:500], task_type, strategy, int(success),
-             error_type, error_msg[:500], iterations, duration_ms,
-             input_tokens, output_tokens, session_id),
+            (
+                ts,
+                task_desc[:500],
+                task_type,
+                strategy,
+                int(success),
+                error_type,
+                error_msg[:500],
+                iterations,
+                duration_ms,
+                input_tokens,
+                output_tokens,
+                session_id,
+            ),
         )
         self._conn.commit()
         self._update_scores(task_type, strategy, success, duration_ms)
 
-    def _update_scores(self, task_type: str, strategy: str, success: bool, duration_ms: float) -> None:
+    def _update_scores(
+        self, task_type: str, strategy: str, success: bool, duration_ms: float
+    ) -> None:
         row = self._conn.execute(
             "SELECT wins, losses, avg_ms FROM strategy_scores WHERE task_type=? AND strategy=?",
             (task_type, strategy),
@@ -126,7 +137,9 @@ class MetaLearner:
             total = wins + losses
             avg_ms = (row["avg_ms"] * (total - 1) + duration_ms) / total
             self._conn.execute(
-                "UPDATE strategy_scores SET wins=?, losses=?, avg_ms=?, updated_at=? WHERE task_type=? AND strategy=?",
+                "UPDATE strategy_scores "
+                "SET wins=?, losses=?, avg_ms=?, updated_at=? "
+                "WHERE task_type=? AND strategy=?",
                 (wins, losses, avg_ms, ts, task_type, strategy),
             )
         self._conn.commit()
@@ -199,7 +212,12 @@ class MetaLearner:
         for r in rows:
             key = r["error_type"] or "unknown"
             if key not in patterns:
-                patterns[key] = {"count": 0, "strategies": set(), "task_types": set(), "samples": []}
+                patterns[key] = {
+                    "count": 0,
+                    "strategies": set(),
+                    "task_types": set(),
+                    "samples": [],
+                }
             patterns[key]["count"] += 1
             patterns[key]["strategies"].add(r["strategy"])
             patterns[key]["task_types"].add(r["task_type"])

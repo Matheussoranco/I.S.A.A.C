@@ -68,6 +68,7 @@ def _parse_reflection_json(content: str, fallback_hypothesis: str) -> dict:
 # Visual-diff path (Computer-Use / UI tasks)
 # ---------------------------------------------------------------------------
 
+
 def _reflect_ui(
     state: IsaacState,
     llm: Any,
@@ -101,11 +102,7 @@ def _reflect_ui(
             error=latest.error,
         )
         response = llm.invoke(prompt)
-        content = (
-            response.content
-            if isinstance(response.content, str)
-            else str(response.content)
-        )
+        content = response.content if isinstance(response.content, str) else str(response.content)
         parsed = _parse_reflection_json(content, state.get("hypothesis", ""))
 
     episodic = get_episodic_memory()
@@ -118,21 +115,23 @@ def _reflect_ui(
         candidate_info = parsed.get("skill_candidate", {})
         updates["skill_candidate"] = SkillCandidate(
             name=candidate_info.get("name", "ui_skill"),
-            code=state.get("code_buffer", ""),   # JSON-encoded UIAction trace
+            code=state.get("code_buffer", ""),  # JSON-encoded UIAction trace
             task_context=step_desc,
             success_count=1,
             skill_type="ui",
             tags=candidate_info.get("tags", ["ui"]),
         )
-        episodic.record(Episode(
-            task=step_desc,
-            hypothesis=state.get("hypothesis", ""),
-            code=state.get("code_buffer", ""),
-            result_summary=parsed.get("summary", "UI step succeeded."),
-            success=True,
-            node="reflection_ui",
-            iteration=state.get("iteration", 0),
-        ))
+        episodic.record(
+            Episode(
+                task=step_desc,
+                hypothesis=state.get("hypothesis", ""),
+                code=state.get("code_buffer", ""),
+                result_summary=parsed.get("summary", "UI step succeeded."),
+                success=True,
+                node="reflection_ui",
+                iteration=state.get("iteration", 0),
+            )
+        )
         logger.info("Reflection (UI): step SUCCEEDED — UI skill candidate proposed.")
     else:
         attempt = len([e for e in errors if e.node == "reflection"]) + 1
@@ -147,21 +146,21 @@ def _reflect_ui(
             attempt=attempt,
         )
         updates["errors"] = [new_error]
-        updates["hypothesis"] = parsed.get(
-            "revised_hypothesis", state.get("hypothesis", "")
-        )
+        updates["hypothesis"] = parsed.get("revised_hypothesis", state.get("hypothesis", ""))
         if active_step:
             active_step.status = "failed"
         updates["plan"] = plan
-        episodic.record(Episode(
-            task=step_desc,
-            hypothesis=state.get("hypothesis", ""),
-            code=state.get("code_buffer", ""),
-            result_summary=message,
-            success=False,
-            node="reflection_ui",
-            iteration=state.get("iteration", 0),
-        ))
+        episodic.record(
+            Episode(
+                task=step_desc,
+                hypothesis=state.get("hypothesis", ""),
+                code=state.get("code_buffer", ""),
+                result_summary=message,
+                success=False,
+                node="reflection_ui",
+                iteration=state.get("iteration", 0),
+            )
+        )
         logger.info(
             "Reflection (UI): step FAILED (attempt %d) — hypothesis revised.",
             attempt,
@@ -174,6 +173,7 @@ def _reflect_ui(
 # ---------------------------------------------------------------------------
 # Code-execution path (default)
 # ---------------------------------------------------------------------------
+
 
 def _reflect_code(
     state: IsaacState,
@@ -196,11 +196,7 @@ def _reflect_code(
         step_description=step_desc,
     )
     response = llm.invoke(prompt)
-    content = (
-        response.content
-        if isinstance(response.content, str)
-        else str(response.content)
-    )
+    content = response.content if isinstance(response.content, str) else str(response.content)
     parsed = _parse_reflection_json(content, state.get("hypothesis", ""))
 
     episodic = get_episodic_memory()
@@ -217,19 +213,22 @@ def _reflect_code(
             task_context=step_desc,
             success_count=1,
         )
-        episodic.record(Episode(
-            task=step_desc,
-            hypothesis=state.get("hypothesis", ""),
-            code=code,
-            result_summary=parsed.get("summary", f"exit={log.exit_code}"),
-            success=True,
-            node="reflection",
-            iteration=state.get("iteration", 0),
-        ))
+        episodic.record(
+            Episode(
+                task=step_desc,
+                hypothesis=state.get("hypothesis", ""),
+                code=code,
+                result_summary=parsed.get("summary", f"exit={log.exit_code}"),
+                success=True,
+                node="reflection",
+                iteration=state.get("iteration", 0),
+            )
+        )
 
         # Store in long-term memory
         try:
             from isaac.memory.long_term import get_long_term_memory
+
             ltm = get_long_term_memory()
             summary = parsed.get("summary", f"Completed: {step_desc}")
             ltm.remember(
@@ -243,6 +242,7 @@ def _reflect_code(
         # Update user profile
         try:
             from isaac.memory.user_profile import get_user_profile
+
             profile = get_user_profile()
             profile.update_after_session(
                 inferred_tags=[step_desc.split()[0].lower()] if step_desc else None,
@@ -262,15 +262,17 @@ def _reflect_code(
             refined = attempt_refinement(state, diagnosis)
             if refined is not None:
                 # Refinement succeeded — record episode and return
-                episodic.record(Episode(
-                    task=step_desc,
-                    hypothesis=state.get("hypothesis", ""),
-                    code=refined.get("code_buffer", ""),
-                    result_summary="Refined successfully after inner loop.",
-                    success=True,
-                    node="reflection_refinement",
-                    iteration=state.get("iteration", 0),
-                ))
+                episodic.record(
+                    Episode(
+                        task=step_desc,
+                        hypothesis=state.get("hypothesis", ""),
+                        code=refined.get("code_buffer", ""),
+                        result_summary="Refined successfully after inner loop.",
+                        success=True,
+                        node="reflection_refinement",
+                        iteration=state.get("iteration", 0),
+                    )
+                )
                 logger.info("Reflection: refinement loop SUCCEEDED — skipping Planner re-plan.")
                 refined["current_phase"] = "reflection"
                 return refined
@@ -286,21 +288,21 @@ def _reflect_code(
             attempt=attempt,
         )
         updates["errors"] = [new_error]
-        updates["hypothesis"] = parsed.get(
-            "revised_hypothesis", state.get("hypothesis", "")
-        )
+        updates["hypothesis"] = parsed.get("revised_hypothesis", state.get("hypothesis", ""))
         if active_step:
             active_step.status = "failed"
         updates["plan"] = plan
-        episodic.record(Episode(
-            task=step_desc,
-            hypothesis=state.get("hypothesis", ""),
-            code=code,
-            result_summary=f"FAILED: {diagnosis}",
-            success=False,
-            node="reflection",
-            iteration=state.get("iteration", 0),
-        ))
+        episodic.record(
+            Episode(
+                task=step_desc,
+                hypothesis=state.get("hypothesis", ""),
+                code=code,
+                result_summary=f"FAILED: {diagnosis}",
+                success=False,
+                node="reflection",
+                iteration=state.get("iteration", 0),
+            )
+        )
         logger.info(
             "Reflection: step FAILED (attempt %d) — hypothesis revised.",
             attempt,
@@ -313,6 +315,7 @@ def _reflect_code(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def reflection_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: Reflection / Critic.

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +29,11 @@ class BaseConnector(ABC):
 
     name: str = ""
     description: str = ""
-    requires_env: list[str] = []
+    requires_env: ClassVar[list[str]] = []
 
     def is_available(self) -> bool:
         """Check whether all required environment variables are set."""
-        for var in self.requires_env:
-            if not os.environ.get(var):
-                return False
-        return True
+        return all(os.environ.get(var) for var in self.requires_env)
 
     @abstractmethod
     def run(self, **kwargs: Any) -> dict[str, Any]:

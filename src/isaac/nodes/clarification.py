@@ -32,8 +32,18 @@ from langchain_core.messages import AIMessage, HumanMessage
 logger = logging.getLogger(__name__)
 
 
-_VAGUE_VERBS = {"do", "fix", "make", "handle", "deal", "take care", "improve",
-                "update", "thing", "stuff"}
+_VAGUE_VERBS = {
+    "do",
+    "fix",
+    "make",
+    "handle",
+    "deal",
+    "take care",
+    "improve",
+    "update",
+    "thing",
+    "stuff",
+}
 _QUESTION_HINTS = ("what", "which", "where", "when", "how", "why")
 
 
@@ -60,6 +70,7 @@ def _moe_margin(state: dict[str, Any]) -> float:
     more ambiguous routing."""
     try:
         from isaac.experts import get_moe
+
         moe = get_moe()
         last_user = ""
         msgs = state.get("messages", [])
@@ -91,11 +102,7 @@ def needs_clarification(state: dict[str, Any], threshold: float = 0.55) -> bool:
     ambiguity = _ambiguity_score(last_user)
     moe_margin = _moe_margin(state)
 
-    score = (
-        0.45 * (1.0 - perception_conf)
-        + 0.35 * ambiguity
-        + 0.20 * (1.0 - moe_margin)
-    )
+    score = 0.45 * (1.0 - perception_conf) + 0.35 * ambiguity + 0.20 * (1.0 - moe_margin)
     state["_clarification_score"] = round(score, 3)
     state["_clarification_signals"] = {
         "perception_confidence": perception_conf,
@@ -114,16 +121,19 @@ def _formulate_question(state: dict[str, Any]) -> str:
             break
 
     try:
-        from isaac.llm.provider import get_llm
         from langchain_core.messages import SystemMessage
 
+        from isaac.llm.provider import get_llm
+
         llm = get_llm("fast")
-        system = SystemMessage(content=(
-            "You are I.S.A.A.C.'s clarification assistant. The user's request "
-            "is ambiguous. Respond with EXACTLY ONE concise clarifying "
-            "question — no preamble, no greeting. Pick the single most "
-            "useful piece of missing information."
-        ))
+        system = SystemMessage(
+            content=(
+                "You are I.S.A.A.C.'s clarification assistant. The user's request "
+                "is ambiguous. Respond with EXACTLY ONE concise clarifying "
+                "question — no preamble, no greeting. Pick the single most "
+                "useful piece of missing information."
+            )
+        )
         resp = llm.invoke([system, HumanMessage(content=last_user)])
         return str(resp.content).strip().split("\n")[0]
     except Exception as exc:

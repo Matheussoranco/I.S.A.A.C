@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -36,11 +36,11 @@ from isaac.arc.grid_ops import Grid, GridObject, extract_objects
 from isaac.arc.priors import (
     ObjectSignature,
     compute_object_signature,
-    full_prior_analysis,
-    group_objects_by_colour,
     objects_same_shape,
-    relative_position,
 )
+
+if TYPE_CHECKING:
+    from isaac.arc.evaluator import ArcTask
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,7 @@ def build_scene_graph(grid: Grid) -> SceneGraph:
 
     # Neighbour detection
     from isaac.arc.priors import are_adjacent
+
     neighbours: list[list[int]] = [[] for _ in objects]
     for i in range(len(objects)):
         for j in range(i + 1, len(objects)):
@@ -141,7 +142,7 @@ def build_scene_graph(grid: Grid) -> SceneGraph:
                 neighbours[j].append(i)
 
     nodes: list[ObjectNode] = []
-    for i, (obj, sig) in enumerate(zip(objects, sigs)):
+    for i, (obj, sig) in enumerate(zip(objects, sigs, strict=False)):
         node = ObjectNode(
             obj=obj,
             sig=sig,
@@ -187,7 +188,7 @@ def _infer_recolour_by_size(
         return None
 
     rank_colour_maps: list[dict[int, int]] = []
-    for in_sg, out_sg in zip(in_scenes, out_scenes):
+    for in_sg, out_sg in zip(in_scenes, out_scenes, strict=False):
         if len(in_sg.nodes) != len(out_sg.nodes):
             return None
 
@@ -196,8 +197,10 @@ def _infer_recolour_by_size(
         for in_node in in_sg.nodes:
             best_out = min(
                 out_sg.nodes,
-                key=lambda on: abs(on.obj.bbox[0] - in_node.obj.bbox[0]) +
-                               abs(on.obj.bbox[1] - in_node.obj.bbox[1]),
+                key=lambda on: (
+                    abs(on.obj.bbox[0] - in_node.obj.bbox[0])
+                    + abs(on.obj.bbox[1] - in_node.obj.bbox[1])
+                ),
                 default=None,
             )
             if best_out is None:
@@ -264,8 +267,8 @@ def _infer_move_to_gravity(
 
     for direction in ["down", "up", "left", "right"]:
         consistent = True
-        for in_sg, out_sg in zip(in_scenes, out_scenes):
-            for in_node, out_node in zip(in_sg.nodes, out_sg.nodes):
+        for in_sg, out_sg in zip(in_scenes, out_scenes, strict=False):
+            for in_node, out_node in zip(in_sg.nodes, out_sg.nodes, strict=False):
                 if in_node.obj.colour != out_node.obj.colour:
                     consistent = False
                     break
@@ -277,22 +280,37 @@ def _infer_move_to_gravity(
     import numpy as np
     bg = int(np.bincount(grid.ravel()).argmax())
     result = np.full_like(grid, bg)
-    {'for c in range(grid.shape[1]):' if direction in ("down","up") else 'for r in range(grid.shape[0]):'}
-        {'col = grid[:, c]; non_bg = col[col != bg]' if direction in ("down","up") else 'row = grid[r, :]; non_bg = row[row != bg]'}
+    {
+                "for c in range(grid.shape[1]):"
+                if direction in ("down", "up")
+                else "for r in range(grid.shape[0]):"
+            }
+        {
+                "col = grid[:, c]; non_bg = col[col != bg]"
+                if direction in ("down", "up")
+                else "row = grid[r, :]; non_bg = row[row != bg]"
+            }
         if len(non_bg) > 0:
-            {'result[-len(non_bg):, c] = non_bg' if direction == "down" else
-             'result[:len(non_bg), c] = non_bg' if direction == "up" else
-             'result[r, :len(non_bg)] = non_bg' if direction == "left" else
-             'result[r, -len(non_bg):] = non_bg'}
+            {
+                "result[-len(non_bg):, c] = non_bg"
+                if direction == "down"
+                else "result[:len(non_bg), c] = non_bg"
+                if direction == "up"
+                else "result[r, :len(non_bg)] = non_bg"
+                if direction == "left"
+                else "result[r, -len(non_bg):] = non_bg"
+            }
     return result
 """
-            rules.append(ObjectRule(
-                name=f"gravity_{direction}",
-                description=f"All non-background cells fall {direction}",
-                confidence=0.5,
-                code_template=code,
-                parameters={"direction": direction},
-            ))
+            rules.append(
+                ObjectRule(
+                    name=f"gravity_{direction}",
+                    description=f"All non-background cells fall {direction}",
+                    confidence=0.5,
+                    code_template=code,
+                    parameters={"direction": direction},
+                )
+            )
 
     return rules
 
@@ -392,13 +410,12 @@ def _validate_rule_code(
         return 0.0
     namespace: dict[str, Any] = {"np": np, "numpy": np}
     try:
-        exec(code, namespace)  # noqa: S102
+        exec(code, namespace)
         solve_fn = namespace.get("solve")
         if solve_fn is None:
             return 0.0
         correct = sum(
-            1 for inp, expected in train_pairs
-            if _safe_equal(solve_fn(inp.copy()), expected)
+            1 for inp, expected in train_pairs if _safe_equal(solve_fn(inp.copy()), expected)
         )
         return correct / len(train_pairs)
     except Exception:
@@ -413,14 +430,13 @@ def _safe_equal(a: Any, b: Grid) -> bool:
 
 
 def synthesise_from_object_rules(
-    task: "ArcTask",
+    task: ArcTask,
 ) -> tuple[str, float] | None:
     """Try to synthesise a solve() via object-level rule inference.
 
     Returns (code, train_accuracy) if a rule with accuracy > 0 is found,
     else None.
     """
-    from isaac.arc.evaluator import ArcTask  # avoid circular at module level
 
     train_pairs = [(p.input, p.output) for p in task.train]
     rules = infer_object_rules(train_pairs)
@@ -453,8 +469,10 @@ def synthesise_from_object_rules(
 def describe_scene_for_prompt(sg: SceneGraph) -> list[str]:
     """Convert a scene graph to structured text observations for LLM prompts."""
     lines: list[str] = []
-    lines.append(f"Scene: {sg.grid_shape[0]}x{sg.grid_shape[1]}, "
-                 f"background={sg.background}, {len(sg.nodes)} objects")
+    lines.append(
+        f"Scene: {sg.grid_shape[0]}x{sg.grid_shape[1]}, "
+        f"background={sg.background}, {len(sg.nodes)} objects"
+    )
 
     for node in sg.nodes:
         sig = node.sig
@@ -500,8 +518,6 @@ def build_object_context_for_llm(
     if rules:
         lines.append("\n### Inferred object-level rules:")
         for rule in rules[:5]:
-            lines.append(
-                f"  [{rule.confidence:.0%}] {rule.name}: {rule.description}"
-            )
+            lines.append(f"  [{rule.confidence:.0%}] {rule.name}: {rule.description}")
 
     return "\n".join(lines)

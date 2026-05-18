@@ -62,27 +62,27 @@ class UIAction:
     """A single atomic UI interaction the agent wants to perform."""
 
     type: Literal[
-        "screenshot",    # capture screen — no side-effects
+        "screenshot",  # capture screen — no side-effects
         "click",
         "double_click",
         "right_click",
-        "type",          # inject keyboard text
-        "key",           # key or combo, e.g. "ctrl+c", "Return"
+        "type",  # inject keyboard text
+        "key",  # key or combo, e.g. "ctrl+c", "Return"
         "scroll",
-        "move",          # move mouse without pressing
-        "drag",          # drag from (x, y) to (target_x, target_y)
-        "wait",          # sleep duration_ms
+        "move",  # move mouse without pressing
+        "drag",  # drag from (x, y) to (target_x, target_y)
+        "wait",  # sleep duration_ms
     ] = "screenshot"
     x: int | None = None
     y: int | None = None
     target_x: int | None = None  # drag destination X
     target_y: int | None = None  # drag destination Y
-    text: str | None = None      # for "type"
-    key: str | None = None       # for "key"
+    text: str | None = None  # for "type"
+    key: str | None = None  # for "key"
     scroll_direction: Literal["up", "down", "left", "right"] | None = None
     scroll_amount: int = 3
     duration_ms: int = 0
-    description: str = ""        # human-readable intent; used by SkillAbstraction
+    description: str = ""  # human-readable intent; used by SkillAbstraction
 
 
 @dataclass
@@ -252,28 +252,28 @@ class IsaacState(TypedDict, total=False):
     * ``ui_cycle``   — latest-wins (screenshot→action loop counter).
     """
 
-    messages:        Annotated[list[BaseMessage], add_messages]
-    world_model:     Annotated[WorldModel, _replace]
-    hypothesis:      Annotated[str, _replace]
-    plan:            Annotated[list[PlanStep], _replace]
-    code_buffer:     Annotated[str, _replace]
-    execution_logs:  Annotated[list[ExecutionResult], _append_list]
+    messages: Annotated[list[BaseMessage], add_messages]
+    world_model: Annotated[WorldModel, _replace]
+    hypothesis: Annotated[str, _replace]
+    plan: Annotated[list[PlanStep], _replace]
+    code_buffer: Annotated[str, _replace]
+    execution_logs: Annotated[list[ExecutionResult], _append_list]
     skill_candidate: Annotated[SkillCandidate | None, _replace]
-    errors:          Annotated[list[ErrorEntry], _append_list]
-    iteration:       Annotated[int, _replace]
-    current_phase:   Annotated[str, _replace]
+    errors: Annotated[list[ErrorEntry], _append_list]
+    iteration: Annotated[int, _replace]
+    current_phase: Annotated[str, _replace]
 
     # ── Computer-Use ────────────────────────────────────────────────────────
-    task_mode:   Annotated[TaskMode, _replace]
-    ui_actions:  Annotated[list[UIAction], _append_list]
-    ui_results:  Annotated[list[UIActionResult], _append_list]
-    ui_cycle:    Annotated[int, _replace]
+    task_mode: Annotated[TaskMode, _replace]
+    ui_actions: Annotated[list[UIAction], _append_list]
+    ui_results: Annotated[list[UIActionResult], _append_list]
+    ui_cycle: Annotated[int, _replace]
     # ── Guard ───────────────────────────────────────────────────────────────
-    guard_blocked:   Annotated[bool, _replace]
+    guard_blocked: Annotated[bool, _replace]
     """Set to True by the Guard node when a prompt-injection attempt is detected."""
 
     # ── Session ─────────────────────────────────────────────────────────────
-    session_id:      Annotated[str, _replace]
+    session_id: Annotated[str, _replace]
     """Unique identifier for this cognitive session, set once at startup.
     Used to isolate episodic memory recalls across concurrent server sessions."""
     # ── Approval Workflow ──────────────────────────────────────────────────
@@ -283,15 +283,15 @@ class IsaacState(TypedDict, total=False):
     connector_results: Annotated[list[dict[str, Any]], _append_list]
 
     # ── Multimodal ──────────────────────────────────────────────────────────
-    multimodal_done:   Annotated[bool, _replace]
+    multimodal_done: Annotated[bool, _replace]
     """True after the MultimodalInput node has processed attachments."""
 
     # ── Parallel synthesis ──────────────────────────────────────────────────
-    parallel_done:     Annotated[bool, _replace]
+    parallel_done: Annotated[bool, _replace]
     """True when ParallelSynthesis has handled the current plan batch."""
 
     # ── Sub-agent results ───────────────────────────────────────────────────
-    agent_results:     Annotated[list[dict[str, Any]], _append_list]
+    agent_results: Annotated[list[dict[str, Any]], _append_list]
     """Structured results from ClaudeSubAgent runs."""
 
 

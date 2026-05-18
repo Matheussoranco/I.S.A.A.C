@@ -16,7 +16,6 @@ LangGraph's Send API to stay compatible with non-async graphs.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -31,8 +30,7 @@ def _get_independent_steps(plan: list[PlanStep]) -> list[PlanStep]:
     """Return pending steps that have no unfinished dependencies."""
     done_ids = {s.id for s in plan if s.status == "done"}
     return [
-        s for s in plan
-        if s.status == "pending" and all(dep in done_ids for dep in s.depends_on)
+        s for s in plan if s.status == "pending" and all(dep in done_ids for dep in s.depends_on)
     ]
 
 
@@ -89,7 +87,7 @@ def parallel_synthesis_node(state: IsaacState) -> dict[str, Any]:
     exec_logs: list[ExecutionResult] = []
     messages = []
 
-    for step, agent_result in zip(independent, results):
+    for step, agent_result in zip(independent, results, strict=False):
         for ps in updated_plan:
             if ps.id == step.id:
                 ps.status = "done" if agent_result.get("success") else "failed"
@@ -98,12 +96,14 @@ def parallel_synthesis_node(state: IsaacState) -> dict[str, Any]:
         result_text = agent_result.get("result", "")
         error = agent_result.get("error", "")
 
-        exec_logs.append(ExecutionResult(
-            stdout=result_text[:3000],
-            stderr=error[:500] if error else "",
-            exit_code=0 if agent_result.get("success") else 1,
-            duration_ms=agent_result.get("duration_ms", 0.0),
-        ))
+        exec_logs.append(
+            ExecutionResult(
+                stdout=result_text[:3000],
+                stderr=error[:500] if error else "",
+                exit_code=0 if agent_result.get("success") else 1,
+                duration_ms=agent_result.get("duration_ms", 0.0),
+            )
+        )
 
         summary = f"[{step.id}] ({agent_result.get('role', '?')}) {result_text[:500]}"
         if error:

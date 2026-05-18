@@ -15,7 +15,6 @@ from __future__ import annotations
 import io
 import logging
 import os
-import time
 import wave
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +33,7 @@ def is_audio_available() -> bool:
     """Return True if microphone capture is supported."""
     try:
         import sounddevice  # noqa: F401
+
         return True
     except (ImportError, OSError):
         return False
@@ -71,12 +71,12 @@ def play_wav(path: str | os.PathLike[str]) -> None:
     # Last-resort: hand off to the OS
     if os.name == "nt":
         import winsound  # type: ignore[import-not-found]
+
         winsound.PlaySound(path, winsound.SND_FILENAME)
         return
 
     raise RuntimeError(
-        "No audio playback backend available. "
-        "Install one of: sounddevice+soundfile, simpleaudio."
+        "No audio playback backend available. Install one of: sounddevice+soundfile, simpleaudio."
     )
 
 
@@ -88,9 +88,8 @@ def play_wav(path: str | os.PathLike[str]) -> None:
 def record_fixed(
     duration_s: float,
     sample_rate: int = DEFAULT_SAMPLE_RATE,
-) -> "np.ndarray":
+) -> np.ndarray:
     """Record exactly *duration_s* seconds of mono audio."""
-    import numpy as np
     import sounddevice as sd
 
     frames = int(duration_s * sample_rate)
@@ -105,7 +104,7 @@ def record_until_silence(
     max_record_s: float = DEFAULT_MAX_RECORD_S,
     energy_threshold: float = 0.005,
     on_chunk: Any = None,
-) -> "np.ndarray":
+) -> np.ndarray:
     """Record until a stretch of silence is detected.
 
     Parameters
@@ -134,11 +133,12 @@ def record_until_silence(
     vad: Any = None
     try:
         import webrtcvad  # type: ignore[import-not-found]
+
         vad = webrtcvad.Vad(2)  # 0 = least aggressive, 3 = most
     except ImportError:
         pass
 
-    def _is_silent(frame: "np.ndarray") -> bool:
+    def _is_silent(frame: np.ndarray) -> bool:
         if vad is not None:
             pcm16 = (frame * 32767).astype(np.int16).tobytes()
             try:
@@ -148,7 +148,7 @@ def record_until_silence(
         rms = float(np.sqrt(np.mean(frame * frame) + 1e-12))
         return rms < energy_threshold
 
-    chunks: list["np.ndarray"] = []
+    chunks: list[np.ndarray] = []
     silent_streak = 0
     started_speaking = False
 
@@ -176,11 +176,12 @@ def record_until_silence(
     if not chunks:
         return np.zeros(0, dtype="float32")
     import numpy as np
+
     return np.concatenate(chunks).astype("float32")
 
 
 def save_wav(
-    samples: "np.ndarray",
+    samples: np.ndarray,
     path: str | os.PathLike[str],
     sample_rate: int = DEFAULT_SAMPLE_RATE,
 ) -> str:
@@ -198,7 +199,7 @@ def save_wav(
 
 
 def samples_to_wav_bytes(
-    samples: "np.ndarray",
+    samples: np.ndarray,
     sample_rate: int = DEFAULT_SAMPLE_RATE,
 ) -> bytes:
     """Return WAV-encoded bytes for an in-memory audio buffer."""

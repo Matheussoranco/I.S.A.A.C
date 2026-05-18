@@ -13,9 +13,6 @@ tokens      Manage capability tokens.
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
-from typing import Optional
 
 try:
     import typer  # type: ignore[import-untyped]
@@ -73,6 +70,7 @@ if typer is not None:
 
         # Rich terminal UI (default)
         from isaac.interfaces.repl import run_repl
+
         code = run_repl()
         raise typer.Exit(code)
 
@@ -83,6 +81,7 @@ if typer is not None:
         """Start the Telegram gateway + heartbeat scheduler (daemon mode)."""
         _setup_logging(verbose)
         import asyncio
+
         from isaac.interfaces.telegram_gateway import start_bot
         from isaac.scheduler.heartbeat import start_scheduler, stop_scheduler
         from isaac.tools import register_all_tools
@@ -109,6 +108,7 @@ if typer is not None:
         """
         _setup_logging(verbose)
         from isaac.mcp.server import run_server
+
         run_server()
 
     @app.command()
@@ -118,8 +118,9 @@ if typer is not None:
     ) -> None:
         """Show self-improvement statistics from the MetaLearner."""
         _setup_logging()
-        from isaac.meta.learner import get_learner
         import json
+
+        from isaac.meta.learner import get_learner
 
         learner = get_learner()
         if failures:
@@ -132,23 +133,31 @@ if typer is not None:
     def transcribe(
         audio_file: str = typer.Argument(..., help="Path to audio file (.wav/.mp3/etc.)"),
         model: str = typer.Option("base", "--model", "-m", help="Whisper model size."),
-        language: Optional[str] = typer.Option(None, "--lang", "-l", help="Language code (e.g. 'en')."),
+        language: str | None = typer.Option(
+            None, "--lang", "-l", help="Language code (e.g. 'en')."
+        ),
     ) -> None:
         """Transcribe an audio file to text using local Whisper (faster-whisper)."""
         _setup_logging()
         from isaac.multimodal.audio import transcribe as do_transcribe
+
         text = do_transcribe(audio_file, model=model, language=language)  # type: ignore[arg-type]
         typer.echo(text)
 
     @app.command()
     def speak(
         text: str = typer.Argument(..., help="Text to synthesise."),
-        output: Optional[str] = typer.Option(None, "--out", "-o", help="Save to file instead of playing."),
-        engine: str = typer.Option("auto", "--engine", "-e", help="TTS engine: pyttsx3/kokoro/openai/auto."),
+        output: str | None = typer.Option(
+            None, "--out", "-o", help="Save to file instead of playing."
+        ),
+        engine: str = typer.Option(
+            "auto", "--engine", "-e", help="TTS engine: pyttsx3/kokoro/openai/auto."
+        ),
     ) -> None:
         """Convert text to speech using local TTS (pyttsx3/kokoro/openai)."""
         _setup_logging()
         from isaac.multimodal.audio import speak as do_speak
+
         result = do_speak(text, output_path=output, engine=engine)  # type: ignore[arg-type]
         if result:
             typer.echo(f"Saved to: {result}")
@@ -156,11 +165,14 @@ if typer is not None:
     @app.command()
     def extract(
         doc_path: str = typer.Argument(..., help="Document path (.pdf/.docx/.pptx/.png/etc.)"),
-        pages_only: bool = typer.Option(False, "--pages", "-p", help="Show page-by-page (PDF only)."),
+        pages_only: bool = typer.Option(
+            False, "--pages", "-p", help="Show page-by-page (PDF only)."
+        ),
     ) -> None:
         """Extract text from a document (PDF, DOCX, PPTX, image)."""
         _setup_logging()
-        from isaac.multimodal.document import extract_text, extract_pages
+        from isaac.multimodal.document import extract_pages, extract_text
+
         if pages_only:
             pages = extract_pages(doc_path)
             for i, page in enumerate(pages, 1):
@@ -170,13 +182,15 @@ if typer is not None:
 
     @app.command()
     def prove(
-        constraints_json: str = typer.Argument(..., help='JSON array of constraint strings.'),
-        variables_json: str = typer.Option("{}", "--vars", "-v", help='JSON object: {name: sort}.'),
+        constraints_json: str = typer.Argument(..., help="JSON array of constraint strings."),
+        variables_json: str = typer.Option("{}", "--vars", "-v", help="JSON object: {name: sort}."),
     ) -> None:
         """Check satisfiability of symbolic constraints using Z3."""
         _setup_logging()
         import json
+
         from isaac.reasoning.theorem_prover import TheoremProver
+
         constraints = json.loads(constraints_json)
         variables = json.loads(variables_json)
         prover = TheoremProver()
@@ -245,14 +259,19 @@ if typer is not None:
             approval = " [APPROVAL REQUIRED]" if tool.requires_approval else ""
             sandbox = " [SANDBOX]" if tool.sandbox_required else ""
             typer.echo(
-                f"  {tool.name:20s} risk={tool.risk_level}  {tool.description[:60]}{approval}{sandbox}"
+                f"  {tool.name:20s} risk={tool.risk_level}  "
+                f"{tool.description[:60]}{approval}{sandbox}"
             )
 
     @app.command()
     def cron(
-        action: str = typer.Argument("list", help="Action: list, add, remove, pause, resume, start, stop, status."),
+        action: str = typer.Argument(
+            "list", help="Action: list, add, remove, pause, resume, start, stop, status."
+        ),
         name: str = typer.Option("", "--name", help="Task name (for add)."),
-        schedule: str = typer.Option("0 * * * *", "--schedule", "-s", help="Cron expression (for add)."),
+        schedule: str = typer.Option(
+            "0 * * * *", "--schedule", "-s", help="Cron expression (for add)."
+        ),
         command: str = typer.Option("", "--command", "-c", help="Command string (for add)."),
         task_id: str = typer.Option("", "--id", help="Task ID (for remove/pause/resume)."),
     ) -> None:
@@ -315,7 +334,9 @@ if typer is not None:
             running = is_cron_running()
             typer.echo(f"Cron daemon: {'RUNNING' if running else 'STOPPED'}")
             tasks = list_tasks()
-            typer.echo(f"Tasks: {len(tasks)} total, {sum(1 for t in tasks if t['enabled'])} enabled")
+            typer.echo(
+                f"Tasks: {len(tasks)} total, {sum(1 for t in tasks if t['enabled'])} enabled"
+            )
         else:
             typer.echo(f"Unknown action: {action}")
 
@@ -337,13 +358,16 @@ if typer is not None:
 
     @app.command()
     def voice(
-        hands_free: bool = typer.Option(False, "--hands-free", "-f", help="Continuous listening mode."),
+        hands_free: bool = typer.Option(
+            False, "--hands-free", "-f", help="Continuous listening mode."
+        ),
         verbose: bool = typer.Option(False, "--verbose", "-v"),
     ) -> None:
         """Start the conversational voice REPL (mic ↔ STT ↔ agent ↔ TTS ↔ speaker)."""
         _setup_logging(verbose)
         try:
             from isaac.tools import register_all_tools
+
             register_all_tools()
         except Exception:
             pass
@@ -357,7 +381,8 @@ if typer is not None:
         image: str = typer.Argument(..., help="Path or URL of the image to analyse."),
         prompt: str = typer.Option(
             "Describe this image in detail.",
-            "--prompt", "-p",
+            "--prompt",
+            "-p",
             help="Question to ask about the image.",
         ),
         verbose: bool = typer.Option(False, "--verbose", "-v"),
@@ -370,12 +395,14 @@ if typer is not None:
             answer = get_vision_lm().ask(prompt, image)
         except Exception as exc:
             typer.echo(f"Vision call failed: {exc}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         typer.echo(answer)
 
     @app.command()
     def improve(
-        report: bool = typer.Option(False, "--report", "-r", help="Print the last critique report."),
+        report: bool = typer.Option(
+            False, "--report", "-r", help="Print the last critique report."
+        ),
         verbose: bool = typer.Option(False, "--verbose", "-v"),
     ) -> None:
         """Run one self-improvement cycle (curation + critique + telemetry prune)."""
@@ -409,7 +436,8 @@ if typer is not None:
         _setup_logging()
         from isaac.config.settings import settings
         from isaac.llm.providers import LOCAL_PROVIDERS, PROVIDERS
-        from isaac.llm.providers.ollama import health_check, list_models as list_ollama_models
+        from isaac.llm.providers.ollama import health_check
+        from isaac.llm.providers.ollama import list_models as list_ollama_models
 
         typer.echo("Registered providers:")
         for name in sorted(PROVIDERS):
@@ -475,7 +503,9 @@ def main() -> int:
         _setup_logging()
         try:
             from isaac.interfaces.repl import run_repl
+
             return run_repl()
         except ImportError:
             from isaac.core.graph import build_and_run
+
             return build_and_run()

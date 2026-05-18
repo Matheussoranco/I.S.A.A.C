@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from isaac.core.state import IsaacState, PendingApproval, ErrorEntry
+from isaac.core.state import ErrorEntry, IsaacState, PendingApproval
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,7 @@ def await_approval_node(state: IsaacState) -> dict[str, Any]:
             if loop.is_running():
                 # We're likely inside an async runner — use the event loop directly
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     approved = pool.submit(_sync_poll, approval).result()
             else:
@@ -121,6 +122,7 @@ def _notify_operator(approval: PendingApproval) -> None:
 
     try:
         from isaac.interfaces.telegram_gateway import send_notification
+
         send_notification(message)
     except ImportError:
         pass
@@ -128,9 +130,9 @@ def _notify_operator(approval: PendingApproval) -> None:
         logger.debug("Telegram notification failed: %s", exc)
 
     # Always print to console as fallback
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(message)
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 def _execute_approved_tool(approval: PendingApproval) -> str:

@@ -92,7 +92,9 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
             hypothesis = classify_hypothesis(user_text, task_mode_hint)
             logger.debug(
                 "Perception (fast): mode=%s conf=%.2f input=%r",
-                task_mode_hint, confidence, user_text[:60],
+                task_mode_hint,
+                confidence,
+                user_text[:60],
             )
             return {
                 "world_model": world_model,
@@ -109,12 +111,14 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
 
     # -- LLM path: only reached for ambiguous or multimodal inputs -----------
     from isaac.llm.provider import get_perception_llm
+
     llm = get_perception_llm()
 
     # -- Long-term memory recall (skip for obviously-direct queries) --------
     ltm_context = ""
     try:
         from isaac.memory.long_term import get_long_term_memory
+
         ltm = get_long_term_memory()
         ltm_context = ltm.to_context_string(user_text, top_k=3)
     except Exception:
@@ -124,6 +128,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
     profile_context = ""
     try:
         from isaac.memory.user_profile import get_user_profile
+
         profile = get_user_profile()
         profile.record_interaction()
         profile.save()
@@ -154,9 +159,11 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         observations = parsed.get("observations", [])
         hypothesis = parsed.get("hypothesis", "")
         task_mode = parsed.get("task_mode", "code")
-        gui_meta = {k: parsed[k] for k in (
-            "active_window_title", "current_url", "screen_width", "screen_height"
-        ) if k in parsed}
+        gui_meta = {
+            k: parsed[k]
+            for k in ("active_window_title", "current_url", "screen_width", "screen_height")
+            if k in parsed
+        }
     except (json.JSONDecodeError, IndexError):
         logger.error("Perception: failed to parse LLM response as JSON.")
         observations = [f"Raw LLM response: {content[:500]}"]
@@ -195,7 +202,8 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
 
     logger.info(
         "Perception (LLM): %d observations, mode=%s",
-        len(observations), task_mode,
+        len(observations),
+        task_mode,
     )
 
     return {

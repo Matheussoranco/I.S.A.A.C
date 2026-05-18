@@ -10,16 +10,12 @@ Inspired by Cline and Claude Code terminal interfaces.
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from rich.console import Console, Group
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.rule import Rule
 from rich.style import Style
-from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
@@ -47,17 +43,17 @@ ISAAC_THEME = Theme(
 
 # Phase display metadata
 PHASE_ICONS: dict[str, tuple[str, str]] = {
-    "guard":              ("\U0001f6e1",  "Guard"),           # 🛡
-    "perception":         ("\U0001f441",  "Perception"),      # 👁
-    "direct_response":    ("\u26a1",      "Direct Response"), # ⚡
-    "explorer":           ("\U0001f50d",  "Explorer"),        # 🔍
-    "planner":            ("\U0001f4cb",  "Planner"),         # 📋
-    "connector_execution":("\U0001f517",  "Connectors"),      # 🔗
-    "synthesis":          ("\U0001f9ea",  "Synthesis"),       # 🧪
-    "sandbox":            ("\U0001f4e6",  "Sandbox"),         # 📦
-    "computer_use":       ("\U0001f5a5",  "Computer Use"),    # 🖥
-    "reflection":         ("\U0001f914",  "Reflection"),      # 🤔
-    "skill_abstraction":  ("\U0001f4be",  "Skill Save"),      # 💾
+    "guard": ("\U0001f6e1", "Guard"),  # 🛡
+    "perception": ("\U0001f441", "Perception"),  # 👁
+    "direct_response": ("\u26a1", "Direct Response"),  # ⚡
+    "explorer": ("\U0001f50d", "Explorer"),  # 🔍
+    "planner": ("\U0001f4cb", "Planner"),  # 📋
+    "connector_execution": ("\U0001f517", "Connectors"),  # 🔗
+    "synthesis": ("\U0001f9ea", "Synthesis"),  # 🧪
+    "sandbox": ("\U0001f4e6", "Sandbox"),  # 📦
+    "computer_use": ("\U0001f5a5", "Computer Use"),  # 🖥
+    "reflection": ("\U0001f914", "Reflection"),  # 🤔
+    "skill_abstraction": ("\U0001f4be", "Skill Save"),  # 💾
 }
 
 
@@ -188,9 +184,7 @@ class TerminalUI:
         """Begin a streaming response block."""
         self.console.print()
         title = Text(" I.S.A.A.C. ", style="bold bright_cyan")
-        self.console.print(
-            Rule(title=title, style="bright_cyan")
-        )
+        self.console.print(Rule(title=title, style="bright_cyan"))
         self.console.print()
 
     def end_stream(self, elapsed: float | None = None) -> None:
@@ -250,7 +244,11 @@ class TerminalUI:
 
         table.add_row("actions", str(actions_count))
         table.add_row("ui_cycle", str(ui_cycle))
-        status = "[isaac.success]OK[/isaac.success]" if last_action_success else "[isaac.error]FAIL[/isaac.error]"
+        status = (
+            "[isaac.success]OK[/isaac.success]"
+            if last_action_success
+            else "[isaac.error]FAIL[/isaac.error]"
+        )
         table.add_row("last_action", f"{status}  {last_action_type} - {last_action_desc[:60]}")
 
         self.console.print(

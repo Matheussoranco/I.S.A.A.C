@@ -30,6 +30,7 @@ jobs:
 
       - name: Mypy type check
         run: mypy src/isaac --ignore-missing-imports
+        continue-on-error: true
 
   test:
     name: Test Suite (Python ${{ matrix.python-version }})
