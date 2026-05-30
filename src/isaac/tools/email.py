@@ -44,6 +44,13 @@ class EmailReadTool(IsaacTool):
     risk_level = 2
     requires_approval = False
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "folder": {"type": "string", "description": "IMAP folder (default 'INBOX')."},
+            "limit": {"type": "integer", "description": "Number of messages (default 5)."},
+        },
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Fetch recent emails.
@@ -121,6 +128,15 @@ class EmailSendTool(IsaacTool):
     risk_level = 4
     requires_approval = True
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "to": {"type": "string", "description": "Recipient email address."},
+            "subject": {"type": "string", "description": "Email subject line."},
+            "body": {"type": "string", "description": "Plain-text email body."},
+        },
+        "required": ["to", "body"],
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Send an email.

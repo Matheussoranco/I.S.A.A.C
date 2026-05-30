@@ -9,6 +9,51 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — SOTA Neuro-Symbolic upgrade
 
+### Added — Autonomous tool-use agent loop (Claude-Code-style)
+- `src/isaac/agents/agent_loop.py` — `AgentLoop`, a provider-agnostic
+  LLM-driven tool-use loop. The model is given the tool set as JSON-Schema
+  function definitions (via LangChain `bind_tools`, so it works with
+  Anthropic / OpenAI / tool-calling Ollama), then iterates
+  *call tool → observe → decide* until it produces a final answer.
+  Includes risk gating (risk-4/5 tools blocked unless `auto_approve`),
+  a per-run transcript, tool-call records, an `on_event` streaming hook,
+  and automatic resource teardown.
+- `build_default_agent()` — one call wires the loop with every registered
+  built-in tool (or a restricted subset via `only=[...]`).
+- `isaac agent "<task>"` CLI command — runs the autonomous agent on a single
+  task with live progress output. Flags: `--max-iters`, `--auto-approve`,
+  `--tools`.
+- MCP server exposes the loop as the `isaac_agent` tool, so external Claude
+  agents (Co-Work) can delegate full multi-step browsing/coding tasks.
+
+### Added — Real machine-readable tool schemas
+- `IsaacTool.parameters` (JSON-Schema) on every built-in tool plus
+  `IsaacTool.to_function_schema()` — the bridge that makes tools callable by
+  any function-calling model. Previously tools exposed no argument schema.
+
+### Changed — Persistent browser session ("Claude for Chrome" capability)
+- `src/isaac/tools/browser.py` rewritten to hold a **single Chromium page
+  alive across actions** (navigate → read → click → type → navigate again on
+  the same page with cookies/history preserved). The previous implementation
+  launched and closed a fresh browser on every action, so multi-step browsing
+  was impossible. New actions: `get_html`, `get_links`, `type`, `press`,
+  `eval`, `back`, `current`. Degrades gracefully when Playwright is absent.
+
+### Changed — Agentic sub-agents (Co-Work)
+- `ClaudeSubAgent.run_agentic()` — a sub-agent now runs as a full tool-use
+  loop with role-appropriate tools (a `researcher` actually searches/browses,
+  a `coder` actually runs and verifies code) instead of a single LLM call.
+  `ParallelSubAgentPool.run_all(agentic=True)` and the
+  `isaac_spawn_subagent` MCP tool's `agentic` flag opt into this.
+
+### Fixed — Missing core dependencies crippling the agent
+- Nine **declared core** dependencies were absent from the environment
+  (`networkx`, `langchain-ollama`, `duckduckgo-search`, `python-telegram-bot`,
+  `apscheduler`, `beautifulsoup4`, `croniter`, `prompt-toolkit`, `pillow`),
+  silently disabling the knowledge graph, graph-of-thoughts planner, web
+  search/fetch, and scheduler, and blocking the entire test suite (3 collection
+  errors → 0 tests). Installing them restored the suite to fully green.
+
 ### Added — Knowledge Experts (Mixture-of-Experts)
 - `src/isaac/experts/` — pluggable MoE with seven bundled experts:
   `language` (local LLM, default), `math` (SymPy), `code` (skill library +

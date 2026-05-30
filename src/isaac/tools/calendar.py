@@ -42,6 +42,12 @@ class CalendarReadTool(IsaacTool):
     risk_level = 1
     requires_approval = False
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "days": {"type": "integer", "description": "Look-ahead window in days (default 7)."},
+        },
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Fetch upcoming events.
@@ -98,6 +104,16 @@ class CalendarWriteTool(IsaacTool):
     risk_level = 4
     requires_approval = True
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string", "description": "Event title."},
+            "start": {"type": "string", "description": "Start datetime (ISO 8601)."},
+            "end": {"type": "string", "description": "End datetime (ISO 8601); default start+1h."},
+            "description": {"type": "string", "description": "Optional event description."},
+        },
+        "required": ["summary", "start"],
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Create an event.

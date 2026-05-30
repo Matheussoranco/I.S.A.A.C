@@ -40,6 +40,41 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "isaac_agent",
+        "description": (
+            "Run I.S.A.A.C.'s autonomous tool-use agent on a task. The agent is given a "
+            "real toolbox — a persistent web browser, web search, a Python runner, and a "
+            "sandboxed file workspace — and iterates (call tool -> observe -> decide) until "
+            "it produces a final answer. Use this for multi-step work that needs live web "
+            "browsing, code execution, or file output rather than a single answer."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "The task for the agent."},
+                "context": {
+                    "type": "string",
+                    "description": "Optional extra context.",
+                    "default": "",
+                },
+                "max_iterations": {
+                    "type": "integer",
+                    "description": "Max tool-use rounds (default 12).",
+                    "default": 12,
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of tool names to restrict the agent to "
+                        "(e.g. ['browser','web_search']). Defaults to all built-in tools."
+                    ),
+                },
+            },
+            "required": ["task"],
+        },
+    },
+    {
         "name": "isaac_memory_search",
         "description": "Search I.S.A.A.C.'s five-layer memory system for relevant past knowledge.",
         "inputSchema": {
@@ -145,6 +180,15 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "enum": ["researcher", "coder", "analyst", "planner", "critic"],
                     "description": "Specialization role for the sub-agent.",
                     "default": "coder",
+                },
+                "agentic": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, the sub-agent runs as a full tool-use loop with "
+                        "role-appropriate tools (web search, browser, code, files) instead "
+                        "of a single LLM call."
+                    ),
+                    "default": False,
                 },
             },
             "required": ["subtask"],
@@ -299,16 +343,40 @@ def _handle_knowledge_query(args: dict[str, Any]) -> dict[str, Any]:
     return {"results": results}
 
 
+def _handle_agent(args: dict[str, Any]) -> dict[str, Any]:
+    """Run the autonomous tool-use agent loop and return a structured result."""
+    from isaac.agents.agent_loop import build_default_agent
+
+    task = args["task"]
+    context = args.get("context", "")
+    max_iterations = int(args.get("max_iterations", 12))
+    only = args.get("tools") or None
+
+    loop = build_default_agent(max_iterations=max_iterations, only=only)
+    result = loop.run(task, context=context)
+    return {
+        "output": result.output,
+        "success": result.success,
+        "iterations": result.iterations,
+        "stopped_reason": result.stopped_reason,
+        "tool_calls": [
+            {"name": c.name, "args": c.args, "success": c.success} for c in result.tool_calls
+        ],
+    }
+
+
 def _handle_spawn_subagent(args: dict[str, Any]) -> dict[str, Any]:
     from isaac.agents.claude_subagent import ClaudeSubAgent
 
     subtask = args["subtask"]
     context = args.get("context", "")
     role = args.get("role", "coder")
+    agentic = bool(args.get("agentic", False))
 
     agent = ClaudeSubAgent(role=role)
-    result = agent.run(subtask, context=context)
-    return result
+    if agentic:
+        return agent.run_agentic(subtask, context=context)
+    return agent.run(subtask, context=context)
 
 
 def _handle_meta_stats(args: dict[str, Any]) -> dict[str, Any]:
@@ -321,6 +389,7 @@ def _handle_meta_stats(args: dict[str, Any]) -> dict[str, Any]:
 
 _HANDLERS = {
     "isaac_ask": _handle_ask,
+    "isaac_agent": _handle_agent,
     "isaac_memory_search": _handle_memory_search,
     "isaac_skill_search": _handle_skill_search,
     "isaac_code_execute": _handle_code_execute,

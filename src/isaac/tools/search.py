@@ -21,6 +21,17 @@ class WebSearchTool(IsaacTool):
     risk_level = 2
     requires_approval = False
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "The search query."},
+            "max_results": {
+                "type": "integer",
+                "description": "Maximum number of results to return (default 5).",
+            },
+        },
+        "required": ["query"],
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Run a web search.

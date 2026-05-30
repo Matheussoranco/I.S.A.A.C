@@ -48,6 +48,11 @@ class IsaacTool(ABC):
     requires_approval: bool = False
     sandbox_required: bool = False
 
+    #: JSON-Schema describing the keyword arguments accepted by ``execute``.
+    #: Used to build native LLM tool-calling schemas (``bind_tools``).  The
+    #: default is a permissive empty object; concrete tools should override it.
+    parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Auto-set requires_approval for high-risk tools."""
         super().__init_subclass__(**kwargs)
@@ -72,6 +77,14 @@ class IsaacTool(ABC):
             The outcome of the tool invocation.
         """
 
+    async def aclose(self) -> None:
+        """Release any long-lived resources held by the tool.
+
+        No-op by default.  Tools that hold persistent state (e.g. a browser
+        session) override this; the agent loop calls it when a run finishes.
+        """
+        return None
+
     def to_schema(self) -> dict[str, Any]:
         """Return a JSON-serialisable description for the LLM."""
         return {
@@ -80,6 +93,24 @@ class IsaacTool(ABC):
             "risk_level": self.risk_level,
             "requires_approval": self.requires_approval,
             "sandbox_required": self.sandbox_required,
+            "parameters": self.parameters,
+        }
+
+    def to_function_schema(self) -> dict[str, Any]:
+        """Return an OpenAI/Anthropic-style function schema for native tool calling.
+
+        The returned dict is accepted directly by LangChain's
+        :meth:`BaseChatModel.bind_tools`, which makes the tool callable by any
+        provider that supports function calling (Anthropic, OpenAI, Ollama).
+        """
+        params = self.parameters or {"type": "object", "properties": {}}
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": params,
+            },
         }
 
 

@@ -137,6 +137,10 @@ ignore = [
     "RUF001",
     "RUF002",
     "RUF003",
+    # Tool/expert ``parameters`` JSON-Schemas are declared as read-only class
+    # attributes (the natural place for a tool's signature). They are never
+    # mutated, so the mutable-default warning is a false positive here.
+    "RUF012",
 ]
 
 [tool.mypy]

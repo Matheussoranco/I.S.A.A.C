@@ -235,6 +235,13 @@ ollama pull llava:7b
 ### Run
 
 ```bash
+# Autonomous tool-use agent (Claude-Code style) — give it a task and it
+# browses, searches, runs code, and writes files until it's done.
+isaac agent "Find the current stable Python release and save it to version.txt"
+
+# Restrict the toolbox, allow more steps, and auto-approve high-risk tools
+isaac agent "Summarise today's top Hacker News post" --tools browser,web_search -n 20
+
 # Rich text REPL (default)
 isaac run
 

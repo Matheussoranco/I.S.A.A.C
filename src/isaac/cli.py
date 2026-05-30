@@ -75,6 +75,93 @@ if typer is not None:
         raise typer.Exit(code)
 
     @app.command()
+    def agent(
+        task: str = typer.Argument(..., help="The task for the agent to accomplish."),
+        max_iters: int = typer.Option(12, "--max-iters", "-n", help="Max tool-use rounds."),
+        auto_approve: bool = typer.Option(
+            False, "--auto-approve", "-y", help="Run high-risk (4-5) tools without approval."
+        ),
+        tools_csv: str = typer.Option(
+            "", "--tools", help="Comma-separated tool names to restrict the agent to."
+        ),
+        verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
+    ) -> None:
+        """Run the autonomous tool-use agent on a single task (Claude-Code style).
+
+        The agent is given the full built-in toolbox — web search, a persistent
+        browser, a Python runner, and a sandboxed file workspace — and iterates
+        (call tool → observe → decide) until it produces a final answer.
+
+        Example::
+
+            isaac agent "Find the current stable Python version and save it to version.txt"
+        """
+        _setup_logging(verbose)
+
+        try:
+            from rich.console import Console
+            from rich.panel import Panel
+
+            console = Console()
+            _echo = console.print
+            _rich = True
+        except Exception:
+            console = None
+            _rich = False
+
+            def _echo(*a: object, **k: object) -> None:  # type: ignore[misc]
+                typer.echo(" ".join(str(x) for x in a))
+
+        def on_event(kind: str, data: dict) -> None:
+            if kind == "iteration":
+                _echo(f"\n[dim]— step {data['n']} —[/dim]" if _rich else f"\n— step {data['n']} —")
+            elif kind == "thought" and data.get("text"):
+                _echo(f"[cyan]{data['text']}[/cyan]" if _rich else data["text"])
+            elif kind == "tool_call":
+                _echo(
+                    f"[yellow]→ {data['name']}[/yellow] {data.get('args', {})}"
+                    if _rich
+                    else f"→ {data['name']} {data.get('args', {})}"
+                )
+            elif kind == "tool_result":
+                mark = "ok" if data.get("success") else "ERR"
+                snippet = (data.get("output", "") or "").replace("\n", " ")[:200]
+                _echo(
+                    f"[green]  ✓[/green] {snippet}" if data.get("success") and _rich
+                    else f"  [{mark}] {snippet}"
+                )
+            elif kind == "error":
+                msg = data.get("message", "")
+                _echo(f"[red]! {msg}[/red]" if _rich else f"! {msg}")
+
+        from isaac.agents.agent_loop import build_default_agent
+        from isaac.tools import register_all_tools
+
+        register_all_tools()
+        only = [t.strip() for t in tools_csv.split(",") if t.strip()] or None
+        loop = build_default_agent(
+            max_iterations=max_iters,
+            auto_approve=auto_approve,
+            on_event=on_event,
+            only=only,
+        )
+        result = loop.run(task)
+
+        if _rich and console is not None:
+            console.print(
+                Panel(
+                    result.output or "(no output)",
+                    title=f"Result  ·  {result.iterations} steps  ·  "
+                    f"{len(result.tool_calls)} tool calls  ·  {result.stopped_reason}",
+                    border_style="green" if result.success else "yellow",
+                )
+            )
+        else:
+            typer.echo("\n=== RESULT ===")
+            typer.echo(result.output or "(no output)")
+        raise typer.Exit(0 if result.success else 1)
+
+    @app.command()
     def serve(
         verbose: bool = typer.Option(False, "--verbose", "-v"),
     ) -> None:

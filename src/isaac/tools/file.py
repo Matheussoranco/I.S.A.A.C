@@ -46,6 +46,20 @@ class FileReadTool(IsaacTool):
     risk_level = 1
     requires_approval = False
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Workspace-relative path of the file to read.",
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": "Truncate output to this many characters (default 50000).",
+            },
+        },
+        "required": ["path"],
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str: str = kwargs.get("path", "")
@@ -73,10 +87,21 @@ class FileWriteTool(IsaacTool):
     """Write a file to the Isaac workspace."""
 
     name = "file_write"
-    description = "Write content to a file within the Isaac workspace."
+    description = "Write content to a file within the Isaac workspace (creates parent dirs)."
     risk_level = 2
     requires_approval = False
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Workspace-relative path of the file to write.",
+            },
+            "content": {"type": "string", "description": "Full text content to write."},
+        },
+        "required": ["path", "content"],
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str: str = kwargs.get("path", "")
@@ -107,6 +132,15 @@ class FileListTool(IsaacTool):
     risk_level = 1
     requires_approval = False
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Workspace-relative directory to list (default '.').",
+            },
+        },
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str: str = kwargs.get("path", ".")
@@ -136,6 +170,16 @@ class FileDeleteTool(IsaacTool):
     risk_level = 5
     requires_approval = True
     sandbox_required = False
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Workspace-relative path of the file to delete.",
+            },
+        },
+        "required": ["path"],
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str: str = kwargs.get("path", "")

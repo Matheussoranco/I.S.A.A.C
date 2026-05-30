@@ -51,6 +51,16 @@ _ROLE_PROMPTS: dict[str, str] = {
     ),
 }
 
+# Tools each role may use when running in agentic (tool-use) mode.  A role with
+# an empty list runs as a pure-reasoning sub-agent (no tools).
+_ROLE_TOOLS: dict[str, list[str]] = {
+    "researcher": ["web_search", "browser", "file_write"],
+    "coder": ["code", "file_read", "file_write", "file_list"],
+    "analyst": ["code", "web_search", "file_read"],
+    "planner": [],
+    "critic": ["file_read", "code"],
+}
+
 
 class ClaudeSubAgent:
     """A focused Claude API agent for a specific role."""
@@ -114,6 +124,71 @@ class ClaudeSubAgent:
                 "success": False,
             }
 
+    def run_agentic(
+        self,
+        subtask: str,
+        context: str = "",
+        max_iterations: int = 8,
+        tools: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Execute the subtask as a full tool-use agent for this role.
+
+        Unlike :meth:`run` (a single LLM call), this gives the sub-agent the
+        role-appropriate tools (web search, browser, code, files) and lets it
+        iterate — search, browse, run code, write files — until it finishes.
+        This is what makes a "researcher" actually research and a "coder"
+        actually run and verify code.
+
+        Returns a structured result dict mirroring :meth:`run`.
+        """
+        start = time.monotonic()
+        from isaac.agents.agent_loop import build_default_agent
+
+        role_tools = tools if tools is not None else _ROLE_TOOLS.get(self.role, [])
+        base_prompt = _ROLE_PROMPTS.get(self.role, _ROLE_PROMPTS["coder"])
+        system_prompt = (
+            f"{base_prompt}\n\nYou have real tools available; use them to gather "
+            "evidence and take actions instead of guessing. When finished, reply "
+            "with a clear, self-contained final answer."
+        )
+        try:
+            llm = self._resolve_chat_model()
+            agent = build_default_agent(
+                llm=llm,
+                system_prompt=system_prompt,
+                max_iterations=max_iterations,
+                only=role_tools or [],
+            )
+            result = agent.run(subtask, context=context)
+            return {
+                "role": self.role,
+                "subtask": subtask,
+                "result": result.output,
+                "iterations": result.iterations,
+                "tool_calls": [
+                    {"name": c.name, "success": c.success} for c in result.tool_calls
+                ],
+                "stopped_reason": result.stopped_reason,
+                "duration_ms": round((time.monotonic() - start) * 1000, 1),
+                "success": result.success,
+            }
+        except Exception as exc:
+            logger.exception("ClaudeSubAgent(%s) agentic run failed: %s", self.role, exc)
+            return {
+                "role": self.role,
+                "subtask": subtask,
+                "result": "",
+                "error": str(exc),
+                "duration_ms": round((time.monotonic() - start) * 1000, 1),
+                "success": False,
+            }
+
+    def _resolve_chat_model(self) -> Any:
+        """Return a LangChain chat model for the agent loop (provider-agnostic)."""
+        from isaac.llm.provider import get_llm
+
+        return get_llm("strong")
+
 
 class ParallelSubAgentPool:
     """Run multiple sub-agents concurrently using ThreadPoolExecutor."""
@@ -121,7 +196,9 @@ class ParallelSubAgentPool:
     def __init__(self, max_workers: int = 4) -> None:
         self.max_workers = max_workers
 
-    def run_all(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def run_all(
+        self, tasks: list[dict[str, Any]], agentic: bool = False
+    ) -> list[dict[str, Any]]:
         """Execute a list of {subtask, role, context} dicts in parallel.
 
         Parameters
@@ -129,6 +206,9 @@ class ParallelSubAgentPool:
         tasks:
             List of task dicts with keys: ``subtask`` (required), ``role`` (optional),
             ``context`` (optional).
+        agentic:
+            When True, each sub-agent runs as a full tool-use loop
+            (:meth:`ClaudeSubAgent.run_agentic`) instead of a single LLM call.
 
         Returns
         -------
@@ -139,6 +219,8 @@ class ParallelSubAgentPool:
 
         def _run_one(task: dict[str, Any]) -> dict[str, Any]:
             agent = ClaudeSubAgent(role=task.get("role", "coder"))
+            if agentic:
+                return agent.run_agentic(task["subtask"], context=task.get("context", ""))
             return agent.run(task["subtask"], context=task.get("context", ""))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:

@@ -20,12 +20,27 @@ class CodeTool(IsaacTool):
 
     name = "code"
     description = (
-        "Generate Python code for a given task and execute it in the sandbox. "
-        "Wraps Synthesis + Sandbox nodes."
+        "Run Python code and return its stdout/stderr. Provide 'code' to execute "
+        "directly, or 'task' to have the model write the code first. Use this for "
+        "calculations, data processing, file generation, and verifying logic."
     )
     risk_level = 3
     requires_approval = False
     sandbox_required = True
+    parameters = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "Python source to execute directly."},
+            "task": {
+                "type": "string",
+                "description": "Natural-language description; the model writes the code.",
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Execution timeout in seconds (default 30).",
+            },
+        },
+    }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Generate code and run it in the sandbox.
