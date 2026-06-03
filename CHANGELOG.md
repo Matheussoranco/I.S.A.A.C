@@ -7,7 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — SOTA Neuro-Symbolic upgrade
+## [Unreleased]
+
+_Work toward the 1.0 / SOTA milestone — see [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md)._
+
+---
+
+## [0.4.0] — 2026-06-02 — Multi-specialist agent layer
+
+Turns I.S.A.A.C. into a multi-specialist system that can be pointed at a goal and dispatch it to focused, local-first mini-agents — plus host-machine reach (shell, real-filesystem ops) and user-built personas. All CI green (lint + tests on Python 3.10/3.11/3.12).
 
 ### Added — Multi-specialist agent team + orchestrator (do-anything-on-a-PC)
 - `src/isaac/specialists/` — a team of domain-focused, **local-first**,
