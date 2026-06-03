@@ -14,7 +14,18 @@ from isaac.tools.calendar import CalendarReadTool, CalendarWriteTool
 from isaac.tools.code import CodeTool
 from isaac.tools.email import EmailReadTool, EmailSendTool
 from isaac.tools.file import FileDeleteTool, FileListTool, FileReadTool, FileWriteTool
+from isaac.tools.fileops import (
+    FsCopyTool,
+    FsInfoTool,
+    FsListTool,
+    FsMkdirTool,
+    FsMoveTool,
+    FsReadTool,
+    FsWriteTool,
+)
 from isaac.tools.search import WebSearchTool
+from isaac.tools.shell import ShellTool
+from isaac.tools.system import SystemInfoTool
 
 
 def register_all_tools() -> ToolRegistry:
@@ -32,6 +43,16 @@ def register_all_tools() -> ToolRegistry:
         CalendarReadTool,
         CalendarWriteTool,
         CodeTool,
+        # Host-reach tools (operate on the real machine; gated by risk/constitution)
+        ShellTool,
+        SystemInfoTool,
+        FsListTool,
+        FsInfoTool,
+        FsReadTool,
+        FsWriteTool,
+        FsMkdirTool,
+        FsMoveTool,
+        FsCopyTool,
     ):
         # graceful — tool may have missing deps
         with contextlib.suppress(Exception):
@@ -50,6 +71,15 @@ __all__ = [
     "FileListTool",
     "FileReadTool",
     "FileWriteTool",
+    "FsCopyTool",
+    "FsInfoTool",
+    "FsListTool",
+    "FsMkdirTool",
+    "FsMoveTool",
+    "FsReadTool",
+    "FsWriteTool",
+    "ShellTool",
+    "SystemInfoTool",
     "WebSearchTool",
     "get_tool_registry",
     "register_all_tools",

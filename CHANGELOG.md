@@ -9,6 +9,50 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — SOTA Neuro-Symbolic upgrade
 
+### Added — Multi-specialist agent team + orchestrator (do-anything-on-a-PC)
+- `src/isaac/specialists/` — a team of domain-focused, **local-first**,
+  tool-using agents built on the `AgentLoop`:
+  - `base.py` — `Specialist`: couples an identity (title/domain/role prompt),
+    a curated toolset (resolved by name from the registry), and a risk policy
+    into one callable; persona-aware (prefixes the active soul) and resolves
+    its model via `get_llm` so it honours the configured local backend.
+  - `roster.py` — nine ready specialists: **coder, file_organizer, researcher,
+    designer, operator (PC), analyst, critic, planner, generalist**.
+  - `registry.py` — name → specialist lookup (`get_specialist`,
+    `list_specialists`, …) with lazy roster loading.
+  - `orchestrator.py` — `Orchestrator`: a *manager* mini-agent that decomposes
+    a goal into dependency-aware subtasks, dispatches each to the best
+    specialist, runs independent subtasks **in parallel**, synthesises one
+    final answer, and records the outcome to the `MetaLearner` for self-learning.
+    Planner and specialist factory are injectable (fully testable offline).
+- CLI: `isaac team "<goal>"` (orchestrate the team) and `isaac specialists`
+  (list the roster + tools).
+
+### Added — Host-reach tools (operate the real machine, safely)
+- `src/isaac/tools/shell.py` — `ShellTool` (risk 4): runs host commands gated by
+  the constitutional critic (hard-denies `rm -rf /`, fork bombs, disk writes, …).
+  Strict allow-list + metacharacter block by default; opt-in full platform shell
+  via `ISAAC_SHELL_UNRESTRICTED=true`.
+- `src/isaac/tools/fileops.py` — `fs_list/fs_info/fs_read/fs_write/fs_mkdir/
+  fs_move/fs_copy`: operate on the user's **real** files (organise Downloads,
+  save designs), confined to `allowed_paths`; no host delete (archive instead).
+- `src/isaac/tools/system.py` — `SystemInfoTool` (risk 1): read-only OS/CPU/
+  RAM/disk facts.
+
+### Added — User-built personas
+- `src/isaac/identity/persona_builder.py` — define, store, and **activate**
+  custom agent personas (name, voice, values, expertise). Activation writes the
+  active soul file and updates the live identity so the whole team speaks with
+  one voice. Bundled `atlas` / `sage` examples. CLI: `isaac persona
+  {list,new,show,activate,delete,examples}`.
+
+### Fixed — Local-first regressions
+- `llm/provider.py::get_llm()` now supports `ollama` / `llamacpp` /
+  `openai_compat` (previously it raised `ValueError` for the **default**
+  `ISAAC_LLM_PROVIDER=ollama`, breaking the agent loop and sub-agents offline).
+- `agents/claude_subagent.py::ClaudeSubAgent.run()` is now local-first (resolves
+  via `get_llm`) instead of hard-requiring the Anthropic cloud SDK.
+
 ### Added — Autonomous tool-use agent loop (Claude-Code-style)
 - `src/isaac/agents/agent_loop.py` — `AgentLoop`, a provider-agnostic
   LLM-driven tool-use loop. The model is given the tool set as JSON-Schema

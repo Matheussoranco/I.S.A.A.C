@@ -216,7 +216,15 @@ class Settings(BaseSettings):
     allowed_paths: list[str] = Field(default_factory=lambda: [str(Path.home())])
     """Directories accessible by the FileSystemConnector."""
     shell_allowed_commands: list[str] = Field(default_factory=list)
-    """Commands the ShellConnector may execute (empty = use default set)."""
+    """Commands the ShellConnector/ShellTool may execute (empty = use default set)."""
+    shell_unrestricted: bool = False
+    """When True, the host ShellTool runs commands through the platform shell
+    (enabling pipes, redirects, and aliases) instead of the strict allow-list +
+    metacharacter block.  Constitutional review still hard-denies critical
+    patterns (rm -rf /, fork bombs, disk writes, …) in either mode.  Off by
+    default — opt in only on a trusted machine."""
+    shell_tool_timeout: int = Field(default=30, ge=1, le=600)
+    """Default timeout (seconds) for the host ShellTool."""
     connector_audit_log: str = ""
     """Path for connector audit log (default: ~/.isaac/connector_audit.log)."""
 

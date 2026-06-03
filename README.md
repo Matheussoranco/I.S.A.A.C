@@ -18,6 +18,9 @@ self-curation, and a hardened security stack.
 
 | Capability | What it does |
 |---|---|
+| **Specialist team** | A manager *orchestrator* decomposes a goal and dispatches it to focused local-first mini-agents — coder, file-organizer, researcher, designer, OS-operator, analyst, critic — running independent subtasks in parallel. |
+| **Host reach** | Constitution-gated `shell`, real-filesystem `fs_*` tools (organise your actual files, confined to `allowed_paths`), and read-only `system_info` — so it can do nearly any task on the PC. |
+| **User personas** | Build, store, and activate custom agent identities (`isaac persona new`); the whole team speaks with your chosen voice. |
 | **Local-first LLMs** | First-class Ollama, llama.cpp, and any OpenAI-compatible endpoint. Cloud (OpenAI/Anthropic) only as fallback. |
 | **Voice I/O** | Whisper (STT) ↔ Piper / Coqui / pyttsx3 (TTS) with VAD-driven hands-free mode. |
 | **Vision** | Local VLMs via Ollama (`llava`, `qwen2.5-vl`). Image / screen-capture input. |
@@ -241,6 +244,16 @@ isaac agent "Find the current stable Python release and save it to version.txt"
 
 # Restrict the toolbox, allow more steps, and auto-approve high-risk tools
 isaac agent "Summarise today's top Hacker News post" --tools browser,web_search -n 20
+
+# Specialist team — a manager decomposes the goal and dispatches it to the
+# right specialists (researcher → designer → coder …), in parallel where it can.
+isaac team "Research the 3 best local vector DBs and write a comparison to compare.md"
+isaac specialists                       # list the team and each one's tools
+
+# Personas — give I.S.A.A.C. a custom identity (and persist it via ISAAC_SOUL_PATH)
+isaac persona examples                  # install bundled 'atlas' / 'sage'
+isaac persona new                       # interactively build your own
+isaac persona activate --slug atlas
 
 # Rich text REPL (default)
 isaac run

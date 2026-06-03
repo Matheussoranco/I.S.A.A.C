@@ -579,6 +579,117 @@ if typer is not None:
         else:
             typer.echo(f"Unknown action: {action}")
 
+    @app.command()
+    def team(
+        goal: str = typer.Argument(..., help="The high-level goal for the specialist team."),
+        auto_approve: bool = typer.Option(
+            False, "--auto-approve", "-y", help="Allow high-risk (4-5) tool actions without approval."
+        ),
+        max_workers: int = typer.Option(
+            4, "--workers", "-w", help="Max specialists to run in parallel."
+        ),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Decompose a goal and dispatch it to the specialist team (orchestrator).
+
+        The manager LLM breaks the goal into subtasks, assigns each to the best
+        specialist (coder, file_organizer, researcher, designer, operator, …),
+        runs independent subtasks in parallel, and synthesises one final answer.
+
+        Example::
+
+            isaac team "Research the top 3 local vector DBs and write a comparison to compare.md"
+        """
+        _setup_logging(verbose)
+        from isaac.specialists import Orchestrator
+        from isaac.tools import register_all_tools
+
+        register_all_tools()
+
+        def on_event(kind: str, data: dict) -> None:
+            if kind == "plan":
+                typer.echo("Plan:")
+                for s in data.get("plan", []):
+                    dep = f"  <- {', '.join(s['depends_on'])}" if s.get("depends_on") else ""
+                    typer.echo(f"  [{s['id']}] {s['specialist']}: {s['description']}{dep}")
+            elif kind == "subtask_start":
+                typer.echo(f"\n> {data['specialist']} ({data['id']}): {data['description']}")
+            elif kind == "subtask_done":
+                mark = "ok" if data.get("success") else "ERR"
+                typer.echo(f"  [{mark}]")
+
+        result = Orchestrator(
+            max_workers=max_workers, auto_approve=auto_approve, on_event=on_event
+        ).run(goal)
+        typer.echo("\n=== RESULT ===")
+        typer.echo(result.final_output or "(no output)")
+        raise typer.Exit(0 if result.success else 1)
+
+    @app.command()
+    def specialists() -> None:
+        """List the specialist team and the tools each one is allowed to use."""
+        _setup_logging()
+        from isaac.specialists import list_specialists
+
+        for c in list_specialists():
+            tools = "all" if c["tools"] is None else (", ".join(c["tools"]) or "none")
+            typer.echo(f"  {c['name']:15s} {c['title']:24s} risk<={c['max_risk']}")
+            typer.echo(f"      {c['domain']}")
+            typer.echo(f"      tools: {tools}")
+
+    @app.command()
+    def persona(
+        action: str = typer.Argument(
+            "list", help="Action: list, show, new, activate, delete, examples."
+        ),
+        slug: str = typer.Option("", "--slug", "-s", help="Persona slug."),
+    ) -> None:
+        """Create, list, and activate user-built personas (custom agent identities)."""
+        _setup_logging()
+        import json as _json
+
+        from isaac.identity import persona_builder as pb
+
+        if action == "list":
+            active = pb.active_persona()
+            names = pb.list_personas()
+            if not names:
+                typer.echo("No personas yet. Try: isaac persona examples  (or)  isaac persona new")
+                return
+            for s in names:
+                typer.echo(f"{'* ' if s == active else '  '}{s}")
+        elif action == "examples":
+            saved = pb.install_examples()
+            typer.echo(f"Installed examples: {', '.join(saved) or '(none new)'}")
+        elif action == "show":
+            if not slug:
+                typer.echo("Provide --slug.")
+                raise typer.Exit(1)
+            typer.echo(_json.dumps(pb.load_persona(slug), indent=2, ensure_ascii=False))
+        elif action == "activate":
+            if not slug:
+                typer.echo("Provide --slug.")
+                raise typer.Exit(1)
+            p = pb.activate_persona(slug)
+            typer.echo(f"Activated persona '{slug}' ({p.get('name')}).")
+            typer.echo(f"Set ISAAC_SOUL_PATH={pb.active_soul_path()} in .env to persist it.")
+        elif action == "delete":
+            if not slug:
+                typer.echo("Provide --slug.")
+                raise typer.Exit(1)
+            typer.echo("Deleted." if pb.delete_persona(slug) else "Not found.")
+        elif action == "new":
+            answers: dict[str, str] = {}
+            for q in pb.interactive_questions():
+                val = typer.prompt(q["prompt"], default=None if q["required"] else "")
+                if val:
+                    answers[q["key"]] = val
+            s, p = pb.create_and_activate(answers, activate=True)
+            typer.echo(f"Created and activated persona '{s}' ({p['name']}).")
+            typer.echo(f"Set ISAAC_SOUL_PATH={pb.active_soul_path()} in .env to persist it.")
+        else:
+            typer.echo(f"Unknown action: {action}")
+
 
 def main() -> int:
     """Entry point — delegates to Typer if available, else basic argparse."""

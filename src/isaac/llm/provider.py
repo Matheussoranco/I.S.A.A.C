@@ -163,6 +163,38 @@ def get_llm(tier: ModelTier = "default") -> BaseChatModel:
         model_name = cfg.model_name
         temperature = cfg.temperature
 
+    # ── Local-first providers ───────────────────────────────────────────
+    # Delegate to the dedicated builders in isaac.llm.providers so the default
+    # configuration (``ISAAC_LLM_PROVIDER=ollama``) actually works for the
+    # AgentLoop, the specialist agents, and every tier-resolving caller.
+    if provider == "ollama":
+        from isaac.llm.providers.ollama import build as build_ollama
+
+        return build_ollama(
+            model=model_name,
+            base_url=settings.ollama_base_url or "http://localhost:11434",
+            temperature=temperature,
+        )
+
+    if provider == "llamacpp":
+        from isaac.llm.providers.llamacpp import build as build_llamacpp
+
+        return build_llamacpp(
+            model=settings.llamacpp_model or model_name,
+            base_url=settings.llamacpp_base_url or "http://localhost:8080",
+            temperature=temperature,
+        )
+
+    if provider == "openai_compat":
+        from isaac.llm.providers.openai_compat import build as build_compat
+
+        return build_compat(
+            model=settings.openai_compat_model or model_name,
+            base_url=settings.openai_compat_base_url,
+            api_key=settings.openai_compat_api_key,
+            temperature=temperature,
+        )
+
     if provider == "openai":
         from langchain_openai import ChatOpenAI
 
@@ -184,5 +216,8 @@ def get_llm(tier: ModelTier = "default") -> BaseChatModel:
             api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
         )
 
-    msg = f"Unsupported LLM provider: {provider!r}. Use 'openai' or 'anthropic'."
+    msg = (
+        f"Unsupported LLM provider: {provider!r}. Use one of: "
+        "ollama, llamacpp, openai_compat, openai, anthropic."
+    )
     raise ValueError(msg)

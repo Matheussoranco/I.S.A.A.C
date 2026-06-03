@@ -65,26 +65,22 @@ _ROLE_TOOLS: dict[str, list[str]] = {
 class ClaudeSubAgent:
     """A focused Claude API agent for a specific role."""
 
-    def __init__(self, role: Role = "coder", model: str | None = None) -> None:
+    def __init__(
+        self, role: Role = "coder", model: str | None = None, tier: str = "strong"
+    ) -> None:
         self.role = role
         self._model = model
-
-    def _get_client_and_model(self) -> tuple[Any, str]:
-        try:
-            import anthropic
-
-            from isaac.config.settings import settings
-
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
-            model = self._model or "claude-sonnet-4-6"
-            return client, model
-        except ImportError as exc:
-            raise RuntimeError(
-                "anthropic package not installed. Run: pip install anthropic"
-            ) from exc
+        self.tier = tier
 
     def run(self, subtask: str, context: str = "", max_tokens: int = 2048) -> dict[str, Any]:
-        """Execute the subtask and return a structured result dict."""
+        """Execute the subtask with a single LLM call and return a structured result.
+
+        Local-first: the chat model is resolved through
+        :func:`isaac.llm.provider.get_llm`, which honours the configured local
+        backend (Ollama / llama.cpp / OpenAI-compatible) before any cloud
+        fallback.  There is **no** hard dependency on the Anthropic SDK — set
+        ``ISAAC_LLM_PROVIDER=anthropic`` (with a key) to route to Claude.
+        """
         start = time.monotonic()
         system_prompt = _ROLE_PROMPTS.get(self.role, _ROLE_PROMPTS["coder"])
 
@@ -93,23 +89,35 @@ class ClaudeSubAgent:
             user_message = f"{subtask}\n\n<context>\n{context}\n</context>"
 
         try:
-            client, model = self._get_client_and_model()
-            response = client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
+            from langchain_core.messages import HumanMessage, SystemMessage
+
+            llm = self._resolve_chat_model()
+            try:
+                llm = llm.bind(max_tokens=max_tokens)
+            except Exception:  # pragma: no cover - some providers reject bind kwargs
+                pass
+
+            response = llm.invoke(
+                [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
             )
-            content = response.content[0].text if response.content else ""
+            content = _message_text(response)
+            usage = getattr(response, "usage_metadata", None) or {}
             duration_ms = (time.monotonic() - start) * 1000
 
             return {
                 "role": self.role,
                 "subtask": subtask,
                 "result": content,
-                "model": model,
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
+                "model": (
+                    getattr(llm, "model", None)
+                    or getattr(llm, "model_name", None)
+                    or self._model
+                    or "local"
+                ),
+                "input_tokens": int(usage.get("input_tokens", 0)) if isinstance(usage, dict) else 0,
+                "output_tokens": (
+                    int(usage.get("output_tokens", 0)) if isinstance(usage, dict) else 0
+                ),
                 "duration_ms": round(duration_ms, 1),
                 "success": True,
             }
@@ -184,10 +192,26 @@ class ClaudeSubAgent:
             }
 
     def _resolve_chat_model(self) -> Any:
-        """Return a LangChain chat model for the agent loop (provider-agnostic)."""
+        """Return a LangChain chat model (provider-agnostic, local-first)."""
         from isaac.llm.provider import get_llm
 
-        return get_llm("strong")
+        return get_llm(self.tier)  # type: ignore[arg-type]
+
+
+def _message_text(message: Any) -> str:
+    """Extract plain text from an AIMessage whose content may be str or blocks."""
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "\n".join(parts).strip()
+    return str(content).strip()
 
 
 class ParallelSubAgentPool:
