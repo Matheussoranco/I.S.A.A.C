@@ -297,8 +297,7 @@ class Orchestrator:
             return fallback
 
         roster_lines = "\n".join(
-            f"- {c.get('name', '?')}: {c.get('domain', '')}".rstrip(": ")
-            for c in roster
+            f"- {c.get('name', '?')}: {c.get('domain', '')}".rstrip(": ") for c in roster
         )
         system = (
             "You are the manager of a team of specialist agents. Decompose the "
@@ -309,7 +308,7 @@ class Orchestrator:
         human = (
             f"Available specialists:\n{roster_lines}\n\n"
             f"Goal:\n{goal}\n\n"
-            'Return JSON of the form:\n'
+            "Return JSON of the form:\n"
             '{"subtasks":[{"id":"t1","description":"...","specialist":"coder",'
             '"depends_on":[]}]}'
         )
@@ -396,11 +395,7 @@ class Orchestrator:
         ordered: list[SubTaskResult] = []
 
         while pending:
-            ready = [
-                st
-                for st in pending
-                if all(dep in completed for dep in st.depends_on)
-            ]
+            ready = [st for st in pending if all(dep in completed for dep in st.depends_on)]
             if not ready:
                 # No progress possible (cycle / unknown dep): run the rest now.
                 ready = list(pending)
@@ -425,10 +420,7 @@ class Orchestrator:
         workers = min(self.max_workers, len(wave)) or 1
         out: list[tuple[SubTask, SubTaskResult]] = []
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(self._run_subtask, st, completed, context): st
-                for st in wave
-            }
+            futures = {pool.submit(self._run_subtask, st, completed, context): st for st in wave}
             for future in futures:
                 st = futures[future]
                 res = future.result()
@@ -458,7 +450,11 @@ class Orchestrator:
         ctx = self._build_context(subtask, completed, context)
         self._emit(
             "subtask_start",
-            {"id": subtask.id, "specialist": subtask.specialist, "description": subtask.description},
+            {
+                "id": subtask.id,
+                "specialist": subtask.specialist,
+                "description": subtask.description,
+            },
         )
 
         specialist = self._make_specialist(subtask.specialist)
@@ -473,9 +469,7 @@ class Orchestrator:
     def _make_specialist(self, name: str) -> Specialist:
         """Instantiate *name*, falling back to ``generalist`` on ``KeyError``."""
         try:
-            return self._specialist_factory(
-                name, auto_approve=self.auto_approve, on_event=None
-            )
+            return self._specialist_factory(name, auto_approve=self.auto_approve, on_event=None)
         except KeyError:
             logger.debug("Unknown specialist %r; falling back to generalist", name)
             return self._specialist_factory(
@@ -502,9 +496,7 @@ class Orchestrator:
             dep = completed.get(dep_id)
             if dep is None:
                 continue
-            digests.append(
-                f"[{dep.subtask.specialist} · {dep_id}] {dep.result.output}"
-            )
+            digests.append(f"[{dep.subtask.specialist} · {dep_id}] {dep.result.output}")
         if digests:
             parts.append("Results from prior steps:\n" + "\n\n".join(digests))
 
@@ -588,8 +580,10 @@ class Orchestrator:
             from isaac.meta.learner import get_learner
 
             specialists = {r.subtask.specialist for r in results}
-            strategy = "team" if len(specialists) > 1 else (
-                next(iter(specialists)) if specialists else "none"
+            strategy = (
+                "team"
+                if len(specialists) > 1
+                else (next(iter(specialists)) if specialists else "none")
             )
             get_learner().record(
                 task_desc=goal,

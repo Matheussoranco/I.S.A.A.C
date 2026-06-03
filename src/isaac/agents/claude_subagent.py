@@ -20,6 +20,7 @@ Usage
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from typing import Any, Literal
@@ -92,10 +93,9 @@ class ClaudeSubAgent:
             from langchain_core.messages import HumanMessage, SystemMessage
 
             llm = self._resolve_chat_model()
-            try:
+            # Some providers reject bind kwargs; ignore if so.
+            with contextlib.suppress(Exception):  # pragma: no cover
                 llm = llm.bind(max_tokens=max_tokens)
-            except Exception:  # pragma: no cover - some providers reject bind kwargs
-                pass
 
             response = llm.invoke(
                 [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
@@ -173,9 +173,7 @@ class ClaudeSubAgent:
                 "subtask": subtask,
                 "result": result.output,
                 "iterations": result.iterations,
-                "tool_calls": [
-                    {"name": c.name, "success": c.success} for c in result.tool_calls
-                ],
+                "tool_calls": [{"name": c.name, "success": c.success} for c in result.tool_calls],
                 "stopped_reason": result.stopped_reason,
                 "duration_ms": round((time.monotonic() - start) * 1000, 1),
                 "success": result.success,
@@ -220,9 +218,7 @@ class ParallelSubAgentPool:
     def __init__(self, max_workers: int = 4) -> None:
         self.max_workers = max_workers
 
-    def run_all(
-        self, tasks: list[dict[str, Any]], agentic: bool = False
-    ) -> list[dict[str, Any]]:
+    def run_all(self, tasks: list[dict[str, Any]], agentic: bool = False) -> list[dict[str, Any]]:
         """Execute a list of {subtask, role, context} dicts in parallel.
 
         Parameters

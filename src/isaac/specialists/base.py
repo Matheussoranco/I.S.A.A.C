@@ -157,9 +157,10 @@ class Specialist:
             f"You are acting as the **{self.title}** on the I.S.A.A.C. team — "
             f"your specialism is {self.domain}."
         )
-        return "\n\n".join(
-            part for part in (preamble, identity, self.role_instructions()) if part
-        ) + _OPERATING_RULES
+        return (
+            "\n\n".join(part for part in (preamble, identity, self.role_instructions()) if part)
+            + _OPERATING_RULES
+        )
 
     def card(self) -> dict[str, Any]:
         """Return a routing-friendly description card."""
@@ -208,9 +209,7 @@ class Specialist:
                 output=result.output,
                 success=result.success,
                 iterations=result.iterations,
-                tool_calls=[
-                    {"name": c.name, "success": c.success} for c in result.tool_calls
-                ],
+                tool_calls=[{"name": c.name, "success": c.success} for c in result.tool_calls],
                 stopped_reason=result.stopped_reason,
                 duration_ms=round((time.monotonic() - start) * 1000, 1),
             )
@@ -238,9 +237,7 @@ class Specialist:
                 output=result.output,
                 success=result.success,
                 iterations=result.iterations,
-                tool_calls=[
-                    {"name": c.name, "success": c.success} for c in result.tool_calls
-                ],
+                tool_calls=[{"name": c.name, "success": c.success} for c in result.tool_calls],
                 stopped_reason=result.stopped_reason,
                 duration_ms=round((time.monotonic() - start) * 1000, 1),
             )

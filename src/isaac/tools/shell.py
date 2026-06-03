@@ -23,7 +23,6 @@ import logging
 import os
 import platform
 import subprocess
-import time
 from typing import Any
 
 from isaac.tools.base import IsaacTool, ToolResult
@@ -154,7 +153,7 @@ class ShellTool(IsaacTool):
             else:
                 completed = subprocess.run(
                     command,
-                    shell=True,  # noqa: S602 - intentional power-user mode, constitution-gated
+                    shell=True,
                     capture_output=True,
                     text=True,
                     timeout=timeout,

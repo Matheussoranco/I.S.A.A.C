@@ -111,10 +111,7 @@ class FsListTool(IsaacTool):
         recursive = bool(kwargs.get("recursive", False))
         pattern = str(kwargs.get("pattern", "") or "")
         try:
-            if recursive:
-                it = target.rglob(pattern or "*")
-            else:
-                it = target.glob(pattern or "*")
+            it = target.rglob(pattern or "*") if recursive else target.glob(pattern or "*")
             lines: list[str] = []
             for child in sorted(it):
                 if len(lines) >= _MAX_LIST_ENTRIES:
@@ -228,7 +225,10 @@ class FsWriteTool(IsaacTool):
         "properties": {
             "path": {"type": "string", "description": "Absolute file path to write."},
             "content": {"type": "string", "description": "Full text content."},
-            "append": {"type": "boolean", "description": "Append instead of overwrite (default false)."},
+            "append": {
+                "type": "boolean",
+                "description": "Append instead of overwrite (default false).",
+            },
         },
         "required": ["path", "content"],
     }
@@ -260,7 +260,9 @@ class FsMkdirTool(IsaacTool):
     risk_level = 2
     parameters = {
         "type": "object",
-        "properties": {"path": {"type": "string", "description": "Absolute directory path to create."}},
+        "properties": {
+            "path": {"type": "string", "description": "Absolute directory path to create."}
+        },
         "required": ["path"],
     }
 
@@ -291,7 +293,10 @@ class FsMoveTool(IsaacTool):
         "properties": {
             "src": {"type": "string", "description": "Absolute source path."},
             "dest": {"type": "string", "description": "Absolute destination path."},
-            "overwrite": {"type": "boolean", "description": "Replace existing dest (default false)."},
+            "overwrite": {
+                "type": "boolean",
+                "description": "Replace existing dest (default false).",
+            },
         },
         "required": ["src", "dest"],
     }

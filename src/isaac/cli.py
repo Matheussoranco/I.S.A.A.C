@@ -127,7 +127,8 @@ if typer is not None:
                 mark = "ok" if data.get("success") else "ERR"
                 snippet = (data.get("output", "") or "").replace("\n", " ")[:200]
                 _echo(
-                    f"[green]  ✓[/green] {snippet}" if data.get("success") and _rich
+                    f"[green]  ✓[/green] {snippet}"
+                    if data.get("success") and _rich
                     else f"  [{mark}] {snippet}"
                 )
             elif kind == "error":
@@ -583,7 +584,10 @@ if typer is not None:
     def team(
         goal: str = typer.Argument(..., help="The high-level goal for the specialist team."),
         auto_approve: bool = typer.Option(
-            False, "--auto-approve", "-y", help="Allow high-risk (4-5) tool actions without approval."
+            False,
+            "--auto-approve",
+            "-y",
+            help="Allow high-risk (4-5) tool actions without approval.",
         ),
         max_workers: int = typer.Option(
             4, "--workers", "-w", help="Max specialists to run in parallel."

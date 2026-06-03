@@ -80,7 +80,9 @@ class SystemInfoTool(IsaacTool):
                 usage = shutil.disk_usage(d)
                 free_gb, total_gb = usage.free / 1e9, usage.total / 1e9
                 pct = (usage.used / usage.total * 100) if usage.total else 0
-                lines.append(f"  {d:<6} {free_gb:6.1f} GB free / {total_gb:6.1f} GB ({pct:.0f}% used)")
+                lines.append(
+                    f"  {d:<6} {free_gb:6.1f} GB free / {total_gb:6.1f} GB ({pct:.0f}% used)"
+                )
                 disk_meta.append(
                     {"drive": d, "free_gb": round(free_gb, 1), "total_gb": round(total_gb, 1)}
                 )

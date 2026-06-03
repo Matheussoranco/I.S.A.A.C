@@ -145,9 +145,7 @@ def build_persona_from_answers(answers: dict[str, Any]) -> dict[str, Any]:
         sentences.append(f"I specialise in {_join_human(expertise)}.")
     if quirks:
         sentences.append(quirks if quirks.endswith(".") else quirks + ".")
-    sentences.append(
-        "I remember past interactions and use that context to serve better over time."
-    )
+    sentences.append("I remember past interactions and use that context to serve better over time.")
     personality = " ".join(sentences)
 
     # Derive a few short traits from the tone and quirks.
@@ -170,7 +168,11 @@ def interactive_questions() -> list[dict[str, Any]]:
     """Return the ordered question specs a CLI can drive to build a persona."""
     return [
         {"key": "name", "prompt": "Persona name", "required": True},
-        {"key": "role", "prompt": "Role / what they are (e.g. research assistant)", "required": False},
+        {
+            "key": "role",
+            "prompt": "Role / what they are (e.g. research assistant)",
+            "required": False,
+        },
         {"key": "tone", "prompt": "Tone of voice (e.g. warm and concise)", "required": False},
         {"key": "values", "prompt": "Core values (comma-separated)", "required": False},
         {"key": "expertise", "prompt": "Areas of expertise (comma-separated)", "required": False},

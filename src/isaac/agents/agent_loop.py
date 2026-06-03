@@ -182,20 +182,29 @@ class AgentLoop:
             result = await tool.execute(**args)
         except TypeError as exc:
             return ToolCallRecord(
-                name, args, f"Invalid arguments for '{name}': {exc}",
-                False, (time.monotonic() - start) * 1000,
+                name,
+                args,
+                f"Invalid arguments for '{name}': {exc}",
+                False,
+                (time.monotonic() - start) * 1000,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Tool '%s' raised", name)
             return ToolCallRecord(
-                name, args, f"Tool '{name}' raised: {exc}",
-                False, (time.monotonic() - start) * 1000,
+                name,
+                args,
+                f"Tool '{name}' raised: {exc}",
+                False,
+                (time.monotonic() - start) * 1000,
             )
 
         fallback = result.error or result.output or "(no output)"
         output = result.output if result.success else fallback
         return ToolCallRecord(
-            name, args, output or "(empty result)", result.success,
+            name,
+            args,
+            output or "(empty result)",
+            result.success,
             (time.monotonic() - start) * 1000,
         )
 

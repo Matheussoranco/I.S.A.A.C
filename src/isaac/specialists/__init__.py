@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from isaac.specialists.base import EventCallback, Specialist, SpecialistResult
 from isaac.specialists.orchestrator import (
-    Orchestrator,
     OrchestrationResult,
+    Orchestrator,
     SubTask,
     SubTaskResult,
     orchestrate,
