@@ -3,7 +3,7 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v0.4.0)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.0.0)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
@@ -11,6 +11,10 @@ A **multimodal, self-improving, local-first** autonomous agent built on
 [LangGraph](https://github.com/langchain-ai/langgraph) — Docker-sandboxed
 execution, voice + vision input, a cumulative Skill Library, telemetry-driven
 self-curation, and a hardened security stack.
+
+> **1.0 framing:** stable CLI/API, tested safety boundary, local-first by
+> default. What is *not* yet proven (benchmark numbers, live-model e2e runs)
+> is stated plainly in [LIMITATIONS.md](LIMITATIONS.md).
 
 ---
 
@@ -238,6 +242,9 @@ ollama pull llava:7b
 ### Run
 
 ```bash
+# Preflight — verify Python, settings, Ollama, Docker, and optional extras
+isaac doctor
+
 # Autonomous tool-use agent (Claude-Code style) — give it a task and it
 # browses, searches, runs code, and writes files until it's done.
 isaac agent "Find the current stable Python release and save it to version.txt"

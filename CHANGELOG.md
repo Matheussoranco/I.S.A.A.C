@@ -9,7 +9,45 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Work toward the 1.0 / SOTA milestone — see [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md)._
+_Post-1.0 work continues per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md):
+benchmark evidence (`isaac eval`), golden task suite, full red-team pass._
+
+---
+
+## [1.0.0] — 2026-06-09 — Stable release
+
+First stable release. 1.0 freezes the CLI + Python API surface shipped in
+0.4.0 and hardens the safety and reliability boundary around the agentic core
+(the "immediate quick wins" of [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md)).
+See [`LIMITATIONS.md`](LIMITATIONS.md) for an honest statement of what is and
+is not yet proven.
+
+### Added
+- `isaac doctor` — preflight environment check (Python version, settings,
+  Ollama reachability + configured-model presence, Docker engine, cloud-key
+  fallback, optional extras) with an actionable fix for every miss; exits
+  non-zero only when a core requirement is broken (`src/isaac/doctor.py`).
+- `AgentLoop` run guards (runaway-loop protection):
+  - **Wall-clock budget** — `max_wall_seconds` (default 600 s, `0` disables;
+    exposed as `isaac agent --max-seconds`); exhaustion stops the run with
+    `stopped_reason="budget_exhausted"`.
+  - **No-progress detection** — three consecutive *identical* tool calls stop
+    the run with `stopped_reason="no_progress"` instead of burning the
+    remaining iterations.
+
+### Security
+- The `fs_*` host tools now **hard-deny protected locations even inside
+  allowed roots**: `~/.ssh`, `~/.aws`, `.gnupg`, `.kube`, `.docker`,
+  `.password-store`, browser profiles (`.mozilla`, `.thunderbird`), `.env*`,
+  `.netrc`/`_netrc`, `.npmrc`, `.pypirc`, `.git-credentials`, SSH private keys
+  (`id_rsa` / `id_ed25519` / ...), and key-material suffixes (`.pem`, `.key`,
+  `.pfx`, `.p12`, `.kdbx`). Recursive `fs_list` silently skips these entries,
+  so credential names never reach the model context.
+
+### Changed
+- Packaging: Development Status classifier → **5 – Production/Stable**.
+- Pinned `ruff==0.15.2` in the `dev` extras so formatting rules can no longer
+  drift between local and CI (the failure mode that broke CI at 0.4.0).
 
 ---
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isaac"
-version = "0.4.0"
+version = "1.0.0"
 description = "Intelligent System for Autonomous Action and Cognition — neuro-symbolic autonomous agent"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Matheus Soranço", email = "matheussoranco@gmail.com" }]
 keywords = ["agent", "agi", "neuro-symbolic", "langgraph", "code-agent"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -48,7 +48,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "ruff>=0.8",
+    # Pinned: ruff formatting changes between minor versions broke CI at 0.4.0.
+    "ruff==0.15.2",
     "mypy>=1.13",
 ]
 browser = [
