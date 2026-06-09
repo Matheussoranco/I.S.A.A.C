@@ -12,7 +12,7 @@ import asyncio
 import pytest
 
 from isaac.config.settings import get_settings
-from isaac.tools.fileops import FsListTool, FsMoveTool, FsWriteTool
+from isaac.tools.fileops import FsListTool, FsMoveTool, FsReadTool, FsWriteTool
 from isaac.tools.shell import ShellTool
 from isaac.tools.system import SystemInfoTool
 
@@ -62,6 +62,43 @@ def test_fs_move_refuses_overwrite(allowed_root) -> None:
     res2 = _run(FsMoveTool().execute(src=str(src), dest=str(dest), overwrite=True))
     assert res2.success
     assert dest.read_text(encoding="utf-8") == "one"
+
+
+# ── sensitive-path deny list ────────────────────────────────────────────────
+
+
+def test_fs_read_denies_ssh_keys_inside_allowed_root(allowed_root) -> None:
+    secret = allowed_root / ".ssh" / "id_rsa"
+    secret.parent.mkdir()
+    secret.write_text("PRIVATE KEY", encoding="utf-8")
+    res = _run(FsReadTool().execute(path=str(secret)))
+    assert res.success is False
+    assert "protected" in res.error
+
+
+def test_fs_write_denies_env_files(allowed_root) -> None:
+    for name in (".env", ".env.local"):
+        res = _run(FsWriteTool().execute(path=str(allowed_root / name), content="KEY=1"))
+        assert res.success is False, name
+        assert not (allowed_root / name).exists()
+
+
+def test_fs_read_denies_key_material_suffixes(allowed_root) -> None:
+    cert = allowed_root / "server.pem"
+    cert.write_text("CERT", encoding="utf-8")
+    res = _run(FsReadTool().execute(path=str(cert)))
+    assert res.success is False
+
+
+def test_fs_list_skips_sensitive_entries(allowed_root) -> None:
+    (allowed_root / ".aws").mkdir()
+    (allowed_root / ".aws" / "credentials").write_text("secret", encoding="utf-8")
+    (allowed_root / "normal.txt").write_text("hi", encoding="utf-8")
+    res = _run(FsListTool().execute(path=str(allowed_root), recursive=True))
+    assert res.success
+    assert "normal.txt" in res.output
+    assert ".aws" not in res.output
+    assert "credentials" not in res.output
 
 
 # ── shell gating ────────────────────────────────────────────────────────────

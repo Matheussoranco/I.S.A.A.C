@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -55,6 +56,17 @@ class DangerTool(IsaacTool):
     async def execute(self, **kwargs: Any) -> ToolResult:
         self.executed = True
         return ToolResult(success=True, output="executed danger")
+
+
+class SlowTool(IsaacTool):
+    name = "slow"
+    description = "Sleeps briefly."
+    risk_level = 1
+    parameters = {"type": "object", "properties": {}}
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        await asyncio.sleep(0.05)
+        return ToolResult(success=True, output="slow done")
 
 
 class FakeLLM:
@@ -163,12 +175,48 @@ class TestAgentLoop:
         assert "No such tool" in result.tool_calls[0].output
 
     def test_max_iterations_guard(self) -> None:
-        # LLM always asks for another tool call -> never produces a final answer.
-        llm = FakeLLM([AIMessage(content="", tool_calls=[_tool_call("echo", {"text": "x"})])])
+        # LLM keeps asking for (varying) tool calls -> never produces a final answer.
+        llm = FakeLLM(
+            [
+                AIMessage(content="", tool_calls=[_tool_call("echo", {"text": "a"})]),
+                AIMessage(content="", tool_calls=[_tool_call("echo", {"text": "b"})]),
+                AIMessage(content="", tool_calls=[_tool_call("echo", {"text": "a"})]),
+            ]
+        )
         result = AgentLoop([EchoTool()], llm=llm, max_iterations=3).run("loop forever")
         assert result.stopped_reason == "max_iterations"
         assert result.iterations == 3
         assert len(result.tool_calls) == 3
+
+    def test_no_progress_guard_stops_repeated_identical_calls(self) -> None:
+        # LLM repeats the *identical* tool call forever -> stop early, before
+        # max_iterations, with a clear reason.
+        llm = FakeLLM([AIMessage(content="", tool_calls=[_tool_call("echo", {"text": "x"})])])
+        result = AgentLoop([EchoTool()], llm=llm, max_iterations=10).run("loop forever")
+        assert result.stopped_reason == "no_progress"
+        assert result.success is False
+        assert len(result.tool_calls) == 3
+        assert "repeated" in result.output
+
+    def test_wall_clock_budget_stops_loop(self) -> None:
+        llm = FakeLLM([AIMessage(content="", tool_calls=[_tool_call("slow", {})])])
+        loop = AgentLoop([SlowTool()], llm=llm, max_iterations=50, max_wall_seconds=0.01)
+        result = loop.run("take forever")
+        assert result.stopped_reason == "budget_exhausted"
+        assert result.success is False
+        assert len(result.tool_calls) == 1
+        assert "budget" in result.output
+
+    def test_zero_budget_disables_wall_clock_guard(self) -> None:
+        llm = FakeLLM(
+            [
+                AIMessage(content="", tool_calls=[_tool_call("slow", {})]),
+                AIMessage(content="done"),
+            ]
+        )
+        loop = AgentLoop([SlowTool()], llm=llm, max_wall_seconds=0)
+        result = loop.run("ok")
+        assert result.stopped_reason == "final"
 
     def test_handles_block_style_content(self) -> None:
         # Anthropic-style content blocks instead of a plain string.

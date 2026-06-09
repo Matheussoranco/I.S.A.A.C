@@ -78,6 +78,9 @@ if typer is not None:
     def agent(
         task: str = typer.Argument(..., help="The task for the agent to accomplish."),
         max_iters: int = typer.Option(12, "--max-iters", "-n", help="Max tool-use rounds."),
+        max_seconds: float = typer.Option(
+            600.0, "--max-seconds", help="Wall-clock budget for the run (0 = unlimited)."
+        ),
         auto_approve: bool = typer.Option(
             False, "--auto-approve", "-y", help="Run high-risk (4-5) tools without approval."
         ),
@@ -145,6 +148,7 @@ if typer is not None:
             auto_approve=auto_approve,
             on_event=on_event,
             only=only,
+            max_wall_seconds=max_seconds,
         )
         result = loop.run(task)
 
@@ -517,6 +521,25 @@ if typer is not None:
                     f"  - {d['action']:10s} {d['skill_name']}  "
                     f"(runs={d['runs']}, sr={d['success_rate']:.2f})"
                 )
+
+    @app.command()
+    def doctor() -> None:
+        """Preflight check: Python, settings, Ollama, Docker, and optional extras.
+
+        Exits non-zero only when a *core* requirement is broken; missing
+        optional capabilities are reported as warnings with the fix.
+        """
+        _setup_logging()
+        from isaac.doctor import has_failures, run_checks
+
+        results = run_checks()
+        marks = {"ok": "✓", "warn": "!", "fail": "✗"}
+        for r in results:
+            typer.echo(f"  [{marks.get(r.status, '?')}] {r.name:18s} {r.detail}")
+        if has_failures(results):
+            typer.echo("\nCore checks failed — fix the items marked ✗ above.")
+            raise typer.Exit(1)
+        typer.echo("\nAll core checks passed.")
 
     @app.command()
     def models() -> None:

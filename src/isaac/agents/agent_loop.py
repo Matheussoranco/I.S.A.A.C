@@ -22,6 +22,7 @@ Example
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Callable
@@ -34,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 # How much of a tool's output to feed back to the model per call.
 _MAX_TOOL_OUTPUT = 12_000
+
+# Stop after this many *consecutive identical* tool calls — the model is stuck
+# in a loop and more iterations will not help.
+_NO_PROGRESS_LIMIT = 3
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are I.S.A.A.C., an autonomous problem-solving agent with access to real "
@@ -70,7 +75,8 @@ class AgentRunResult:
     output: str
     iterations: int
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
-    stopped_reason: str = "final"  # "final" | "max_iterations" | "error"
+    # "final" | "max_iterations" | "budget_exhausted" | "no_progress" | "error"
+    stopped_reason: str = "final"
     messages: list[Any] = field(default_factory=list)
 
     @property
@@ -95,6 +101,10 @@ class AgentLoop:
         Overrides the default agent system prompt.
     max_iterations:
         Hard cap on model↔tool round-trips (default 12).
+    max_wall_seconds:
+        Total wall-clock budget for a run (default 600 s). ``0`` disables the
+        budget. When exhausted the loop stops with ``stopped_reason ==
+        "budget_exhausted"`` instead of running forever.
     max_risk:
         Tools above this risk level are blocked unless ``auto_approve`` is set.
         Default 3 keeps risk-4/5 actions (send email, delete file, write
@@ -116,6 +126,7 @@ class AgentLoop:
         max_risk: int = 3,
         auto_approve: bool = False,
         on_event: EventCallback | None = None,
+        max_wall_seconds: float = 600.0,
     ) -> None:
         self._tools: dict[str, IsaacTool] = {t.name: t for t in tools}
         self._llm = llm
@@ -124,6 +135,7 @@ class AgentLoop:
         self.max_risk = max_risk
         self.auto_approve = auto_approve
         self._on_event = on_event
+        self.max_wall_seconds = max(0.0, max_wall_seconds)
 
     # ------------------------------------------------------------------
     # Internals
@@ -234,9 +246,20 @@ class AgentLoop:
         final_text = ""
         reason = "max_iterations"
         iterations = 0
+        started = time.monotonic()
+        last_sig: str | None = None
+        repeat_count = 0
 
         try:
             for i in range(self.max_iterations):
+                if self.max_wall_seconds and time.monotonic() - started > self.max_wall_seconds:
+                    reason = "budget_exhausted"
+                    final_text = (
+                        f"Stopped: the {self.max_wall_seconds:.0f}s wall-clock budget was "
+                        f"exhausted after {len(all_calls)} tool call(s). Partial progress only."
+                    )
+                    self._emit("error", message="wall-clock budget exhausted")
+                    break
                 iterations = i + 1
                 self._emit("iteration", n=iterations)
                 try:
@@ -261,6 +284,7 @@ class AgentLoop:
                 if text:
                     self._emit("thought", text=text)
 
+                stuck = False
                 for tc in tool_calls:
                     name = tc.get("name", "")
                     args = tc.get("args") or {}
@@ -276,6 +300,23 @@ class AgentLoop:
                             name=name,
                         )
                     )
+                    try:
+                        sig = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+                    except Exception:
+                        sig = f"{name}:{args!r}"
+                    repeat_count = repeat_count + 1 if sig == last_sig else 1
+                    last_sig = sig
+                    if repeat_count >= _NO_PROGRESS_LIMIT:
+                        stuck = True
+                if stuck:
+                    reason = "no_progress"
+                    final_text = (
+                        f"Stopped: the model repeated the identical tool call "
+                        f"'{(last_sig or '').split(':', 1)[0]}' {repeat_count} times in a row "
+                        "without making progress."
+                    )
+                    self._emit("error", message="no progress (repeated identical tool call)")
+                    break
             else:
                 self._emit("error", message="reached max iterations")
 
@@ -338,6 +379,7 @@ def build_default_agent(
     auto_approve: bool = False,
     on_event: EventCallback | None = None,
     only: list[str] | None = None,
+    max_wall_seconds: float = 600.0,
 ) -> AgentLoop:
     """Construct an :class:`AgentLoop` wired with all registered built-in tools.
 
@@ -361,4 +403,5 @@ def build_default_agent(
         max_risk=max_risk,
         auto_approve=auto_approve,
         on_event=on_event,
+        max_wall_seconds=max_wall_seconds,
     )
