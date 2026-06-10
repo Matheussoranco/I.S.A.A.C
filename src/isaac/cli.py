@@ -138,17 +138,36 @@ if typer is not None:
                 msg = data.get("message", "")
                 _echo(f"[red]! {msg}[/red]" if _rich else f"! {msg}")
 
+        import sys
+
         from isaac.agents.agent_loop import build_default_agent
+        from isaac.agents.trace import TraceStore
         from isaac.tools import register_all_tools
 
         register_all_tools()
         only = [t.strip() for t in tools_csv.split(",") if t.strip()] or None
+
+        # Real human-in-the-loop approval for risk-4/5 tools when a terminal
+        # is attached (instead of all-or-nothing blocking).
+        approval_callback = None
+        if not auto_approve and sys.stdin.isatty():
+
+            def approval_callback(name: str, args: dict, risk: int) -> bool:
+                return typer.confirm(f"Allow high-risk tool '{name}' (risk {risk}) with {args}?")
+
+        try:
+            trace_store: TraceStore | None = TraceStore()
+        except Exception:
+            trace_store = None
+
         loop = build_default_agent(
             max_iterations=max_iters,
             auto_approve=auto_approve,
             on_event=on_event,
             only=only,
             max_wall_seconds=max_seconds,
+            approval_callback=approval_callback,
+            trace_store=trace_store,
         )
         result = loop.run(task)
 
@@ -521,6 +540,122 @@ if typer is not None:
                     f"  - {d['action']:10s} {d['skill_name']}  "
                     f"(runs={d['runs']}, sr={d['success_rate']:.2f})"
                 )
+
+    @app.command()
+    def trace(
+        run_id: str = typer.Argument("", help="Run ID to inspect (blank = list recent runs)."),
+        last: int = typer.Option(20, "--last", "-n", help="How many recent runs to list."),
+    ) -> None:
+        """Inspect persisted agent run traces (see also: isaac agent)."""
+        _setup_logging()
+        import json as _json
+        from datetime import datetime as _dt
+
+        from isaac.agents.trace import TraceStore
+
+        store = TraceStore()
+        if not run_id:
+            runs = store.recent_runs(last)
+            if not runs:
+                typer.echo('No agent runs recorded yet. Run: isaac agent "<task>"')
+                return
+            for r in runs:
+                date = _dt.fromtimestamp(r["started_at"]).strftime("%Y-%m-%d %H:%M")
+                typer.echo(
+                    f"  {r['run_id']}  {date}  [{r['stopped_reason'] or 'running'}] "
+                    f"iters={r['iterations']}  {r['task'][:60]}"
+                )
+            return
+
+        events = store.run_events(run_id)
+        if not events:
+            typer.echo(f"No trace found for run '{run_id}'.")
+            raise typer.Exit(1)
+        for e in events:
+            ts = _dt.fromtimestamp(e["ts"]).strftime("%H:%M:%S")
+            try:
+                data = _json.loads(e["data_json"])
+            except Exception:
+                data = {}
+            detail = ", ".join(f"{k}={str(v)[:80]}" for k, v in data.items())
+            typer.echo(f"  {e['seq']:>3} {ts}  {e['kind']:<12s} {detail}")
+
+    @app.command(name="eval")
+    def eval_cmd(
+        suite: str = typer.Argument(
+            "", help="Path to a JSONL task suite (e.g. evals/golden_v1.jsonl)."
+        ),
+        report: bool = typer.Option(
+            False, "--report", "-r", help="Show recent recorded runs instead of running."
+        ),
+        limit: int = typer.Option(0, "--limit", "-n", help="Run only the first N tasks."),
+        task_id: str = typer.Option("", "--task", help="Run only the task with this id."),
+        auto_approve: bool = typer.Option(
+            False, "--auto-approve", "-y", help="Allow high-risk tools during eval runs."
+        ),
+        db: str = typer.Option("", "--db", help="Results DB path (default ~/.isaac/eval.db)."),
+        no_store: bool = typer.Option(False, "--no-store", help="Do not persist this run."),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Run a task suite against the agent and score it (reproducible evals).
+
+        Loads a JSONL suite, runs each task through the AgentLoop (or the
+        specialist team for ``runner: team`` tasks), scores answers with
+        programmatic checkers, and records the run to a SQLite results DB.
+
+        Example::
+
+            isaac eval evals/golden_v1.jsonl
+            isaac eval --report
+        """
+        _setup_logging(verbose)
+        from pathlib import Path as _Path
+
+        from isaac.config.settings import get_settings
+        from isaac.eval import EvalStore, load_suite, run_suite
+        from isaac.eval.report import format_recent, format_summary
+        from isaac.eval.runner import default_runner
+
+        db_path = _Path(db) if db else get_settings().isaac_home / "eval.db"
+        store = EvalStore(db_path)
+
+        if report and not suite:
+            typer.echo(format_recent(store))
+            return
+
+        if not suite:
+            typer.echo("Provide a suite path (e.g. evals/golden_v1.jsonl) or --report.")
+            raise typer.Exit(2)
+
+        tasks = load_suite(suite)
+        if task_id:
+            tasks = [t for t in tasks if t.id == task_id]
+            if not tasks:
+                typer.echo(f"No task with id '{task_id}' in {suite}.")
+                raise typer.Exit(2)
+        if limit > 0:
+            tasks = tasks[:limit]
+
+        from isaac.tools import register_all_tools
+
+        register_all_tools()
+
+        def on_event(kind: str, data: dict) -> None:
+            if kind == "task_start":
+                typer.echo(f"[{data['n']}/{data['total']}] {data['task_id']} ...")
+            elif kind == "task_done":
+                mark = "PASS" if data["passed"] else "FAIL"
+                typer.echo(f"    {mark}  ({data['duration_ms']:.0f}ms)")
+
+        summary = run_suite(
+            tasks,
+            default_runner(auto_approve=auto_approve),
+            suite_name=_Path(suite).stem,
+            store=None if no_store else store,
+            on_event=on_event,
+        )
+        typer.echo("\n" + format_summary(summary))
+        raise typer.Exit(0 if summary.accuracy == 1.0 else 1)
 
     @app.command()
     def doctor() -> None:
