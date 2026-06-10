@@ -16,11 +16,13 @@ the README's capability claims can be read with the right calibration.
 
 ## What is **not** yet proven
 
-- **No benchmark numbers yet.** The measurement machinery exists —
-  `isaac eval` runs a 33-task golden suite with deterministic checkers and
-  records reproducible results — but no score from a live-model run has been
-  published. Until a number (model + dataset + date) appears in the README,
-  treat capability claims as architectural, not measured.
+- **No *public*-benchmark numbers yet.** The internal golden suite has a
+  recorded live-model result (31/33 with `qwen3-coder:480b-cloud`,
+  2026-06-10 — see the README), which measures the harness + a strong cloud
+  model end-to-end. There is still no score on a public benchmark (GAIA,
+  SWE-bench, WebArena, ARC-AGI) against a named comparison system, so
+  comparative claims ("SOTA") remain off the table per the roadmap gate.
+  Scores with the default 7B local model will be substantially lower.
 - **Tests mock the LLM.** The test suite validates the machinery (loops,
   routing, memory, safety gates), not end-to-end task success against a live
   model. Real-world quality depends heavily on the model you configure.

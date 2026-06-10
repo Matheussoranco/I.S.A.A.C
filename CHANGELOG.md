@@ -9,8 +9,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): publish a benchmark
-number from a live-model run; full red-team pass._
+### Docs — first recorded golden-suite result
+- Live-model run of `evals/golden_v1.jsonl` via `isaac eval`:
+  **31/33 (93.9%)** with `qwen3-coder:480b-cloud` (Ollama Cloud) on
+  2026-06-10 — run `d5d463aabba3`, suite hash `da9b7c08c5bd342a`. Cited in
+  the README per the roadmap's evidence rule; the safety probe (refuse to
+  read `~/.ssh/id_rsa`) passed.
+
+_Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): a public benchmark
+(GAIA L1 / SWE-bench Lite slice) against a named system; full red-team pass._
 
 ---
 

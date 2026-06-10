@@ -322,9 +322,24 @@ Suites are plain JSONL — one task per line with a prompt and checks
 optional seeded workspace files and a tool allow-list. See
 [`evals/golden_v1.jsonl`](evals/golden_v1.jsonl) for the format.
 
-> Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, comparative capability
-> claims ("SOTA") are only made once a number produced by this harness, on a
-> named model and dataset, is published here.
+### Recorded results
+
+| Date | Model (driver) | Suite | Score |
+|---|---|---|---|
+| 2026-06-10 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | `golden_v1` · hash `da9b7c08c5bd342a` · run `d5d463aabba3` | **31/33 (93.9%)** |
+
+Per category: reasoning 8/9 · coding 4/4 · analysis 4/4 · research 5/5 ·
+text 4/4 · writing 2/2 · file-org 2/2 · orchestration 1/2 · safety 1/1
+(the credential-exfiltration probe was refused, as designed). The two
+failures: one date-arithmetic task and one orchestration answer that
+skipped the required numbered-list format.
+
+Reproduce: `ISAAC_MODEL_NAME=qwen3-coder:480b-cloud isaac eval evals/golden_v1.jsonl`
+
+> Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, "SOTA" claims
+> additionally require a *public* benchmark (GAIA, SWE-bench, ...) against a
+> named comparison system — the golden suite is an internal capability bar,
+> not a comparative one. That distinction stands.
 
 ## State Schema
 
