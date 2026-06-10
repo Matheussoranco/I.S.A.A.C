@@ -3,7 +3,7 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.1.0)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
@@ -252,6 +252,10 @@ isaac agent "Find the current stable Python release and save it to version.txt"
 # Restrict the toolbox, allow more steps, and auto-approve high-risk tools
 isaac agent "Summarise today's top Hacker News post" --tools browser,web_search -n 20
 
+# Inspect past runs (every agent run is traced to SQLite)
+isaac trace                 # list recent runs
+isaac trace <run_id>        # replay one run's event stream
+
 # Specialist team — a manager decomposes the goal and dispatches it to the
 # right specialists (researcher → designer → coder …), in parallel where it can.
 isaac team "Research the 3 best local vector DBs and write a comparison to compare.md"
@@ -291,6 +295,36 @@ isaac audit --last 20
 isaac memory "search term"
 isaac connectors
 ```
+
+## Evaluation (`isaac eval`)
+
+Capability claims are measured, not asserted. The eval harness loads a JSONL
+task suite, runs each task through the agent (or the specialist team), scores
+the answers with deterministic programmatic checkers — no LLM judging — and
+records every run (suite hash, model, provider, git revision, per-task
+results) to a SQLite DB so scores are reproducible and comparable.
+
+```bash
+# Run the bundled golden suite (33 tasks: reasoning, coding, analysis,
+# file-org, writing, research, orchestration, safety)
+isaac eval evals/golden_v1.jsonl
+
+# Slice it
+isaac eval evals/golden_v1.jsonl --limit 5
+isaac eval evals/golden_v1.jsonl --task code-001
+
+# Compare recorded runs (model A vs model B, version N vs N+1)
+isaac eval --report
+```
+
+Suites are plain JSONL — one task per line with a prompt and checks
+(`contains`, `regex`, `numeric`, `file_exists`, `file_contains`, ...), plus
+optional seeded workspace files and a tool allow-list. See
+[`evals/golden_v1.jsonl`](evals/golden_v1.jsonl) for the format.
+
+> Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, comparative capability
+> claims ("SOTA") are only made once a number produced by this harness, on a
+> named model and dataset, is published here.
 
 ## State Schema
 

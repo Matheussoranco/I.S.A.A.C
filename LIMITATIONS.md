@@ -1,4 +1,4 @@
-# Known Limitations (1.0.0)
+# Known Limitations (1.1.0)
 
 I.S.A.A.C. 1.0 is a stable, tested, local-first autonomous agent **framework**.
 This file states plainly what that does — and does not — mean. It exists so
@@ -16,9 +16,11 @@ the README's capability claims can be read with the right calibration.
 
 ## What is **not** yet proven
 
-- **No benchmark numbers.** There is no published score on GAIA, SWE-bench,
-  WebArena, tau-bench, or ARC-AGI yet. Until `isaac eval` produces a
-  reproducible number, treat capability claims as architectural, not measured.
+- **No benchmark numbers yet.** The measurement machinery exists —
+  `isaac eval` runs a 33-task golden suite with deterministic checkers and
+  records reproducible results — but no score from a live-model run has been
+  published. Until a number (model + dataset + date) appears in the README,
+  treat capability claims as architectural, not measured.
 - **Tests mock the LLM.** The test suite validates the machinery (loops,
   routing, memory, safety gates), not end-to-end task success against a live
   model. Real-world quality depends heavily on the model you configure.
@@ -33,8 +35,10 @@ the README's capability claims can be read with the right calibration.
   access, but you should still scope `ISAAC_ALLOWED_PATHS` to the directories
   you actually want organised, and leave `ISAAC_SHELL_UNRESTRICTED` off.
 - **Prompt injection is mitigated, not solved.** The Guard node and the
-  constitution catch known patterns; adversarial web content can still steer
-  the model. Keep high-risk tools behind approval (the default).
+  constitution catch known patterns, web/search/email tool output is
+  provenance-tagged as untrusted, and secrets are redacted from tool outputs —
+  but adversarial content can still steer the model. Keep high-risk tools
+  behind approval (the default).
 - **Self-improvement needs data.** Skill curation and prompt evolution only
   act after enough telemetry accumulates; a fresh install has nothing to
   improve from.

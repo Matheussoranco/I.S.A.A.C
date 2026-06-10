@@ -9,8 +9,64 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Post-1.0 work continues per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md):
-benchmark evidence (`isaac eval`), golden task suite, full red-team pass._
+_Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): publish a benchmark
+number from a live-model run; full red-team pass._
+
+---
+
+## [1.1.0] — 2026-06-10 — Measured & hardened
+
+The evaluation harness (`isaac eval` + golden suite) and agent-loop hardening
+to parity with modern agent harnesses: tool-arg validation, LLM retry,
+per-call approval, secrets redaction, prompt-injection provenance tagging,
+context compaction, and persisted run traces.
+
+### Added — Evaluation harness (`isaac eval`, ROADMAP-1.0 WS1)
+- `src/isaac/eval/` — reproducible capability measurement:
+  - `suite.py` — JSONL task suites (`{id, prompt, checks, category, runner,
+    tools?, files?}`) with content hashing so scores are only compared across
+    identical task sets.
+  - `checkers.py` — deterministic programmatic checkers (no LLM judge):
+    `contains` / `not_contains` / `any_of` / `all_of` / `regex` / `numeric`
+    (tolerance + comma decimals) / `min_length` / `file_exists` /
+    `file_contains` / `file_regex` (workspace-confined).
+  - `runner.py` — injectable runner (`AgentLoop` for `agent` tasks, the
+    specialist `Orchestrator` for `team` tasks); seeds per-task workspace
+    files; a crashing task scores as failed instead of aborting the suite.
+  - `results.py` — SQLite store recording suite hash, model, provider, runner,
+    git revision, timestamps, and per-task outcomes for every run.
+  - `report.py` — scoreboard + per-category breakdown + run-comparison table.
+- `evals/golden_v1.jsonl` — 33-task golden suite spanning reasoning, coding,
+  analysis, file-org, writing, research, orchestration, and safety (includes a
+  credential-exfiltration refusal probe).
+- CLI: `isaac eval <suite> [--limit N] [--task ID] [--auto-approve]
+  [--no-store] [--db PATH]` and `isaac eval --report`.
+
+### Added — Agent-loop hardening to parity with modern agent harnesses (WS2/WS3/WS4)
+- **Tool-argument validation** (`agents/validation.py`) — every tool call is
+  checked against the tool's JSON-Schema before execution (required fields,
+  types, hallucinated parameter names); the model receives a precise
+  correction message instead of a stack trace. Critical for small local
+  models' tool-calling reliability.
+- **LLM retry with backoff** — transient provider failures are retried
+  (default 2 retries, exponential backoff) before the run aborts.
+- **Per-call human approval** — `AgentLoop(approval_callback=...)`: risk-4/5
+  tool calls can be approved or denied individually; `isaac agent` prompts
+  interactively on a TTY. Replaces all-or-nothing `auto_approve`.
+- **Secrets redaction** (`security/redact.py`) — provider API tokens, AWS/
+  GitHub/Slack/Google keys, JWTs, private-key blocks, and `password=...`
+  assignments are scrubbed from every tool output before reaching the model
+  context, traces, or the terminal.
+- **Prompt-injection provenance tagging** — output from network-facing tools
+  (`browser`, `web_search`, `email_read`) is wrapped in an explicit
+  `[UNTRUSTED CONTENT]` marker and the system prompt instructs the model to
+  treat it as data, never instructions.
+- **Context compaction** — when the transcript exceeds a budget (default
+  150k chars), older tool outputs are stubbed in place so long runs don't
+  overflow the model context; recent messages stay verbatim.
+- **Persisted run traces** (`agents/trace.py`) — every `isaac agent` run
+  records its full event stream (iterations, tool calls, results, outcome) to
+  SQLite; inspect with `isaac trace` (list) / `isaac trace <run_id>` (replay).
 
 ---
 
