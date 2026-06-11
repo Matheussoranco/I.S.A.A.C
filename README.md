@@ -315,6 +315,12 @@ isaac eval evals/golden_v1.jsonl --task code-001
 
 # Compare recorded runs (model A vs model B, version N vs N+1)
 isaac eval --report
+
+# GAIA Level 1 (public benchmark, official quasi-exact-match scoring).
+# One-time: accept the terms at huggingface.co/datasets/gaia-benchmark/GAIA
+# and authenticate (hf auth login / HF_TOKEN) — the dataset is gated.
+isaac eval --format gaia --download
+isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1
 ```
 
 Suites are plain JSONL — one task per line with a prompt and checks

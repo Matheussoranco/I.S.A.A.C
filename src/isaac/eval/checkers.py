@@ -81,6 +81,15 @@ def run_check(spec: dict, answer: str, workspace: Path) -> CheckOutcome:
                     return CheckOutcome(kind, True, f"found {raw}")
             return CheckOutcome(kind, False, f"no number within {tolerance} of {expected}")
 
+        if kind == "gaia":
+            # Official GAIA quasi-exact match against the 'FINAL ANSWER:' line.
+            from isaac.eval.gaia import extract_final_answer, question_scorer
+
+            ground_truth = str(spec["value"])
+            extracted = extract_final_answer(answer)
+            passed = question_scorer(extracted, ground_truth)
+            return CheckOutcome(kind, passed, f"answered {extracted!r}, expected {ground_truth!r}")
+
         if kind == "min_length":
             n = int(spec["value"])
             return CheckOutcome(kind, len(answer.strip()) >= n, f"{len(answer.strip())} >= {n}")

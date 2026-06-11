@@ -37,6 +37,10 @@ class EvalTask:
     runner: str = "agent"  # "agent" | "team"
     tools: list[str] | None = None
     files: dict[str, str] = field(default_factory=dict)
+    file_paths: dict[str, str] = field(default_factory=dict)
+    """Binary attachments: {workspace-relative dest: absolute source path}.
+    Copied (not inlined) into the workspace before the run — used by dataset
+    adapters (e.g. GAIA) whose tasks ship xlsx/pdf/png/mp3 files."""
     max_iterations: int = 12
     timeout_seconds: float = 300.0
 
@@ -80,17 +84,18 @@ def load_suite(path: str | Path) -> list[EvalTask]:
 def suite_hash(tasks: list[EvalTask]) -> str:
     """Stable content hash of a suite — recorded with every run so a score is
     only comparable to runs of the *identical* task set."""
-    canonical = json.dumps(
-        [
-            {
-                "id": t.id,
-                "prompt": t.prompt,
-                "checks": t.checks,
-                "files": t.files,
-            }
-            for t in sorted(tasks, key=lambda t: t.id)
-        ],
-        sort_keys=True,
-        ensure_ascii=False,
-    )
+    entries = []
+    for t in sorted(tasks, key=lambda t: t.id):
+        entry: dict = {
+            "id": t.id,
+            "prompt": t.prompt,
+            "checks": t.checks,
+            "files": t.files,
+        }
+        # Key added only when present so suites without binary attachments
+        # (e.g. golden_v1, whose hash is already published) keep their hash.
+        if t.file_paths:
+            entry["file_paths"] = sorted(t.file_paths)
+        entries.append(entry)
+    canonical = json.dumps(entries, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

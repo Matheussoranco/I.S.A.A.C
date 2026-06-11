@@ -9,6 +9,7 @@ with a scripted fake, and a real run simply plugs in
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -133,15 +134,28 @@ def default_runner(auto_approve: bool = False) -> RunnerFn:
 
 
 def _seed_files(task: EvalTask, workspace: Path) -> None:
-    for rel, content in task.files.items():
+    def _safe_target(rel: str) -> Path | None:
         target = (workspace / rel).resolve()
         try:
             target.relative_to(workspace.resolve())
         except ValueError:
             logger.warning("Task %s: seed file %r escapes workspace; skipped", task.id, rel)
-            continue
+            return None
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        return target
+
+    for rel, content in task.files.items():
+        target = _safe_target(rel)
+        if target is not None:
+            target.write_text(content, encoding="utf-8")
+    for rel, src in task.file_paths.items():
+        target = _safe_target(rel)
+        if target is None:
+            continue
+        try:
+            shutil.copyfile(src, target)
+        except OSError as exc:
+            logger.warning("Task %s: cannot copy attachment %s: %s", task.id, src, exc)
 
 
 def run_suite(

@@ -588,6 +588,13 @@ if typer is not None:
         report: bool = typer.Option(
             False, "--report", "-r", help="Show recent recorded runs instead of running."
         ),
+        fmt: str = typer.Option(
+            "jsonl", "--format", "-f", help="Suite format: 'jsonl' (native) or 'gaia'."
+        ),
+        level: int = typer.Option(1, "--level", help="GAIA difficulty level (gaia format only)."),
+        download: bool = typer.Option(
+            False, "--download", help="Download the GAIA validation split first (needs HF auth)."
+        ),
         limit: int = typer.Option(0, "--limit", "-n", help="Run only the first N tasks."),
         task_id: str = typer.Option("", "--task", help="Run only the task with this id."),
         auto_approve: bool = typer.Option(
@@ -623,11 +630,28 @@ if typer is not None:
             typer.echo(format_recent(store))
             return
 
-        if not suite:
-            typer.echo("Provide a suite path (e.g. evals/golden_v1.jsonl) or --report.")
-            raise typer.Exit(2)
+        suite_label: str
+        if fmt == "gaia":
+            from isaac.eval.gaia import download_gaia, load_gaia_tasks
 
-        tasks = load_suite(suite)
+            if download:
+                typer.echo("Downloading GAIA validation split from Hugging Face ...")
+                suite = str(download_gaia(suite or None))
+                typer.echo(f"Downloaded to {suite}")
+            if not suite:
+                typer.echo(
+                    "Provide the GAIA split directory (containing metadata.jsonl) "
+                    "or add --download."
+                )
+                raise typer.Exit(2)
+            tasks = load_gaia_tasks(suite, level=level)
+            suite_label = f"gaia-2023-l{level}-validation"
+        else:
+            if not suite:
+                typer.echo("Provide a suite path (e.g. evals/golden_v1.jsonl) or --report.")
+                raise typer.Exit(2)
+            tasks = load_suite(suite)
+            suite_label = _Path(suite).stem
         if task_id:
             tasks = [t for t in tasks if t.id == task_id]
             if not tasks:
@@ -650,7 +674,7 @@ if typer is not None:
         summary = run_suite(
             tasks,
             default_runner(auto_approve=auto_approve),
-            suite_name=_Path(suite).stem,
+            suite_name=suite_label,
             store=None if no_store else store,
             on_event=on_event,
         )

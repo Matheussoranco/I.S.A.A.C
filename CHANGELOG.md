@@ -9,8 +9,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): a public benchmark
-(GAIA L1 / SWE-bench Lite slice) against a named system; full red-team pass._
+### Added — GAIA benchmark adapter (`isaac eval --format gaia`)
+- `src/isaac/eval/gaia.py` — loads GAIA splits (`metadata.jsonl`) as eval
+  tasks with the **official leaderboard quasi-exact-match scorer** (numeric /
+  string / list normalization, `FINAL ANSWER:` extraction) so scores are
+  directly comparable to published systems; `download_gaia()` fetches the
+  gated validation split via huggingface_hub (requires accepted terms + HF
+  auth). CLI: `isaac eval <split-dir> --format gaia --level 1 [--download]`.
+- `EvalTask.file_paths` — binary attachment seeding (xlsx/pdf/png/mp3 copied
+  into the workspace), with the golden_v1 suite hash guaranteed unchanged
+  (pinned by test).
+
+_Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): run GAIA L1 and cite
+the number against a named system; full red-team pass._
 
 ---
 
