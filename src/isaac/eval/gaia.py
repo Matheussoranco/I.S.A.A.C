@@ -60,8 +60,11 @@ def _normalize_number_str(s: str) -> float | None:
 
 
 def _is_float(s: str) -> bool:
+    # No comma stripping here — the official scorer's is_float() routes
+    # comma-formatted ground truths ("3,000") to the *list* branch, and
+    # stripping would silently accept answers the leaderboard rejects.
     try:
-        float(s.replace(",", ""))
+        float(s)
         return True
     except ValueError:
         return False
@@ -90,14 +93,16 @@ def extract_final_answer(text: str) -> str:
 def question_scorer(model_answer: str, ground_truth: str) -> bool:
     """Official GAIA quasi-exact match.
 
-    - numeric ground truth -> compare as floats (units/commas stripped)
+    - numeric ground truth -> compare as floats (units/commas stripped from
+      the model answer; comma-formatted ground truths take the list branch,
+      as in the official scorer)
     - list ground truth (contains ``,``/``;``) -> element-wise with the same
       rules (numbers as numbers, strings normalized keeping punctuation)
     - otherwise -> normalized string equality
     """
     if _is_float(ground_truth):
         normalized = _normalize_number_str(model_answer)
-        return normalized is not None and normalized == float(ground_truth.replace(",", ""))
+        return normalized is not None and normalized == float(ground_truth)
 
     if any(ch in ground_truth for ch in (",", ";")):
         gt_elems = _split_list(ground_truth)
@@ -107,7 +112,7 @@ def question_scorer(model_answer: str, ground_truth: str) -> bool:
         for ma, gt in zip(ma_elems, gt_elems, strict=True):
             if _is_float(gt):
                 normalized = _normalize_number_str(ma)
-                if normalized is None or normalized != float(gt.replace(",", "")):
+                if normalized is None or normalized != float(gt):
                     return False
             elif _normalize_str(ma, remove_punct=False) != _normalize_str(gt, remove_punct=False):
                 return False

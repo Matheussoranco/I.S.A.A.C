@@ -33,6 +33,14 @@ def test_scorer_strings_normalize_space_case_punct() -> None:
     assert question_scorer("blue whale", "right whale") is False
 
 
+def test_scorer_comma_ground_truth_takes_list_branch() -> None:
+    # Official is_float() does NOT strip commas: gt "3,000" is a 2-element
+    # list, so a bare "3000" must fail (length mismatch) exactly as the
+    # leaderboard scores it, while the comma-matched form passes.
+    assert question_scorer("3000", "3,000") is False
+    assert question_scorer("3,000", "3,000") is True
+
+
 def test_scorer_lists_elementwise() -> None:
     assert question_scorer("milk, eggs, 3", "milk,eggs,3") is True
     assert question_scorer("milk; eggs; 3", "milk,eggs,3") is True
