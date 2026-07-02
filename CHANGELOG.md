@@ -7,7 +7,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [1.2.0] — 2026-07-02 — GAIA benchmark adapter
 
 ### Added — GAIA benchmark adapter (`isaac eval --format gaia`)
 - `src/isaac/eval/gaia.py` — loads GAIA splits (`metadata.jsonl`) as eval
@@ -19,6 +19,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `EvalTask.file_paths` — binary attachment seeding (xlsx/pdf/png/mp3 copied
   into the workspace), with the golden_v1 suite hash guaranteed unchanged
   (pinned by test).
+
+### Fixed — scorer fidelity to the official leaderboard
+- `_is_float` no longer strips commas before the float check, matching the
+  official `is_float`: a comma-formatted ground truth (e.g. `"3,000"`) is
+  scored via the **list branch**, so a bare `"3000"` fails exactly as the
+  leaderboard would score it. The lenient variant could have inflated local
+  scores relative to published systems (regression test added).
 
 _Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): run GAIA L1 and cite
 the number against a named system; full red-team pass._

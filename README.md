@@ -3,7 +3,7 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.1.1-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.1.1)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.2.0)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
