@@ -589,11 +589,13 @@ if typer is not None:
             False, "--report", "-r", help="Show recent recorded runs instead of running."
         ),
         fmt: str = typer.Option(
-            "jsonl", "--format", "-f", help="Suite format: 'jsonl' (native) or 'gaia'."
+            "jsonl", "--format", "-f", help="Suite format: 'jsonl' (native), 'gaia', or 'arc'."
         ),
         level: int = typer.Option(1, "--level", help="GAIA difficulty level (gaia format only)."),
         download: bool = typer.Option(
-            False, "--download", help="Download the GAIA validation split first (needs HF auth)."
+            False,
+            "--download",
+            help="Download the benchmark dataset first (GAIA needs HF auth; ARC is ungated).",
         ),
         limit: int = typer.Option(0, "--limit", "-n", help="Run only the first N tasks."),
         task_id: str = typer.Option("", "--task", help="Run only the task with this id."),
@@ -646,6 +648,20 @@ if typer is not None:
                 raise typer.Exit(2)
             tasks = load_gaia_tasks(suite, level=level)
             suite_label = f"gaia-2023-l{level}-validation"
+        elif fmt == "arc":
+            from isaac.eval.arc import download_arc, load_arc_tasks
+
+            if download:
+                typer.echo("Downloading ARC-AGI-1 (public, ungated) from GitHub ...")
+                suite = str(download_arc(suite or None))
+                typer.echo(f"Downloaded to {suite}")
+            if not suite:
+                typer.echo(
+                    "Provide the ARC split directory (containing *.json tasks) or add --download."
+                )
+                raise typer.Exit(2)
+            tasks = load_arc_tasks(suite)
+            suite_label = f"arc-agi-1-{_Path(suite).name}"
         else:
             if not suite:
                 typer.echo("Provide a suite path (e.g. evals/golden_v1.jsonl) or --report.")
@@ -660,9 +676,18 @@ if typer is not None:
         if limit > 0:
             tasks = tasks[:limit]
 
-        from isaac.tools import register_all_tools
+        run_kwargs: dict = {}
+        if fmt == "arc":
+            # Symbolic solver run — no agent tools, no LLM; record it as such.
+            from isaac.eval.arc import arc_runner
 
-        register_all_tools()
+            runner = arc_runner(suite)
+            run_kwargs = {"model": "arc-synthesis (symbolic, no LLM)", "provider": "none"}
+        else:
+            from isaac.tools import register_all_tools
+
+            register_all_tools()
+            runner = default_runner(auto_approve=auto_approve)
 
         def on_event(kind: str, data: dict) -> None:
             if kind == "task_start":
@@ -673,10 +698,11 @@ if typer is not None:
 
         summary = run_suite(
             tasks,
-            default_runner(auto_approve=auto_approve),
+            runner,
             suite_name=suite_label,
             store=None if no_store else store,
             on_event=on_event,
+            **run_kwargs,
         )
         typer.echo("\n" + format_summary(summary))
         raise typer.Exit(0 if summary.accuracy == 1.0 else 1)

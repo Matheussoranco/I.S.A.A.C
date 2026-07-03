@@ -90,6 +90,13 @@ def run_check(spec: dict, answer: str, workspace: Path) -> CheckOutcome:
             passed = question_scorer(extracted, ground_truth)
             return CheckOutcome(kind, passed, f"answered {extracted!r}, expected {ground_truth!r}")
 
+        if kind == "arc":
+            # Exact grid match on every ARC test pair (single attempt).
+            from isaac.eval.arc import score_arc_answer
+
+            passed, detail = score_arc_answer(answer, str(spec["value"]))
+            return CheckOutcome(kind, passed, detail)
+
         if kind == "min_length":
             n = int(spec["value"])
             return CheckOutcome(kind, len(answer.strip()) >= n, f"{len(answer.strip())} >= {n}")
