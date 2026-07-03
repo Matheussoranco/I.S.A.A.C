@@ -1,0 +1,62 @@
+name: Nightly Eval
+
+# ROADMAP-1.0 WS1: a nightly eval job — separate from PR CI — that runs a
+# reproducible benchmark and publishes a scoreboard artifact. The ARC-AGI-1
+# symbolic run is LLM-free and deterministic, so it works on a bare runner;
+# suites that need a live model (golden_v1, GAIA) stay local until a runner
+# with a model exists.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  arc-agi-1:
+    name: ARC-AGI-1 evaluation (symbolic solver)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Regression floor: fail the job when the solver scores below the
+      # last published number (see README "Measured results").
+      ARC_MIN_SOLVED: "2"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Run ARC-AGI-1 public evaluation set
+        run: |
+          set -o pipefail
+          isaac eval --format arc --download 2>&1 | tee arc-scoreboard.txt || true
+
+      - name: Enforce regression floor
+        run: |
+          SOLVED=$(grep -oP 'SCORE:\s*\K\d+' arc-scoreboard.txt | head -1)
+          echo "solved=$SOLVED floor=$ARC_MIN_SOLVED"
+          if [ -z "$SOLVED" ]; then
+            echo "No SCORE line found — the eval run itself failed." >&2
+            exit 1
+          fi
+          if [ "$SOLVED" -lt "$ARC_MIN_SOLVED" ]; then
+            echo "Score $SOLVED fell below the published floor $ARC_MIN_SOLVED." >&2
+            exit 1
+          fi
+
+      - name: Upload scoreboard artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arc-agi-1-scoreboard
+          path: |
+            arc-scoreboard.txt
+            ~/.isaac/eval.db
+          retention-days: 90
