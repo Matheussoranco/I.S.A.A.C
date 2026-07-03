@@ -321,6 +321,12 @@ isaac eval --report
 # and authenticate (hf auth login / HF_TOKEN) — the dataset is gated.
 isaac eval --format gaia --download
 isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1
+
+# ARC-AGI-1 (public benchmark, ungated). Downloads the official dataset and
+# runs the bundled symbolic synthesis solver — no LLM or API key required,
+# fully deterministic. This is also the nightly-CI regression benchmark.
+isaac eval --format arc --download
+isaac eval ~/.isaac/datasets/arc-agi-1/evaluation --format arc
 ```
 
 Suites are plain JSONL — one task per line with a prompt and checks
@@ -333,19 +339,32 @@ optional seeded workspace files and a tool allow-list. See
 | Date | Model (driver) | Suite | Score |
 |---|---|---|---|
 | 2026-06-10 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | `golden_v1` · hash `da9b7c08c5bd342a` · run `d5d463aabba3` | **31/33 (93.9%)** |
+| 2026-07-03 | symbolic synthesis solver (no LLM, 1 attempt) | ARC-AGI-1 public evaluation set (400 tasks) · hash `27b8f28a235e1014` · run `8df1af2a87e5` | **2/400 (0.5%)** |
 
-Per category: reasoning 8/9 · coding 4/4 · analysis 4/4 · research 5/5 ·
-text 4/4 · writing 2/2 · file-org 2/2 · orchestration 1/2 · safety 1/1
-(the credential-exfiltration probe was refused, as designed). The two
-failures: one date-arithmetic task and one orchestration answer that
+Golden suite — per category: reasoning 8/9 · coding 4/4 · analysis 4/4 ·
+research 5/5 · text 4/4 · writing 2/2 · file-org 2/2 · orchestration 1/2 ·
+safety 1/1 (the credential-exfiltration probe was refused, as designed). The
+two failures: one date-arithmetic task and one orchestration answer that
 skipped the required numbered-list format.
-
 Reproduce: `ISAAC_MODEL_NAME=qwen3-coder:480b-cloud isaac eval evals/golden_v1.jsonl`
 
-> Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, "SOTA" claims
-> additionally require a *public* benchmark (GAIA, SWE-bench, ...) against a
-> named comparison system — the golden suite is an internal capability bar,
-> not a comparative one. That distinction stands.
+ARC-AGI-1 — the first *public*-benchmark number, measured with the LLM-free
+symbolic solver (strategies 1–3: analogy, beam search, object synthesis) on
+the same 400-task public evaluation set used by published systems. Scoring is
+single-attempt exact match — *stricter* than the official pass@2 protocol.
+For calibration against named systems on the identical task set
+([ARC Prize, Sept 2024](https://arcprize.org/blog/openai-o1-results-arc-prize)):
+GPT-4o 9%, Gemini 1.5 8%, Claude 3.5 Sonnet 21%, o1-preview 21.2%. The
+symbolic-only score is a deterministic floor, tracked as a regression gate in
+nightly CI; raising it with LLM-guided synthesis and test-time compute is the
+1.4 workstream (WS3). Reproduce (no model or key needed):
+`isaac eval --format arc --download`
+
+> Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, "SOTA" claims require a
+> *competitive* public-benchmark number against a named comparison system —
+> 0.5% vs 9–21% is measured, cited, and nowhere near that bar. The honest
+> description remains "a competitive local-first autonomous agent framework"
+> with its capability now measured in public.
 
 ## State Schema
 

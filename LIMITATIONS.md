@@ -1,4 +1,4 @@
-# Known Limitations (1.2.0)
+# Known Limitations (1.3.0)
 
 I.S.A.A.C. 1.0 is a stable, tested, local-first autonomous agent **framework**.
 This file states plainly what that does — and does not — mean. It exists so
@@ -16,13 +16,18 @@ the README's capability claims can be read with the right calibration.
 
 ## What is **not** yet proven
 
-- **No *public*-benchmark numbers yet.** The internal golden suite has a
-  recorded live-model result (31/33 with `qwen3-coder:480b-cloud`,
-  2026-06-10 — see the README), which measures the harness + a strong cloud
-  model end-to-end. There is still no score on a public benchmark (GAIA,
-  SWE-bench, WebArena, ARC-AGI) against a named comparison system, so
-  comparative claims ("SOTA") remain off the table per the roadmap gate.
-  Scores with the default 7B local model will be substantially lower.
+- **The public-benchmark number is a floor, not a competitive score.**
+  ARC-AGI-1 public evaluation set: 2/400 (0.5%) with the LLM-free symbolic
+  solver, single attempt (2026-07-03 — see the README). Published LLM systems
+  score 8–21% on the identical task set, so comparative claims ("SOTA")
+  remain firmly off the table per the roadmap gate. The value of the number
+  is that it is public, reproducible on any machine with no model configured,
+  and regression-gated in nightly CI. The internal golden suite additionally
+  has a recorded live-model result (31/33 with `qwen3-coder:480b-cloud`,
+  2026-06-10). GAIA L1 is adapter-ready but unmeasured: the dataset is gated
+  and requires accepting its terms on Hugging Face plus `hf auth login`.
+  Scores with the default 7B local model will be substantially lower than the
+  golden-suite number.
 - **Tests mock the LLM.** The test suite validates the machinery (loops,
   routing, memory, safety gates), not end-to-end task success against a live
   model. Real-world quality depends heavily on the model you configure.
