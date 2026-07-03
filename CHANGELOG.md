@@ -7,6 +7,47 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.0] — 2026-07-03 — Measured in public
+
+The first *public*-benchmark number (ROADMAP-1.0 §1 evidence gate) and the
+WS1 nightly eval CI job. GAIA L1 stays adapter-ready but unmeasured — the
+dataset is gated behind Hugging Face terms acceptance + `hf auth login`, so
+the roadmap's "cheapest-signal-first" alternative (ARC-AGI, whose solver
+already ships) delivers the number instead.
+
+### Added — ARC-AGI benchmark adapter (`isaac eval --format arc`)
+- `src/isaac/eval/arc.py` — loads the official ARC-AGI-1 dataset (public,
+  ungated; `download_arc()` fetches it from the fchollet/ARC-AGI GitHub repo
+  with no auth) as eval tasks; `arc_runner()` solves each task with the
+  bundled symbolic synthesis engine (`isaac.arc.solver.synthesise`) instead
+  of the AgentLoop — no LLM, no key, fully deterministic. Scoring is
+  single-attempt exact match on every test grid, *stricter* than the official
+  pass@2 leaderboard protocol. CLI: `isaac eval <split-dir> --format arc
+  [--download]`; runs record `model="arc-synthesis (symbolic, no LLM)"` so
+  they are never confused with LLM-backed scores.
+- `arc` checker type in `eval/checkers.py` (exact grid match, never raises).
+
+### Added — first public-benchmark result (cited per the §4 evidence rule)
+- ARC-AGI-1 public evaluation set (400 tasks): **2/400 (0.5%)**, symbolic
+  solver, single attempt, 2026-07-03 — run `8df1af2a87e5`, suite hash
+  `27b8f28a235e1014`. Named comparisons on the identical task set (ARC
+  Prize, Sept 2024): GPT-4o 9%, Gemini 1.5 8%, Claude 3.5 Sonnet 21%,
+  o1-preview 21.2%. Cited in the README as a deterministic floor — not a
+  competitive claim; "SOTA" stays gated per ROADMAP-1.0 §4.
+
+### Added — nightly eval CI (ROADMAP-1.0 WS1)
+- `.github/workflows/nightly-eval.yml` — separate from PR CI: runs the full
+  ARC-AGI-1 evaluation set nightly on a bare runner (LLM-free, so it needs no
+  secrets), publishes the scoreboard + eval DB as artifacts, and fails when
+  the score drops below the published floor (`ARC_MIN_SOLVED=2`).
+
+_Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): WS3 — raise the ARC
+floor with LLM-guided synthesis + test-time compute; run GAIA L1 once the
+dataset terms are accepted (`hf auth login`, then
+`isaac eval --format gaia --download`); full red-team pass._
+
+---
+
 ## [1.2.0] — 2026-07-02 — GAIA benchmark adapter
 
 ### Added — GAIA benchmark adapter (`isaac eval --format gaia`)
