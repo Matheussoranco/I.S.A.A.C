@@ -7,6 +7,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.1] — 2026-07-04 — GAIA unblocked: parquet layout fix + first L1 run
+
+### Fixed — GAIA loader broken by upstream dataset relayout
+- The upstream GAIA repo replaced `metadata.jsonl` with parquet metadata
+  (`metadata.parquet` + per-level files) in Oct 2025, so the 1.2.0 adapter
+  could not load a freshly downloaded split at all. `load_gaia_tasks` now
+  reads **both** layouts identically (guarded `pyarrow` import; regression
+  test asserts jsonl/parquet parity). New `benchmarks` optional-dependency
+  group (`pip install isaac[benchmarks]`: `huggingface_hub`, `pyarrow`).
+
+### Added — first full GAIA L1 validation run (lower bound, not a measurement)
+- All 53 official Level 1 validation tasks executed end-to-end with
+  `qwen3-coder:480b-cloud` (official quasi-exact-match scoring): **≥4/53
+  (7.5%)** — run `ec4683ab1b5f`, suite hash `d911d7eacf5fbd54`, 2026-07-04.
+  **Validity caveat, stated loudly:** the Ollama Cloud free-tier session
+  quota was exhausted from ~task 13 onward; 40+ tasks failed with provider
+  429s before the model could attempt them, so this is a floor. Calibration
+  on the same split (Mialon et al., 2023, Table 4): GPT-4 9.1%, GPT-4 Turbo
+  13.0%, AutoGPT 14.4%, GPT-4 + plugins 30.3%, humans 93.9%; 2025 top agents
+  92–98%. The README row is explicitly marked as a quota-truncated lower
+  bound and will be replaced by a clean run.
+
+_Next per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md): a clean GAIA L1 run
+(quota headroom or paced eval), WS3 — raise the ARC floor with LLM-guided
+synthesis + test-time compute; full red-team pass._
+
+---
+
 ## [1.3.0] — 2026-07-03 — Measured in public
 
 The first *public*-benchmark number (ROADMAP-1.0 §1 evidence gate) and the
