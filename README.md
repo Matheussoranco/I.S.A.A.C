@@ -340,6 +340,7 @@ optional seeded workspace files and a tool allow-list. See
 |---|---|---|---|
 | 2026-06-10 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | `golden_v1` · hash `da9b7c08c5bd342a` · run `d5d463aabba3` | **31/33 (93.9%)** |
 | 2026-07-03 | symbolic synthesis solver (no LLM, 1 attempt) | ARC-AGI-1 public evaluation set (400 tasks) · hash `27b8f28a235e1014` · run `8df1af2a87e5` | **2/400 (0.5%)** |
+| 2026-07-04 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | GAIA Level 1 validation (53 tasks, official scorer) · hash `d911d7eacf5fbd54` · run `ec4683ab1b5f` | **≥4/53 (7.5%)** — quota-truncated lower bound, see below |
 
 Golden suite — per category: reasoning 8/9 · coding 4/4 · analysis 4/4 ·
 research 5/5 · text 4/4 · writing 2/2 · file-org 2/2 · orchestration 1/2 ·
@@ -360,9 +361,23 @@ nightly CI; raising it with LLM-guided synthesis and test-time compute is the
 1.4 workstream (WS3). Reproduce (no model or key needed):
 `isaac eval --format arc --download`
 
+GAIA L1 — the first full run of the official 53-task Level 1 validation split
+(quasi-exact-match scoring identical to the leaderboard). **The score is a
+lower bound, not a measurement**: the Ollama Cloud free-tier session quota
+was exhausted from roughly task 13 onward, so 40+ tasks failed with provider
+429 errors before the model could attempt them (quota failures score as
+plain failures, so a clean run can only score equal or higher). For
+calibration on the same validation split: GPT-4 9.1%, GPT-4 Turbo 13.0%,
+AutoGPT 14.4%, GPT-4 + plugins 30.3%, humans 93.9%
+([Mialon et al., 2023](https://arxiv.org/abs/2311.12983), Table 4); 2025's
+top agents reach 92–98%
+([official public results](https://huggingface.co/datasets/gaia-benchmark/results_public)).
+A clean run will replace this row once quota headroom exists.
+Reproduce: `ISAAC_MODEL_NAME=qwen3-coder:480b-cloud isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1 --auto-approve`
+
 > Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, "SOTA" claims require a
 > *competitive* public-benchmark number against a named comparison system —
-> 0.5% vs 9–21% is measured, cited, and nowhere near that bar. The honest
+> the measured numbers are cited and nowhere near that bar. The honest
 > description remains "a competitive local-first autonomous agent framework"
 > with its capability now measured in public.
 
