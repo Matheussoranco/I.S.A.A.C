@@ -128,6 +128,32 @@ def test_load_gaia_missing_metadata_raises(tmp_path) -> None:
         load_gaia_tasks(tmp_path)
 
 
+def test_load_gaia_parquet_layout(tmp_path) -> None:
+    # The upstream dataset replaced metadata.jsonl with metadata.parquet in
+    # Oct 2025 — the loader must read both layouts identically.
+    pa = pytest.importorskip("pyarrow")
+    import pyarrow.parquet as pq
+
+    jsonl_split = _write_gaia_split(tmp_path)
+    rows = [
+        json.loads(line)
+        for line in (jsonl_split / "metadata.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    for r in rows:  # parquet layout stores Level as a string column
+        r["Level"] = str(r["Level"])
+
+    pq_split = tmp_path / "validation-parquet"
+    pq_split.mkdir()
+    (pq_split / "data.xlsx").write_bytes(b"\x50\x4b\x03\x04fakexlsx")
+    pq.write_table(pa.Table.from_pylist(rows), pq_split / "metadata.parquet")
+
+    expected = load_gaia_tasks(jsonl_split, level=1)
+    got = load_gaia_tasks(pq_split, level=1)
+    assert [t.id for t in got] == [t.id for t in expected]
+    assert [t.prompt for t in got] == [t.prompt for t in expected]
+    assert [t.checks for t in got] == [t.checks for t in expected]
+
+
 # ── binary attachment seeding through the runner ─────────────────────────────
 
 

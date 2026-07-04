@@ -126,6 +126,41 @@ def question_scorer(model_answer: str, ground_truth: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _read_metadata(split_dir: Path) -> list[dict]:
+    """Read split metadata rows from ``metadata.jsonl`` (pre-Oct-2025 layout)
+    or ``metadata.parquet`` (the current upstream layout)."""
+    jsonl = split_dir / "metadata.jsonl"
+    if jsonl.is_file():
+        rows: list[dict] = []
+        for lineno, raw in enumerate(jsonl.read_text(encoding="utf-8").splitlines(), 1):
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{jsonl.name}:{lineno}: invalid JSON — {exc}") from exc
+        return rows
+
+    parquet = split_dir / "metadata.parquet"
+    if parquet.is_file():
+        try:
+            import pyarrow.parquet as pq  # optional dep, guarded import
+        except ImportError as exc:
+            raise ImportError(
+                "The GAIA split ships parquet metadata; install the benchmarks "
+                "extra (pip install 'isaac[benchmarks]') to read it."
+            ) from exc
+        return pq.read_table(parquet).to_pylist()
+
+    raise FileNotFoundError(
+        f"Neither metadata.jsonl nor metadata.parquet found in {split_dir}. "
+        "Download the GAIA validation split first "
+        "(isaac eval --format gaia --download, after accepting the dataset "
+        f"terms at https://huggingface.co/datasets/{GAIA_REPO})."
+    )
+
+
 def load_gaia_tasks(
     metadata_dir: str | Path,
     level: int | None = 1,
@@ -133,30 +168,15 @@ def load_gaia_tasks(
     max_iterations: int = 20,
     timeout_seconds: float = 300.0,
 ) -> list[EvalTask]:
-    """Load GAIA tasks from a split directory containing ``metadata.jsonl``.
+    """Load GAIA tasks from a split directory containing ``metadata.jsonl``
+    (legacy) or ``metadata.parquet`` (current upstream layout).
 
     Attachments referenced by ``file_name`` are seeded into the run workspace
     as binary copies; the prompt tells the agent where to find them.
     """
     split_dir = Path(metadata_dir)
-    meta = split_dir / "metadata.jsonl"
-    if not meta.is_file():
-        raise FileNotFoundError(
-            f"{meta} not found. Download the GAIA validation split first "
-            "(isaac eval --format gaia --download, after accepting the dataset "
-            f"terms at https://huggingface.co/datasets/{GAIA_REPO})."
-        )
-
     tasks: list[EvalTask] = []
-    for lineno, raw in enumerate(meta.read_text(encoding="utf-8").splitlines(), 1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{meta.name}:{lineno}: invalid JSON — {exc}") from exc
-
+    for obj in _read_metadata(split_dir):
         task_level = int(obj.get("Level", 0))
         if level is not None and task_level != level:
             continue
