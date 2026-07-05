@@ -340,6 +340,7 @@ optional seeded workspace files and a tool allow-list. See
 |---|---|---|---|
 | 2026-06-10 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | `golden_v1` · hash `da9b7c08c5bd342a` · run `d5d463aabba3` | **31/33 (93.9%)** |
 | 2026-07-03 | symbolic synthesis solver (no LLM, 1 attempt) | ARC-AGI-1 public evaluation set (400 tasks) · hash `27b8f28a235e1014` · run `8df1af2a87e5` | **2/400 (0.5%)** |
+| 2026-07-05 | `nemotron-3-nano:4b` (fully local, RTX 3050 6GB laptop, via AgentLoop) | GAIA Level 1 validation (53 tasks, official scorer) · hash `d911d7eacf5fbd54` · run `7f8d822279ea` | **8/53 (15.1%)** |
 | 2026-07-04 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | GAIA Level 1 validation (53 tasks, official scorer) · hash `d911d7eacf5fbd54` · run `ec4683ab1b5f` | **≥4/53 (7.5%)** — quota-truncated lower bound, see below |
 
 Golden suite — per category: reasoning 8/9 · coding 4/4 · analysis 4/4 ·
@@ -361,19 +362,23 @@ nightly CI; raising it with LLM-guided synthesis and test-time compute is the
 1.4 workstream (WS3). Reproduce (no model or key needed):
 `isaac eval --format arc --download`
 
-GAIA L1 — the first full run of the official 53-task Level 1 validation split
-(quasi-exact-match scoring identical to the leaderboard). **The score is a
-lower bound, not a measurement**: the Ollama Cloud free-tier session quota
-was exhausted from roughly task 13 onward, so 40+ tasks failed with provider
-429 errors before the model could attempt them (quota failures score as
-plain failures, so a clean run can only score equal or higher). For
-calibration on the same validation split: GPT-4 9.1%, GPT-4 Turbo 13.0%,
-AutoGPT 14.4%, GPT-4 + plugins 30.3%, humans 93.9%
-([Mialon et al., 2023](https://arxiv.org/abs/2311.12983), Table 4); 2025's
+GAIA L1 — the official 53-task Level 1 validation split, quasi-exact-match
+scoring identical to the leaderboard. The headline result is the **fully
+local** one: a 4-billion-parameter model running entirely on a consumer
+laptop GPU (RTX 3050, 6 GB), driven by the AgentLoop's tools (web search,
+browser, file handling), completed all 53 tasks cleanly and scored
+**15.1%** — above the GAIA paper's baselines on the same split for GPT-4
+(9.1%), GPT-4 Turbo (13.0%), and AutoGPT with a GPT-4 backend (14.4%), and
+half of GPT-4 + manually selected plugins (30.3%); humans score 93.9%
+([Mialon et al., 2023](https://arxiv.org/abs/2311.12983), Table 4). 2025's
 top agents reach 92–98%
-([official public results](https://huggingface.co/datasets/gaia-benchmark/results_public)).
-A clean run will replace this row once quota headroom exists.
-Reproduce: `ISAAC_MODEL_NAME=qwen3-coder:480b-cloud isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1 --auto-approve`
+([official public results](https://huggingface.co/datasets/gaia-benchmark/results_public))
+— that gap is stated, not hidden: the claim here is capability *per watt*,
+not absolute capability. The `qwen3-coder:480b-cloud` row is a lower bound
+only — the provider's free-tier quota aborted 40+ of its 53 tasks mid-run
+with 429 errors, so its clean number is still unmeasured.
+Reproduce locally (no cloud, no key):
+`ISAAC_MODEL_NAME=nemotron-3-nano:4b isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1 --task-timeout 1200 --auto-approve`
 
 > Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, "SOTA" claims require a
 > *competitive* public-benchmark number against a named comparison system —

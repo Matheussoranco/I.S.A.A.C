@@ -1,4 +1,4 @@
-# Known Limitations (1.3.1)
+# Known Limitations (1.3.2)
 
 I.S.A.A.C. 1.0 is a stable, tested, local-first autonomous agent **framework**.
 This file states plainly what that does — and does not — mean. It exists so
@@ -24,12 +24,13 @@ the README's capability claims can be read with the right calibration.
   is that it is public, reproducible on any machine with no model configured,
   and regression-gated in nightly CI. The internal golden suite additionally
   has a recorded live-model result (31/33 with `qwen3-coder:480b-cloud`,
-  2026-06-10). GAIA L1 has a first full-run result (≥4/53, 2026-07-04) that
-  is only a *lower bound*: the provider's free-tier quota aborted 40+ of the
-  53 tasks mid-run with 429 errors — a clean measurement needs quota headroom
-  (paid tier, a reset window, or a strong local model). Scores with the
-  default 7B local model will be substantially lower than the golden-suite
-  number.
+  2026-06-10). GAIA L1 now has a clean, fully local measurement — 8/53
+  (15.1%) with `nemotron-3-nano:4b` on a 6 GB laptop GPU (2026-07-05) —
+  which beats the GAIA paper's 2023 GPT-4-class baselines on the same split
+  but sits far below 2025's top agents (92–98%). It is a single run of a
+  small model: treat it as a capability-per-watt data point, not a
+  leaderboard entry. The `qwen3-coder:480b-cloud` GAIA result (≥4/53,
+  2026-07-04) remains a quota-truncated lower bound.
 - **Tests mock the LLM.** The test suite validates the machinery (loops,
   routing, memory, safety gates), not end-to-end task success against a live
   model. Real-world quality depends heavily on the model you configure.
