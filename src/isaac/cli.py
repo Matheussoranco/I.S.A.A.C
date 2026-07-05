@@ -599,6 +599,12 @@ if typer is not None:
         ),
         limit: int = typer.Option(0, "--limit", "-n", help="Run only the first N tasks."),
         task_id: str = typer.Option("", "--task", help="Run only the task with this id."),
+        task_timeout: float = typer.Option(
+            0.0,
+            "--task-timeout",
+            help="Per-task wall-clock budget in seconds (0 = suite default). "
+            "Does not change the suite hash; useful for slower local models.",
+        ),
         auto_approve: bool = typer.Option(
             False, "--auto-approve", "-y", help="Allow high-risk tools during eval runs."
         ),
@@ -646,7 +652,9 @@ if typer is not None:
                     "or add --download."
                 )
                 raise typer.Exit(2)
-            tasks = load_gaia_tasks(suite, level=level)
+            tasks = load_gaia_tasks(
+                suite, level=level, **({"timeout_seconds": task_timeout} if task_timeout else {})
+            )
             suite_label = f"gaia-2023-l{level}-validation"
         elif fmt == "arc":
             from isaac.eval.arc import download_arc, load_arc_tasks
@@ -660,7 +668,9 @@ if typer is not None:
                     "Provide the ARC split directory (containing *.json tasks) or add --download."
                 )
                 raise typer.Exit(2)
-            tasks = load_arc_tasks(suite)
+            tasks = load_arc_tasks(
+                suite, **({"time_budget_s": task_timeout} if task_timeout else {})
+            )
             suite_label = f"arc-agi-1-{_Path(suite).name}"
         else:
             if not suite:
