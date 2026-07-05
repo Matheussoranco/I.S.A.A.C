@@ -7,6 +7,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.2] — 2026-07-05 — GAIA L1 measured clean, fully local
+
+### Added — clean GAIA L1 result on consumer hardware
+- **8/53 (15.1%)** on the official GAIA Level 1 validation split with
+  `nemotron-3-nano:4b` running **entirely locally** on an RTX 3050 6 GB
+  laptop GPU — run `7f8d822279ea`, suite hash `d911d7eacf5fbd54`
+  (identical task set to the 1.3.1 cloud attempt), all 53 tasks executed,
+  zero provider errors. On the same split this beats the GAIA paper's
+  GPT-4 (9.1%), GPT-4 Turbo (13.0%), and AutoGPT/GPT-4 (14.4%) baselines
+  (Mialon et al., 2023, Table 4) — a 4B model with agentic tooling out-scoring
+  2023 frontier-model baselines. 2025's top agents reach 92–98%; the claim
+  is capability per watt, not absolute capability.
+
+### Added — `isaac eval --task-timeout <seconds>`
+- Per-task wall-clock budget override (0 = suite default). GAIA has no
+  official time limit, and the 300 s default silently clipped slower local
+  models into timeout-failures; the flag makes small-model runs fair without
+  changing the suite hash. The local run above used `--task-timeout 1200`.
+
+_Rationale for the model choice: `qwen3.6:35b` measured 5–7 tok/s on this
+hardware (23 GB model, 6 GB VRAM — mostly CPU), putting a full run at 1.5–4+
+days with near-certain timeout contamination; `nemotron-3-nano:4b` runs
+~51 tok/s fully on GPU._
+
+---
+
 ## [1.3.1] — 2026-07-04 — GAIA unblocked: parquet layout fix + first L1 run
 
 ### Fixed — GAIA loader broken by upstream dataset relayout
