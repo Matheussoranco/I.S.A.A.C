@@ -45,3 +45,7 @@ skills/*.py
 # OS
 Thumbs.db
 .DS_Store
+
+# ChromaDB vector store for the skill index - a runtime cache, regenerated
+# on demand via get_or_create_collection(). Committing it churns binary blobs.
+skills/.chromadb/

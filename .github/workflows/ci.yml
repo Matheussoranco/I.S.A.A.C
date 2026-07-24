@@ -52,9 +52,10 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      # No API-key env vars. The default backend is local (Ollama + qwen3.6) and
+      # key validation only applies once a cloud provider is selected, so the
+      # suite runs keyless. A bare runner is also the honest test of that claim:
+      # if something regresses into requiring a cloud key, CI should fail here.
+      # Nothing reaches a real Ollama daemon either — those calls are stubbed.
       - name: Run tests
         run: pytest tests/ --tb=short -q
-        env:
-          # Dummy keys so settings validation passes without real credentials
-          OPENAI_API_KEY: sk-test-ci
-          ANTHROPIC_API_KEY: sk-ant-test-ci
