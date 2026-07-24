@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from tests.conftest import MockLLM
-
 from isaac.core.state import PlanStep, make_initial_state
 from isaac.nodes.synthesis import _extract_code, synthesis_node
+from tests.conftest import MockLLM
 
 
 class TestExtractCode:
@@ -16,7 +15,7 @@ class TestExtractCode:
         assert _extract_code(text) == 'print("hi")'
 
     def test_fenced_no_language(self) -> None:
-        text = '```\nx = 1\n```'
+        text = "```\nx = 1\n```"
         assert _extract_code(text) == "x = 1"
 
     def test_no_fence(self) -> None:
@@ -30,7 +29,7 @@ class TestSynthesisNode:
         state["plan"] = [PlanStep(id="s1", description="print 42", status="active")]
         state["hypothesis"] = "compute 42"
 
-        mock = MockLLM('```python\nprint(42)\n```')
+        mock = MockLLM("```python\nprint(42)\n```")
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             result = synthesis_node(state)
 

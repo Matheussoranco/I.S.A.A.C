@@ -98,7 +98,7 @@ class TestTokenStore:
 
     def test_cleanup_expired(self, store: TokenStore) -> None:
         t1 = store.issue("tool", ttl_hours=0)  # expires immediately
-        t2 = store.issue("tool", ttl_hours=24)
+        store.issue("tool", ttl_hours=24)
         # t1 is expired (ttl=0 means expires_at = issued_at = now)
         # Actually ttl_hours=0 might not expire; let's revoke instead
         store.revoke(t1.token_id)

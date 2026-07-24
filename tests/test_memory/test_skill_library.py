@@ -13,7 +13,7 @@ class TestSkillLibrary:
         lib = SkillLibrary(tmp_path)
         candidate = SkillCandidate(
             name="rotate_grid",
-            code='def rotate(grid):\n    return [list(r) for r in zip(*grid[::-1])]',
+            code="def rotate(grid):\n    return [list(r) for r in zip(*grid[::-1])]",
             input_schema={"grid": "list[list[int]]"},
             output_schema={"result": "list[list[int]]"},
             task_context="ARC rotation task",
@@ -34,18 +34,22 @@ class TestSkillLibrary:
 
     def test_search(self, tmp_path: Path) -> None:
         lib = SkillLibrary(tmp_path)
-        lib.commit(SkillCandidate(
-            name="flip_horizontal",
-            code="def flip(g): return [r[::-1] for r in g]",
-            task_context="ARC flip task",
-            success_count=1,
-        ))
-        lib.commit(SkillCandidate(
-            name="fill_color",
-            code="def fill(g, c): pass",
-            task_context="ARC color fill",
-            success_count=1,
-        ))
+        lib.commit(
+            SkillCandidate(
+                name="flip_horizontal",
+                code="def flip(g): return [r[::-1] for r in g]",
+                task_context="ARC flip task",
+                success_count=1,
+            )
+        )
+        lib.commit(
+            SkillCandidate(
+                name="fill_color",
+                code="def fill(g, c): pass",
+                task_context="ARC color fill",
+                success_count=1,
+            )
+        )
 
         results = lib.search("flip")
         assert "flip_horizontal" in results

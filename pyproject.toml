@@ -7,9 +7,10 @@ name = "isaac"
 version = "1.3.2"
 description = "Intelligent System for Autonomous Action and Cognition — neuro-symbolic autonomous agent"
 readme = "README.md"
-# PolyForm Noncommercial 1.0.0 — everything permitted except commercial use.
-# Not an OSI-approved licence, hence the "Other/Proprietary" classifier.
-license = { text = "PolyForm-Noncommercial-1.0.0" }
+# CC BY-NC-SA 4.0 — noncommercial use only, and any derivative you share must
+# carry the same terms (ShareAlike / copyleft). Not an OSI-approved licence,
+# hence the "Other/Proprietary" classifier.
+license = { text = "CC-BY-NC-SA-4.0" }
 requires-python = ">=3.10"
 authors = [{ name = "Matheus Soranço", email = "matheussoranco@gmail.com" }]
 keywords = ["agent", "agi", "neuro-symbolic", "langgraph", "code-agent"]

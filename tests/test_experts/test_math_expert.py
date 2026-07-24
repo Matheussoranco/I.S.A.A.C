@@ -6,7 +6,7 @@ import pytest
 
 sympy = pytest.importorskip("sympy")
 
-from isaac.experts.math import MathExpert
+from isaac.experts.math import MathExpert  # noqa: E402 - must follow importorskip
 
 
 @pytest.fixture()

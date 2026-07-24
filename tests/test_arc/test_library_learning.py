@@ -22,7 +22,7 @@ def test_records_solutions_and_compresses() -> None:
         for i in range(3):
             learner.record_solution(
                 {"id": f"task_{i}"},
-                program=common + [{"op": "identity"}],
+                program=[*common, {"op": "identity"}],
                 accuracy=1.0,
                 strategy="beam",
             )
@@ -47,7 +47,9 @@ def test_low_accuracy_solutions_skipped() -> None:
         db = Path(tmp) / "lib.db"
         learner = LibraryLearner(db, min_support=1)
         learner.record_solution(
-            {"id": "x"}, program=[{"op": "rotate_90"}], accuracy=0.5,
+            {"id": "x"},
+            program=[{"op": "rotate_90"}],
+            accuracy=0.5,
         )
         stats = learner.stats()
         assert stats["solutions_recorded"] == 0

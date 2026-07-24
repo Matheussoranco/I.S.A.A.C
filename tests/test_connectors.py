@@ -7,9 +7,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # BaseConnector
 # ---------------------------------------------------------------------------
@@ -80,7 +77,7 @@ class TestWebSearchConnector:
         c = WebSearchConnector()
         # Mock duckduckgo_search
         with patch("duckduckgo_search.DDGS") as MockDDGS:
-            instance = MockDDGS.return_value.__enter__ = MagicMock()
+            MockDDGS.return_value.__enter__ = MagicMock()
             MockDDGS.return_value.__enter__.return_value = MockDDGS.return_value
             MockDDGS.return_value.__exit__ = MagicMock(return_value=False)
             MockDDGS.return_value.text.return_value = [
@@ -251,7 +248,10 @@ class TestConnectorRegistry:
     def test_audit_connector_writes_file(self, tmp_path: Path) -> None:
         from isaac.skills.connectors.registry import audit_connector
 
-        with patch("isaac.skills.connectors.registry._audit_path", return_value=tmp_path / "audit.log"):
+        with patch(
+            "isaac.skills.connectors.registry._audit_path",
+            return_value=tmp_path / "audit.log",
+        ):
             audit_connector("test", "invoke", "detail")
             assert (tmp_path / "audit.log").exists()
             content = (tmp_path / "audit.log").read_text()

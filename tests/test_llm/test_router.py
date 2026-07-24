@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from isaac.llm.providers.ollama import DEFAULT_MODEL
-from isaac.llm.router import LLMRouter, TaskComplexity, get_router
+from isaac.llm.router import LLMRouter, TaskComplexity
 
 
 class TestLLMRouter:
@@ -26,7 +24,7 @@ class TestLLMRouter:
         router._ollama_available = True  # skip health check
         with patch.object(router, "_build_ollama_model") as mock_build:
             mock_build.return_value = MagicMock()
-            model = router.route(TaskComplexity.SIMPLE)
+            router.route(TaskComplexity.SIMPLE)
             mock_build.assert_called_once_with(DEFAULT_MODEL)
 
     def test_route_moderate_uses_light_model(self) -> None:

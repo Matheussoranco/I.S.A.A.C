@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from isaac.security.sanitizer import (
-    MAX_INPUT_LENGTH,
-    MAX_OUTPUT_LENGTH,
     sanitize_input,
     sanitize_json_value,
     sanitize_output,
@@ -91,6 +87,7 @@ class TestSanitizePath:
 
     def test_rejects_absolute_by_default(self) -> None:
         import sys
+
         abs_path = "C:\\Windows\\System32" if sys.platform == "win32" else "/etc/passwd"
         result = sanitize_path(abs_path, allow_absolute=False)
         assert result is None

@@ -63,5 +63,3 @@ def test_reasoner_facade() -> None:
     reasoner.add_observations(_generate_data())
     reasoner.learn(variable_order=["A", "B", "C"])
     assert len(reasoner.graph.edges) >= 2
-
-

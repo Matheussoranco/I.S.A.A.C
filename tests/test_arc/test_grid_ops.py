@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 
 from isaac.arc.grid_ops import (
-    GridObject,
     analyse_grid,
     detect_background,
     detect_repeating_pattern,
@@ -66,11 +65,13 @@ class TestExtractObjects:
         assert objs[0].shape == (2, 1)
 
     def test_l_shaped_object_stays_connected(self) -> None:
-        grid = np.array([
-            [1, 0],
-            [1, 0],
-            [1, 1],
-        ])
+        grid = np.array(
+            [
+                [1, 0],
+                [1, 0],
+                [1, 1],
+            ]
+        )
         objs = extract_objects(grid, background=0)
         assert len(objs) == 1
         assert objs[0].size == 4

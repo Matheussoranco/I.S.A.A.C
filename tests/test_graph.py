@@ -56,8 +56,7 @@ class TestAfterReflection:
         state = make_initial_state()
         state["skill_candidate"] = None
         state["errors"] = [
-            ErrorEntry(node="reflection", message="fail", attempt=i)
-            for i in range(3)
+            ErrorEntry(node="reflection", message="fail", attempt=i) for i in range(3)
         ]
         state["iteration"] = 3
 
