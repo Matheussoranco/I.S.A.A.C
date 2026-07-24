@@ -194,10 +194,23 @@ class MultimodalRouter:
                     )
                     return candidate.build()
 
-        raise RouteError(
+        detail = (
             f"No healthy provider for modality={modality.value} complexity={complexity.value}. "
             f"Tried primary={primary.provider} and fallback_chain={self._fallback_chain}."
         )
+        if primary.provider == "ollama":
+            # The default backend: say exactly which command fixes it rather
+            # than leaving the user to guess (and never reroute to a paid API).
+            from isaac.llm.providers.ollama import (
+                DEFAULT_BASE_URL,
+                daemon_unreachable_message,
+            )
+
+            detail = (
+                f"{detail}\n\n"
+                f"{daemon_unreachable_message(primary.base_url or DEFAULT_BASE_URL, primary.model)}"
+            )
+        raise RouteError(detail)
 
     def known_providers(self) -> list[str]:
         """Return all registered provider names."""

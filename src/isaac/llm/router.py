@@ -16,6 +16,8 @@ import time
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from isaac.llm.providers.ollama import DEFAULT_BASE_URL, DEFAULT_MODEL
+
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -55,9 +57,9 @@ class LLMRouter:
 
     def __init__(
         self,
-        ollama_base_url: str = "http://localhost:11434",
-        light_model: str = "qwen2.5-coder:7b",
-        heavy_model: str = "qwen2.5-coder:7b",
+        ollama_base_url: str = DEFAULT_BASE_URL,
+        light_model: str = DEFAULT_MODEL,
+        heavy_model: str = DEFAULT_MODEL,
         fallback_provider: str = "",
     ) -> None:
         self._ollama_base_url = ollama_base_url.rstrip("/")

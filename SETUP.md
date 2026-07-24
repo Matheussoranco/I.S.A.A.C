@@ -8,7 +8,7 @@
 | ----------------- | --------- | ---------------------------------------------- |
 | Python            | ≥ 3.10    | 3.12 recommended                               |
 | Docker            | ≥ 24.0    | For sandboxed code execution                   |
-| Ollama (recommended) | ≥ 0.3  | Local LLM — default provider                   |
+| Ollama            | ≥ 0.3     | Local LLM — the **default** provider (`ollama pull qwen3.6`) |
 | Microphone + speakers | any   | Only needed for the voice REPL                 |
 
 ## 1. Clone & Install
@@ -42,21 +42,46 @@ cp .env.example .env
 
 ### Required for local-first (default)
 
-The default install talks to **Ollama** on `http://localhost:11434`.
-The only thing you need to do is pull a model:
+The default install talks to **Ollama** on `http://localhost:11434` using the
+model **`qwen3.6`** — no API key of any kind. The only thing you need to do is
+pull the model:
 
 ```bash
-ollama pull qwen2.5-coder:7b   # text
+ollama pull qwen3.6            # text (the default)
 ollama pull llava:7b           # vision (optional)
 ```
 
-### Optional — Cloud fallbacks
+| Variable                    | Default                  | Purpose |
+| --------------------------- | ------------------------ | ------- |
+| `ISAAC_LLM_PROVIDER`        | `ollama`                 | `ollama` / `llamacpp` / `openai_compat` / `openai` / `anthropic` |
+| `ISAAC_MODEL_NAME`          | `qwen3.6`                | Default model tag |
+| `ISAAC_OLLAMA_BASE_URL`     | `http://localhost:11434` | Ollama daemon URL |
+| `ISAAC_OLLAMA_LIGHT_MODEL`  | `qwen3.6`                | Simple / moderate tasks |
+| `ISAAC_OLLAMA_HEAVY_MODEL`  | `qwen3.6`                | Complex / reasoning tasks |
+| `ISAAC_OLLAMA_PREFLIGHT`    | `true`                   | Check daemon + model before the first call |
+
+If the daemon is down or the model was never pulled, I.S.A.A.C. stops with an
+error that names the exact command to run (`ollama serve`, `ollama pull qwen3.6`)
+instead of failing cryptically — and it never silently redirects the request to
+a paid cloud API. Run `isaac doctor` to see the same diagnosis up front.
+
+### Optional — Cloud providers
+
+Cloud backends are fully supported; they are simply not the default. Their API
+keys are validated **only** when you actually select one.
 
 | Variable              | When to set                              |
 | --------------------- | ---------------------------------------- |
 | `OPENAI_API_KEY`      | Set when using `openai` provider or as fallback |
 | `ANTHROPIC_API_KEY`   | Set when using `anthropic` provider or as fallback |
-| `ISAAC_LLM_FALLBACK_PROVIDER` | `openai` / `anthropic` — used when the primary local backend is down |
+| `ISAAC_LLM_FALLBACK_PROVIDER` | `openai` / `anthropic` — opt-in; empty by default so nothing bills you unexpectedly |
+
+```bash
+# Example: drive I.S.A.A.C. with Claude instead of the local default
+export ISAAC_LLM_PROVIDER=anthropic
+export ISAAC_MODEL_NAME=claude-opus-4-8
+export ANTHROPIC_API_KEY=sk-ant-...
+```
 
 ### Optional — Voice
 
@@ -118,8 +143,12 @@ docker build -t isaac-ui-sandbox:latest -f sandbox_image_ui/Dockerfile sandbox_i
 ## 4. Start Ollama
 
 ```bash
-ollama serve   # in one terminal
+ollama serve             # in one terminal
+ollama pull qwen3.6      # the default model — once
 ```
+
+Verify with `isaac doctor`; it reports `fail` (with the exact fix) if the daemon
+is unreachable or `qwen3.6` has not been pulled.
 
 ## 5. Run I.S.A.A.C.
 

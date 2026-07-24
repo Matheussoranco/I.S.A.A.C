@@ -1,4 +1,9 @@
-"""OpenAI cloud provider."""
+"""OpenAI cloud provider — opt-in.
+
+``model`` is intentionally required: I.S.A.A.C. defaults to a local backend
+(see :pymod:`isaac.llm.providers.ollama`), so nothing here should ever be
+able to pick a billable model on its own.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def build(
-    model: str = "gpt-4o-mini",
+    model: str,
     api_key: str = "",
     base_url: str = "",
     temperature: float = 0.2,

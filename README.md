@@ -25,7 +25,7 @@ self-curation, and a hardened security stack.
 | **Specialist team** | A manager *orchestrator* decomposes a goal and dispatches it to focused local-first mini-agents — coder, file-organizer, researcher, designer, OS-operator, analyst, critic — running independent subtasks in parallel. |
 | **Host reach** | Constitution-gated `shell`, real-filesystem `fs_*` tools (organise your actual files, confined to `allowed_paths`), and read-only `system_info` — so it can do nearly any task on the PC. |
 | **User personas** | Build, store, and activate custom agent identities (`isaac persona new`); the whole team speaks with your chosen voice. |
-| **Local-first LLMs** | First-class Ollama, llama.cpp, and any OpenAI-compatible endpoint. Cloud (OpenAI/Anthropic) only as fallback. |
+| **Local-first LLMs** | Ollama + `qwen3.6` **by default** — zero API keys, nothing leaves the machine. llama.cpp and any OpenAI-compatible endpoint are first-class too; cloud (OpenAI/Anthropic) stays fully supported but strictly opt-in. |
 | **Voice I/O** | Whisper (STT) ↔ Piper / Coqui / pyttsx3 (TTS) with VAD-driven hands-free mode. |
 | **Vision** | Local VLMs via Ollama (`llava`, `qwen2.5-vl`). Image / screen-capture input. |
 | **Self-improving** | Per-node telemetry, A/B prompt evolution, skill auto-curation, periodic self-critique. |
@@ -125,13 +125,17 @@ src/isaac/llm/
 
 The `MultimodalRouter` resolves every LLM call to a concrete `(provider, model)` pair via a 3 × 3 table. Local providers are health-checked (cached 60 s) before dispatch; on miss the router walks a fallback chain.
 
-|              | **fast** (perception, classification) | **default** (synthesis, planning) | **strong** (reflection, critique)                       |
-| ------------ | ------------------------------------- | --------------------------------- | ------------------------------------------------------- |
-| **text**     | `ollama / qwen2.5:3b`                 | `ollama / qwen2.5-coder:7b`       | `ollama / qwen2.5:14b` → `anthropic / claude-haiku-4-5` |
-| **vision**   | `ollama / llava:7b`                   | `ollama / llava:7b`               | `ollama / qwen2.5-vl` → `openai / gpt-4o`               |
-| **audio**    | faster-whisper (`tiny` / `base`)      | faster-whisper (`small`)          | faster-whisper (`large-v3`)                             |
+Defaults are what a fresh install actually uses — **no API keys, no cloud account**:
 
-Cloud providers (`openai`, `anthropic`) are **never required** — they only enter the chain when listed as a fallback **and** the user supplied `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. Audio routing transcribes locally and re-routes the text through the **text** row.
+|              | **fast** (perception, classification) | **default** (synthesis, planning) | **strong** (reflection, critique) |
+| ------------ | ------------------------------------- | --------------------------------- | --------------------------------- |
+| **text**     | `ollama / qwen3.6`                    | `ollama / qwen3.6`                | `ollama / qwen3.6`                |
+| **vision**   | `ollama / llava:7b`                   | `ollama / llava:7b`               | `ollama / llava:7b`               |
+| **audio**    | faster-whisper (`tiny` / `base`)      | faster-whisper (`small`)          | faster-whisper (`large-v3`)       |
+
+Override any cell with `ISAAC_FAST_MODEL` / `ISAAC_MODEL_NAME` / `ISAAC_STRONG_MODEL` (and `ISAAC_VISION_MODEL` for the vision row).
+
+Cloud providers (`openai`, `anthropic`) are **never required and never automatic** — they enter the chain only when you select one (`ISAAC_LLM_PROVIDER=anthropic`) or name one in `ISAAC_LLM_FALLBACK_PROVIDER`, **and** supply the matching `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. If Ollama is down or the model was never pulled, I.S.A.A.C. raises an error naming the exact command (`ollama pull qwen3.6`) rather than quietly billing a cloud API. Audio routing transcribes locally and re-routes the text through the **text** row.
 
 ### Self-improvement lifecycle
 
@@ -207,7 +211,8 @@ Trigger paths:
 
 - Python ≥ 3.10
 - Docker Engine running
-- [Ollama](https://ollama.ai/) (recommended for local inference)
+- [Ollama](https://ollama.com/download) with the default model pulled — `ollama pull qwen3.6`
+- *Optional:* an `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` if you'd rather drive a cloud model
 - *Optional:* faster-whisper + Piper for voice; mss + Pillow for vision
 
 ### Setup
@@ -226,17 +231,25 @@ pip install -e ".[dev]"
 # Add multimodal extras (vision + voice)
 pip install -e ".[multimodal]"
 
-# Configure
+# Configure — optional. The defaults already point at a local Ollama daemon
+# running qwen3.6, so no API key is needed.
 cp .env.example .env
-# Edit .env — at minimum set ISAAC_OLLAMA_BASE_URL / ISAAC_MODEL_NAME
 
 # Build sandbox images
 docker build -t isaac-sandbox:latest sandbox_image/
 docker build -t isaac-ui-sandbox:latest sandbox_image_ui/
 
-# Pull a local model + a VLM
-ollama pull qwen2.5-coder:7b
+# Pull the default local model (+ a VLM for vision)
+ollama pull qwen3.6
 ollama pull llava:7b
+```
+
+Prefer a cloud model? Nothing is removed — select it explicitly:
+
+```bash
+export ISAAC_LLM_PROVIDER=anthropic
+export ISAAC_MODEL_NAME=claude-opus-4-8
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ### Run

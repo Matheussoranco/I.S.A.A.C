@@ -4,7 +4,7 @@
 #   docker compose up -d              # start all services
 #   docker compose up isaac            # start agent only (+ deps)
 #   docker compose build               # (re)build all images
-#   docker compose --profile ollama up # include local Ollama
+#   docker compose --profile ollama up # include local Ollama (default backend)
 #   docker compose --profile chromadb up # include ChromaDB
 #   docker compose logs -f isaac       # follow agent logs
 #
@@ -59,6 +59,10 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      # Local-first defaults — no API key required. Override in .env to use a
+      # cloud provider (ISAAC_LLM_PROVIDER=anthropic + ANTHROPIC_API_KEY, ...).
+      - ISAAC_LLM_PROVIDER=ollama
+      - ISAAC_MODEL_NAME=qwen3.6
       # Override Ollama URL to point to the companion container
       - ISAAC_OLLAMA_BASE_URL=http://ollama:11434
       # Allow sandbox containers to be spawned via Docker socket
@@ -113,7 +117,10 @@ services:
     entrypoint: ["echo", "ui-sandbox image built"]
 
   # --------------------------------------------------------------------------
-  # ollama — local LLM inference (optional, activated via --profile ollama)
+  # ollama — local LLM inference; the default backend.
+  # Activated via `--profile ollama`; skip the profile only if you already run
+  # a daemon on the host (point ISAAC_OLLAMA_BASE_URL at it) or use a cloud
+  # provider. After first start: `docker compose exec ollama ollama pull qwen3.6`
   # --------------------------------------------------------------------------
   ollama:
     image: ollama/ollama:latest
