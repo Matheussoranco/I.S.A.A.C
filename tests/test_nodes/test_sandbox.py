@@ -21,9 +21,7 @@ class TestSandboxNode:
         state = make_initial_state()
         state["code_buffer"] = "print('hello')"
 
-        mock_result = ExecutionResult(
-            stdout="hello\n", stderr="", exit_code=0, duration_ms=100.0
-        )
+        mock_result = ExecutionResult(stdout="hello\n", stderr="", exit_code=0, duration_ms=100.0)
         mock_executor = MagicMock()
         mock_executor.execute.return_value = mock_result
 

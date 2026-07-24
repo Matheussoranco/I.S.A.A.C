@@ -20,13 +20,20 @@ jobs:
           cache: "pip"
 
       - name: Install dev dependencies
+        # ruff is pinned exactly in the [dev] extra, and must stay that way:
+        # an unpinned ruff means the rule set is whatever the newest release
+        # defaults to. Ruff 0.16.0 widened its built-in defaults and turned a
+        # sibling project's CI red with 89 findings in code that had not
+        # changed. Installing it from the extra keeps local and CI in step.
         run: pip install -e ".[dev]"
 
       - name: Ruff lint
-        run: ruff check src/
+        # src/ AND tests/ — same scope as the sibling projects. Test code that
+        # nobody lints is where the dead imports and unused bindings collect.
+        run: ruff check src/ tests/
 
       - name: Ruff format check
-        run: ruff format --check src/
+        run: ruff format --check src/ tests/
 
       - name: Mypy type check
         run: mypy src/isaac --ignore-missing-imports
@@ -52,9 +59,10 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      # No API-key env vars. The default backend is local (Ollama + qwen3.6) and
+      # key validation only applies once a cloud provider is selected, so the
+      # suite runs keyless. A bare runner is also the honest test of that claim:
+      # if something regresses into requiring a cloud key, CI should fail here.
+      # Nothing reaches a real Ollama daemon either — those calls are stubbed.
       - name: Run tests
         run: pytest tests/ --tb=short -q
-        env:
-          # Dummy keys so settings validation passes without real credentials
-          OPENAI_API_KEY: sk-test-ci
-          ANTHROPIC_API_KEY: sk-ant-test-ci

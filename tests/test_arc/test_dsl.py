@@ -176,11 +176,13 @@ class TestGravity:
 
 class TestHollowRectangle:
     def test_hollow(self) -> None:
-        grid = np.array([
-            [1, 1, 1],
-            [1, 1, 1],
-            [1, 1, 1],
-        ])
+        grid = np.array(
+            [
+                [1, 1, 1],
+                [1, 1, 1],
+                [1, 1, 1],
+            ]
+        )
         result = hollow_rectangle(grid)
         # Centre should be cleared
         assert result[1, 1] == 0
@@ -242,12 +244,26 @@ class TestPrimitivesRegistry:
     def test_all_registered(self) -> None:
         # Original core primitives must all be present
         core = {
-            "identity", "rotate_90", "rotate_180", "rotate_270",
-            "flip_horizontal", "flip_vertical", "transpose",
-            "shift_right", "shift_left", "shift_down", "shift_up",
-            "fill_colour", "invert_colours", "crop_to_object",
-            "pad_grid", "tile_grid", "scale_up",
-            "gravity_down", "gravity_left", "hollow_rectangle",
+            "identity",
+            "rotate_90",
+            "rotate_180",
+            "rotate_270",
+            "flip_horizontal",
+            "flip_vertical",
+            "transpose",
+            "shift_right",
+            "shift_left",
+            "shift_down",
+            "shift_up",
+            "fill_colour",
+            "invert_colours",
+            "crop_to_object",
+            "pad_grid",
+            "tile_grid",
+            "scale_up",
+            "gravity_down",
+            "gravity_left",
+            "hollow_rectangle",
         }
         registered = set(PRIMITIVES.keys())
         assert core.issubset(registered), f"Missing core primitives: {core - registered}"

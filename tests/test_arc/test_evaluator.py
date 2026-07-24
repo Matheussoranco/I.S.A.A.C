@@ -11,7 +11,6 @@ from isaac.arc.evaluator import (
     ArcPair,
     ArcTask,
     EvalReport,
-    TaskResult,
     build_arc_prompt,
     evaluate,
     load_tasks,
@@ -54,11 +53,13 @@ def _make_unsolvable_task() -> ArcTask:
 
 class TestTaskLoading:
     def test_load_single_task(self, tmp_path: Path) -> None:
-        task_data = [{
-            "id": "test_001",
-            "train": [{"input": [[0, 1], [2, 3]], "output": [[3, 2], [1, 0]]}],
-            "test": [{"input": [[4, 5], [6, 7]], "output": [[7, 6], [5, 4]]}],
-        }]
+        task_data = [
+            {
+                "id": "test_001",
+                "train": [{"input": [[0, 1], [2, 3]], "output": [[3, 2], [1, 0]]}],
+                "test": [{"input": [[4, 5], [6, 7]], "output": [[7, 6], [5, 4]]}],
+            }
+        ]
         task_file = tmp_path / "task.json"
         task_file.write_text(json.dumps(task_data), encoding="utf-8")
 

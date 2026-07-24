@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from tests.conftest import MockLLM
-
 from isaac.core.state import (
     ExecutionResult,
     PlanStep,
@@ -15,6 +13,7 @@ from isaac.core.state import (
 )
 from isaac.memory.episodic import get_episodic_memory, reset_episodic_memory
 from isaac.nodes.reflection import reflection_node
+from tests.conftest import MockLLM
 
 
 class TestReflectionNode:
@@ -49,8 +48,10 @@ class TestReflectionNode:
             '{"success": false, "diagnosis": "ValueError raised", '
             '"revised_hypothesis": "handle errors"}'
         )
-        with patch("isaac.llm.provider.get_llm", return_value=mock), \
-             patch("isaac.nodes.refinement.attempt_refinement", return_value=None):
+        with (
+            patch("isaac.llm.provider.get_llm", return_value=mock),
+            patch("isaac.nodes.refinement.attempt_refinement", return_value=None),
+        ):
             result = reflection_node(state)
 
         assert "errors" in result
@@ -65,8 +66,10 @@ class TestReflectionNode:
         state["execution_logs"] = [ExecutionResult()]
 
         mock = MockLLM("not json!!!")
-        with patch("isaac.llm.provider.get_llm", return_value=mock), \
-             patch("isaac.nodes.refinement.attempt_refinement", return_value=None):
+        with (
+            patch("isaac.llm.provider.get_llm", return_value=mock),
+            patch("isaac.nodes.refinement.attempt_refinement", return_value=None),
+        ):
             result = reflection_node(state)
 
         assert "errors" in result
@@ -178,11 +181,12 @@ class TestReflectionNode:
         ]
 
         mock = MockLLM(
-            '{"success": false, "diagnosis": "ValueError", '
-            '"revised_hypothesis": "handle errors"}'
+            '{"success": false, "diagnosis": "ValueError", "revised_hypothesis": "handle errors"}'
         )
-        with patch("isaac.llm.provider.get_llm", return_value=mock), \
-             patch("isaac.nodes.refinement.attempt_refinement", return_value=None):
+        with (
+            patch("isaac.llm.provider.get_llm", return_value=mock),
+            patch("isaac.nodes.refinement.attempt_refinement", return_value=None),
+        ):
             reflection_node(state)
 
         mem = get_episodic_memory()
@@ -193,8 +197,7 @@ class TestReflectionNode:
 
     def test_ui_success_records_episode(self) -> None:
         state, mock = self._make_ui_state(
-            '{"success": true, "summary": "logged in", '
-            '"skill_candidate": {"name": "login_click"}}'
+            '{"success": true, "summary": "logged in", "skill_candidate": {"name": "login_click"}}'
         )
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             reflection_node(state)
@@ -207,8 +210,7 @@ class TestReflectionNode:
 
     def test_ui_failure_records_episode(self) -> None:
         state, mock = self._make_ui_state(
-            '{"success": false, "diagnosis": "not found", '
-            '"revised_hypothesis": "try scrolling"}'
+            '{"success": false, "diagnosis": "not found", "revised_hypothesis": "try scrolling"}'
         )
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             reflection_node(state)

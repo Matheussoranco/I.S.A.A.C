@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from tests.conftest import MockLLM
-
 from isaac.core.state import make_initial_state
 from isaac.memory.episodic import Episode, get_episodic_memory, reset_episodic_memory
 from isaac.nodes.planner import planner_node
+from tests.conftest import MockLLM
 
 
 class TestPlannerNode:
@@ -16,9 +15,7 @@ class TestPlannerNode:
         state = make_initial_state()
         state["hypothesis"] = "write hello world to a file"
 
-        mock = MockLLM(
-            '{"steps": [{"id": "s1", "description": "write file", "depends_on": []}]}'
-        )
+        mock = MockLLM('{"steps": [{"id": "s1", "description": "write file", "depends_on": []}]}')
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             result = planner_node(state)
 
@@ -62,7 +59,7 @@ class TestPlannerNode:
             '{"steps": ['
             '  {"id": "s1", "description": "first", "depends_on": []},'
             '  {"id": "s2", "description": "second", "depends_on": ["s1"]}'
-            ']}'
+            "]}"
         )
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             result = planner_node(state)
@@ -78,7 +75,7 @@ class TestPlannerNode:
             '{"steps": ['
             '  {"id": "a", "description": "alpha", "depends_on": []},'
             '  {"id": "b", "description": "beta", "depends_on": []}'
-            ']}'
+            "]}"
         )
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             result = planner_node(state)
@@ -101,10 +98,15 @@ class TestPlannerNode:
     def test_episodic_context_passed_to_prompt(self) -> None:
         """The planner should pass episodic memory context to the prompt."""
         mem = get_episodic_memory()
-        mem.record(Episode(
-            task="sort array", hypothesis="use quicksort", code="sorted()",
-            result_summary="works", success=True,
-        ))
+        mem.record(
+            Episode(
+                task="sort array",
+                hypothesis="use quicksort",
+                code="sorted()",
+                result_summary="works",
+                success=True,
+            )
+        )
 
         state = make_initial_state()
         state["hypothesis"] = "test episodic"

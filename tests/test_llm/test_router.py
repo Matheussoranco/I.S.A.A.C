@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from isaac.llm.router import LLMRouter, TaskComplexity, get_router
+from isaac.llm.providers.ollama import DEFAULT_MODEL
+from isaac.llm.router import LLMRouter, TaskComplexity
 
 
 class TestLLMRouter:
@@ -15,9 +14,9 @@ class TestLLMRouter:
     def test_init_defaults(self) -> None:
         router = LLMRouter()
         assert router._ollama_base_url == "http://localhost:11434"
-        assert router._light_model == "qwen2.5-coder:7b"
-        assert router._heavy_model == "qwen2.5-coder:7b"
-        assert router._fallback_provider == ""
+        assert router._light_model == DEFAULT_MODEL == "qwen3.6"
+        assert router._heavy_model == DEFAULT_MODEL
+        assert router._fallback_provider == ""  # never auto-fall back to a paid API
         assert router._ollama_available is None  # lazy
 
     def test_route_simple_uses_light_model(self) -> None:
@@ -25,8 +24,8 @@ class TestLLMRouter:
         router._ollama_available = True  # skip health check
         with patch.object(router, "_build_ollama_model") as mock_build:
             mock_build.return_value = MagicMock()
-            model = router.route(TaskComplexity.SIMPLE)
-            mock_build.assert_called_once_with("qwen2.5-coder:7b")
+            router.route(TaskComplexity.SIMPLE)
+            mock_build.assert_called_once_with(DEFAULT_MODEL)
 
     def test_route_moderate_uses_light_model(self) -> None:
         router = LLMRouter()
@@ -34,7 +33,7 @@ class TestLLMRouter:
         with patch.object(router, "_build_ollama_model") as mock_build:
             mock_build.return_value = MagicMock()
             router.route(TaskComplexity.MODERATE)
-            mock_build.assert_called_once_with("qwen2.5-coder:7b")
+            mock_build.assert_called_once_with(DEFAULT_MODEL)
 
     def test_route_complex_uses_heavy_model(self) -> None:
         router = LLMRouter(heavy_model="llama3:70b")

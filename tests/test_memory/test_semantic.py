@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -75,7 +74,14 @@ class TestFact:
     """Tests for the Fact dataclass."""
 
     def test_to_dict(self) -> None:
-        fact = Fact(subject="X", predicate="is", object="Y", confidence=0.8, timestamp="2025-01-01", source="test")
+        fact = Fact(
+            subject="X",
+            predicate="is",
+            object="Y",
+            confidence=0.8,
+            timestamp="2025-01-01",
+            source="test",
+        )
         d = fact.to_dict()
         assert d["subject"] == "X"
         assert d["predicate"] == "is"

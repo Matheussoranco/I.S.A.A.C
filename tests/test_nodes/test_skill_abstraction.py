@@ -6,10 +6,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.conftest import MockLLM
-
 from isaac.core.state import PlanStep, SkillCandidate, make_initial_state
 from isaac.nodes.skill_abstraction import skill_abstraction_node
+from tests.conftest import MockLLM
 
 
 class TestSkillAbstractionNode:
@@ -23,7 +22,7 @@ class TestSkillAbstractionNode:
         )
         state["plan"] = [PlanStep(id="s1", description="done", status="done")]
 
-        mock = MockLLM('```python\ndef add(a: int, b: int) -> int:\n    return a + b\n```')
+        mock = MockLLM("```python\ndef add(a: int, b: int) -> int:\n    return a + b\n```")
         with (
             patch("isaac.llm.provider.get_llm", return_value=mock),
             patch("isaac.config.settings.settings") as mock_settings,
@@ -58,7 +57,7 @@ class TestSkillAbstractionNode:
             PlanStep(id="s2", description="next", status="pending"),
         ]
 
-        mock = MockLLM('```python\ndef test() -> None:\n    pass\n```')
+        mock = MockLLM("```python\ndef test() -> None:\n    pass\n```")
         with (
             patch("isaac.llm.provider.get_llm", return_value=mock),
             patch("isaac.config.settings.settings") as mock_settings,

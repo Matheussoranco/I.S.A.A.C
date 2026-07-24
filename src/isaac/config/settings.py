@@ -2,6 +2,12 @@
 
 All values are loaded from environment variables (prefix ``ISAAC_``) or a
 ``.env`` file at the project root.  See ``.env.example`` for the full list.
+
+Defaults are **local-first**: a fresh install with no API keys whatsoever
+talks to a local Ollama daemon running :data:`DEFAULT_LOCAL_MODEL`.  The
+cloud providers (``openai``, ``anthropic``) remain fully supported — they
+are opt-in via ``ISAAC_LLM_PROVIDER`` plus the matching API key, never a
+silent fallback.
 """
 
 from __future__ import annotations
@@ -12,6 +18,10 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Single source of truth for the default local model tag (``ollama pull qwen3.6``).
+from isaac.llm.providers.ollama import DEFAULT_BASE_URL as DEFAULT_OLLAMA_BASE_URL
+from isaac.llm.providers.ollama import DEFAULT_MODEL as DEFAULT_LOCAL_MODEL
+
 # Resolve .env relative to this file so it is found regardless of CWD.
 # Layout: src/isaac/config/settings.py → src/isaac/config → src/isaac → src → project_root
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -20,6 +30,9 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 
 class LLMSettings(BaseSettings):
     """LLM provider configuration.
+
+    Defaults to the local Ollama daemon running :data:`DEFAULT_LOCAL_MODEL`,
+    so I.S.A.A.C. is fully functional with no API keys at all.
 
     Supports tiered models: a *fast* model for lightweight tasks (perception,
     planning) and a *strong* model for heavy lifting (synthesis, reflection).
@@ -35,17 +48,19 @@ class LLMSettings(BaseSettings):
     )
 
     llm_provider: Literal["ollama", "llamacpp", "openai_compat", "openai", "anthropic"] = "ollama"
-    model_name: str = "qwen2.5-coder:7b"
+    """Primary backend.  ``ollama`` (local) by default; the cloud providers are
+    opt-in and require the matching ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY``."""
+    model_name: str = DEFAULT_LOCAL_MODEL
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     base_url: str = ""  # Custom API base URL (e.g. http://localhost:11434/v1 for Ollama)
 
     # Tier overrides — leave blank to inherit from the defaults above.
     fast_model: str = ""
-    """Lightweight model for Perception & Planner (e.g. gpt-4o-mini)."""
+    """Lightweight model for Perception & Planner (e.g. qwen3.6, gpt-5-mini)."""
     fast_temperature: float = Field(default=-1.0, ge=-1.0, le=2.0)
     """Temperature for the fast model (-1 means inherit from ``temperature``)."""
     strong_model: str = ""
-    """Powerful model for Synthesis & Reflection (e.g. o3, claude-3.5-sonnet)."""
+    """Powerful model for Synthesis & Reflection (e.g. qwen3.6, claude-opus-4-8)."""
     strong_temperature: float = Field(default=-1.0, ge=-1.0, le=2.0)
     """Temperature for the strong model (-1 means inherit from ``temperature``)."""
 
@@ -128,16 +143,26 @@ class Settings(BaseSettings):
     skills_dir: Path = Field(default_factory=lambda: Path.home() / ".isaac" / "skills")
     """Persistent skill library directory (absolute, anchored to isaac_home)."""
 
-    # API keys (read from env without prefix)
+    # API keys (read from env without prefix).  Optional: only consulted when
+    # a cloud provider is explicitly selected or configured as a fallback.
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 
-    # Ollama-first LLM routing
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_light_model: str = "qwen2.5-coder:7b"
-    ollama_heavy_model: str = "qwen2.5-coder:7b"
+    # Ollama-first LLM routing (the default backend)
+    ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
+    ollama_light_model: str = DEFAULT_LOCAL_MODEL
+    ollama_heavy_model: str = DEFAULT_LOCAL_MODEL
+    ollama_preflight: bool = True
+    """Verify the daemon is up and the model is pulled before the first call.
+
+    On failure I.S.A.A.C. raises ``OllamaUnavailableError`` naming the exact
+    ``ollama pull <model>`` command, instead of surfacing a cryptic client
+    error.  Set to ``false`` to skip the check (e.g. offline test runs)."""
     llm_fallback_provider: str = ""
-    """Fallback provider name when the primary one is unhealthy."""
+    """Fallback provider name when the primary one is unhealthy.
+
+    Empty by default: I.S.A.A.C. never falls back to a billable cloud API
+    unless you name one here."""
 
     # llama.cpp HTTP server
     llamacpp_base_url: str = "http://localhost:8080"
@@ -274,8 +299,12 @@ class Settings(BaseSettings):
     """Minimum independent steps required to trigger parallel synthesis."""
 
     # ── Sub-agents ──────────────────────────────────────────────────────
-    subagent_model: str = "claude-sonnet-4-6"
-    """Claude model used by ClaudeSubAgent."""
+    subagent_model: str = "claude-opus-4-8"
+    """Cloud model used by ClaudeSubAgent when it is explicitly pointed at one.
+
+    Sub-agents resolve through :func:`isaac.llm.provider.get_llm` and therefore
+    run on the local default (Ollama + ``qwen3.6``) unless the Anthropic
+    provider is selected."""
     subagent_max_workers: int = Field(default=4, ge=1, le=16)
     """Max concurrent sub-agents in ParallelSubAgentPool."""
 

@@ -36,7 +36,7 @@ class _StubLLM:
         self._content = content
         self.calls = 0
 
-    def invoke(self, messages):  # noqa: ANN001 - test stub
+    def invoke(self, messages):
         self.calls += 1
 
         class _Resp:
@@ -46,7 +46,7 @@ class _StubLLM:
 
 
 def _factory(record: dict | None = None):
-    def factory(name: str, **kwargs):  # noqa: ANN003
+    def factory(name: str, **kwargs):
         stub = _StubSpecialist(name)
         if record is not None:
             record[name] = stub
@@ -87,10 +87,10 @@ def test_dependency_ordering_passes_context() -> None:
 
 
 def test_unknown_specialist_falls_back_to_generalist() -> None:
-    def planner(goal, roster, context):  # noqa: ANN001
+    def planner(goal, roster, context):
         return [SubTask(id="t1", description="do it", specialist="nonexistent")]
 
-    def factory(name, **kwargs):  # noqa: ANN001, ANN003
+    def factory(name, **kwargs):
         if name == "nonexistent":
             raise KeyError(name)
         return _StubSpecialist(name)
@@ -139,7 +139,7 @@ def test_orchestrate_convenience() -> None:
 
 
 def test_single_task_returns_output_verbatim() -> None:
-    def planner(goal, roster, context):  # noqa: ANN001
+    def planner(goal, roster, context):
         return [SubTask(id="t1", description=goal, specialist="generalist")]
 
     res = Orchestrator(planner=planner, specialist_factory=_factory(), manager_llm=_StubLLM()).run(

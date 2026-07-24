@@ -59,27 +59,41 @@ def _check_settings() -> CheckResult:
 
 
 def _check_ollama() -> CheckResult:
+    """Check the default (local) backend: daemon reachable + models pulled.
+
+    Escalates to ``fail`` when Ollama *is* the selected provider — in that
+    configuration a missing daemon or model means the agent cannot run at all,
+    and the fix is a single named command.
+    """
     try:
         from isaac.config.settings import get_settings
-        from isaac.llm.providers.ollama import health_check, list_models
+        from isaac.llm.providers.ollama import health_check, is_model_installed, list_models
 
         s = get_settings()
+        is_primary = s.llm.llm_provider == "ollama"
+        severity = "fail" if is_primary else "warn"
+
         if not health_check(s.ollama_base_url):
             return CheckResult(
                 "ollama",
-                "warn",
-                f"Not reachable at {s.ollama_base_url} — install/start Ollama "
-                "(https://ollama.ai) or point ISAAC_LLM_PROVIDER at another backend.",
+                severity,
+                f"Not reachable at {s.ollama_base_url} — run 'ollama serve' "
+                "(install: https://ollama.com/download), or point "
+                "ISAAC_LLM_PROVIDER at another backend.",
             )
+
         tags = list_models(s.ollama_base_url)
-        model = s.llm.model_name
-        if s.llm.llm_provider == "ollama" and tags and model not in tags:
-            return CheckResult(
-                "ollama",
-                "warn",
-                f"Reachable, but configured model '{model}' is not installed. "
-                f"Run: ollama pull {model}",
-            )
+        if is_primary and tags:
+            wanted = {s.llm.model_name, s.ollama_light_model, s.ollama_heavy_model}
+            missing = sorted(m for m in wanted if m and not is_model_installed(m, tags))
+            if missing:
+                cmds = " ; ".join(f"ollama pull {m}" for m in missing)
+                return CheckResult(
+                    "ollama",
+                    "fail",
+                    f"Reachable, but configured model(s) not installed: "
+                    f"{', '.join(missing)}. Run: {cmds}",
+                )
         return CheckResult("ollama", "ok", f"Reachable; {len(tags)} model(s) installed.")
     except Exception as exc:
         return CheckResult("ollama", "warn", f"Check failed: {exc}")

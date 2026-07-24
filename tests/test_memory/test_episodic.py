@@ -14,13 +14,15 @@ class TestEpisodicMemory:
     def test_record_and_recent(self) -> None:
         mem = EpisodicMemory(max_episodes=5)
         for i in range(3):
-            mem.record(Episode(
-                task=f"task-{i}",
-                hypothesis=f"hyp-{i}",
-                code=f"code-{i}",
-                result_summary=f"result-{i}",
-                success=i % 2 == 0,
-            ))
+            mem.record(
+                Episode(
+                    task=f"task-{i}",
+                    hypothesis=f"hyp-{i}",
+                    code=f"code-{i}",
+                    result_summary=f"result-{i}",
+                    success=i % 2 == 0,
+                )
+            )
         assert mem.size == 3
         recent = mem.recent(2)
         assert len(recent) == 2
@@ -29,21 +31,32 @@ class TestEpisodicMemory:
     def test_eviction(self) -> None:
         mem = EpisodicMemory(max_episodes=3)
         for i in range(5):
-            mem.record(Episode(
-                task=f"task-{i}", hypothesis="", code="", result_summary="", success=True
-            ))
+            mem.record(
+                Episode(task=f"task-{i}", hypothesis="", code="", result_summary="", success=True)
+            )
         assert mem.size == 3
         assert mem.recent(1)[0].task == "task-4"
 
     def test_search(self) -> None:
         mem = EpisodicMemory()
-        mem.record(Episode(
-            task="sort an array", hypothesis="use quicksort", code="",
-            result_summary="", success=True
-        ))
-        mem.record(Episode(
-            task="reverse a string", hypothesis="slice", code="", result_summary="", success=True
-        ))
+        mem.record(
+            Episode(
+                task="sort an array",
+                hypothesis="use quicksort",
+                code="",
+                result_summary="",
+                success=True,
+            )
+        )
+        mem.record(
+            Episode(
+                task="reverse a string",
+                hypothesis="slice",
+                code="",
+                result_summary="",
+                success=True,
+            )
+        )
         results = mem.search("array")
         assert len(results) == 1
         assert results[0].task == "sort an array"
@@ -79,9 +92,15 @@ class TestEpisodicMemory:
     def test_recent_failures_respects_limit(self) -> None:
         mem = EpisodicMemory()
         for i in range(10):
-            mem.record(Episode(
-                task=f"fail-{i}", hypothesis="", code="", result_summary="", success=False,
-            ))
+            mem.record(
+                Episode(
+                    task=f"fail-{i}",
+                    hypothesis="",
+                    code="",
+                    result_summary="",
+                    success=False,
+                )
+            )
         assert len(mem.recent_failures(3)) == 3
 
     def test_summarise_recent_empty(self) -> None:
@@ -90,14 +109,24 @@ class TestEpisodicMemory:
 
     def test_summarise_recent_format(self) -> None:
         mem = EpisodicMemory()
-        mem.record(Episode(
-            task="sort numbers", hypothesis="quicksort", code="sorted()",
-            result_summary="works", success=True,
-        ))
-        mem.record(Episode(
-            task="reverse string", hypothesis="slice", code="s[::-1]",
-            result_summary="crashed", success=False,
-        ))
+        mem.record(
+            Episode(
+                task="sort numbers",
+                hypothesis="quicksort",
+                code="sorted()",
+                result_summary="works",
+                success=True,
+            )
+        )
+        mem.record(
+            Episode(
+                task="reverse string",
+                hypothesis="slice",
+                code="s[::-1]",
+                result_summary="crashed",
+                success=False,
+            )
+        )
         text = mem.summarise_recent(5)
         assert "[SUCCESS]" in text
         assert "[FAILURE]" in text
@@ -106,8 +135,13 @@ class TestEpisodicMemory:
 
     def test_episode_node_and_iteration_fields(self) -> None:
         ep = Episode(
-            task="t", hypothesis="h", code="c", result_summary="r",
-            success=True, node="reflection", iteration=3,
+            task="t",
+            hypothesis="h",
+            code="c",
+            result_summary="r",
+            success=True,
+            node="reflection",
+            iteration=3,
         )
         assert ep.node == "reflection"
         assert ep.iteration == 3

@@ -124,7 +124,7 @@ def test_load_gaia_filters_level_and_hidden_answers(tmp_path) -> None:
 
 
 def test_load_gaia_missing_metadata_raises(tmp_path) -> None:
-    with pytest.raises(FileNotFoundError, match="metadata.jsonl"):
+    with pytest.raises(FileNotFoundError, match=r"metadata\.jsonl"):
         load_gaia_tasks(tmp_path)
 
 
@@ -161,7 +161,7 @@ def test_runner_copies_binary_attachments(tmp_path) -> None:
     split = _write_gaia_split(tmp_path)
     ws = tmp_path / "ws"
     ws.mkdir()
-    task = [t for t in load_gaia_tasks(split, level=1) if t.file_paths][0]
+    task = next(t for t in load_gaia_tasks(split, level=1) if t.file_paths)
 
     seen: dict[str, bytes] = {}
 

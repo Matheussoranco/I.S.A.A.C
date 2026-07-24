@@ -2,6 +2,10 @@
 
 Provides mock LLM responses, mock Docker containers, and pre-built state
 objects so individual test modules stay focused.
+
+The suite runs **fully offline**: :func:`stub_ollama` is autouse, so no test
+ever contacts a real Ollama daemon (or any other network service) even though
+Ollama is now the default provider.
 """
 
 from __future__ import annotations
@@ -19,6 +23,34 @@ from isaac.core.state import (
     SkillCandidate,
     make_initial_state,
 )
+from isaac.llm.providers.ollama import DEFAULT_MODEL
+
+# ---------------------------------------------------------------------------
+# Offline guarantees
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def stub_ollama():
+    """Simulate a healthy local Ollama with the default model installed.
+
+    Ollama is the default provider, so without this the suite would probe
+    ``http://localhost:11434`` on any machine that runs it — flaky locally and
+    a forbidden network call in CI.  Tests that need the *unhealthy* path
+    patch these same symbols themselves; the innermost patch wins.
+    """
+    from isaac.llm import provider as provider_mod
+
+    with (
+        patch("isaac.llm.providers.ollama.health_check", return_value=True),
+        patch("isaac.llm.providers.ollama.list_models", return_value=[DEFAULT_MODEL]),
+        patch("isaac.llm.providers.ollama.preflight", return_value=None),
+        patch("isaac.llm.providers.llamacpp.health_check", return_value=False),
+    ):
+        provider_mod._preflight_once.cache_clear()
+        yield
+        provider_mod._preflight_once.cache_clear()
+
 
 # ---------------------------------------------------------------------------
 # State fixtures

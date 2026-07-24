@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from isaac.memory.world_model_kg import KGEdge, KGNode, WorldModelKG
 from isaac.core.state import WorldModel
+from isaac.memory.world_model_kg import KGEdge, KGNode, WorldModelKG
 
 
 @pytest.fixture()

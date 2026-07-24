@@ -43,10 +43,12 @@ class TestGetLLMTiers:
         mock_chat_cls = MagicMock(return_value="mock_llm")
         mock_settings = self._make_mock_settings()
 
-        with patch("isaac.config.settings.settings", mock_settings), \
-             patch("langchain_openai.ChatOpenAI", mock_chat_cls):
+        with (
+            patch("isaac.config.settings.settings", mock_settings),
+            patch("langchain_openai.ChatOpenAI", mock_chat_cls),
+        ):
             get_llm.cache_clear()
-            result = get_llm("default")
+            get_llm("default")
 
         mock_chat_cls.assert_called_once()
         call_kwargs = mock_chat_cls.call_args[1]
@@ -58,13 +60,16 @@ class TestGetLLMTiers:
 
         mock_chat_cls = MagicMock(return_value="mock_llm")
         mock_settings = self._make_mock_settings(
-            fast_model="gpt-4o-mini", fast_temperature=0.1,
+            fast_model="gpt-4o-mini",
+            fast_temperature=0.1,
         )
 
-        with patch("isaac.config.settings.settings", mock_settings), \
-             patch("langchain_openai.ChatOpenAI", mock_chat_cls):
+        with (
+            patch("isaac.config.settings.settings", mock_settings),
+            patch("langchain_openai.ChatOpenAI", mock_chat_cls),
+        ):
             get_llm.cache_clear()
-            result = get_llm("fast")
+            get_llm("fast")
 
         call_kwargs = mock_chat_cls.call_args[1]
         assert call_kwargs["model"] == "gpt-4o-mini"
@@ -75,13 +80,16 @@ class TestGetLLMTiers:
 
         mock_chat_cls = MagicMock(return_value="mock_llm")
         mock_settings = self._make_mock_settings(
-            strong_model="o3", strong_temperature=0.7,
+            strong_model="o3",
+            strong_temperature=0.7,
         )
 
-        with patch("isaac.config.settings.settings", mock_settings), \
-             patch("langchain_openai.ChatOpenAI", mock_chat_cls):
+        with (
+            patch("isaac.config.settings.settings", mock_settings),
+            patch("langchain_openai.ChatOpenAI", mock_chat_cls),
+        ):
             get_llm.cache_clear()
-            result = get_llm("strong")
+            get_llm("strong")
 
         call_kwargs = mock_chat_cls.call_args[1]
         assert call_kwargs["model"] == "o3"
@@ -93,10 +101,12 @@ class TestGetLLMTiers:
         mock_chat_cls = MagicMock(return_value="mock_llm")
         mock_settings = self._make_mock_settings(fast_model="")
 
-        with patch("isaac.config.settings.settings", mock_settings), \
-             patch("langchain_openai.ChatOpenAI", mock_chat_cls):
+        with (
+            patch("isaac.config.settings.settings", mock_settings),
+            patch("langchain_openai.ChatOpenAI", mock_chat_cls),
+        ):
             get_llm.cache_clear()
-            result = get_llm("fast")
+            get_llm("fast")
 
         call_kwargs = mock_chat_cls.call_args[1]
         assert call_kwargs["model"] == "gpt-4o"  # fallback to default
@@ -106,13 +116,17 @@ class TestGetLLMTiers:
 
         mock_chat_cls = MagicMock(return_value="mock_llm")
         mock_settings = self._make_mock_settings(
-            fast_model="gpt-4o-mini", fast_temperature=-1.0, temperature=0.5,
+            fast_model="gpt-4o-mini",
+            fast_temperature=-1.0,
+            temperature=0.5,
         )
 
-        with patch("isaac.config.settings.settings", mock_settings), \
-             patch("langchain_openai.ChatOpenAI", mock_chat_cls):
+        with (
+            patch("isaac.config.settings.settings", mock_settings),
+            patch("langchain_openai.ChatOpenAI", mock_chat_cls),
+        ):
             get_llm.cache_clear()
-            result = get_llm("fast")
+            get_llm("fast")
 
         call_kwargs = mock_chat_cls.call_args[1]
         assert call_kwargs["temperature"] == 0.5

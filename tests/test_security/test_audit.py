@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from isaac.security.audit import AuditEntry, AuditLog, _GENESIS_HASH
+from isaac.security.audit import _GENESIS_HASH, AuditEntry, AuditLog
 
 
 @pytest.fixture()
@@ -83,7 +83,7 @@ class TestAuditLog:
         lines[1] = json.dumps(entry)
         log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-        valid, count = audit_log.verify_chain()
+        valid, _count = audit_log.verify_chain()
         assert valid is False
 
     def test_recent(self, audit_log: AuditLog) -> None:

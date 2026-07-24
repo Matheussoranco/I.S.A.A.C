@@ -69,6 +69,7 @@ class TestSummariseMessages:
             def invoke(self, messages):
                 class _R:
                     content = "Summary: user asked for hello."
+
                 return _R()
 
         msgs = [HumanMessage(content="Hello")]

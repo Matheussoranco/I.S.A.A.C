@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import time
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -93,11 +90,16 @@ class TestCronDaemon:
 
     def teardown_method(self) -> None:
         from isaac.background.cron_engine import stop_cron_daemon
+
         stop_cron_daemon()
         self._patcher.stop()
 
     def test_start_and_stop(self) -> None:
-        from isaac.background.cron_engine import is_cron_running, start_cron_daemon, stop_cron_daemon
+        from isaac.background.cron_engine import (
+            is_cron_running,
+            start_cron_daemon,
+            stop_cron_daemon,
+        )
 
         start_cron_daemon(poll_seconds=1)
         assert is_cron_running()
@@ -130,6 +132,7 @@ class TestCronIsDue:
 
     def test_recently_run_not_due(self) -> None:
         from datetime import datetime, timezone
+
         from isaac.background.cron_engine import CronTask, _is_due
 
         # Just ran, every hour schedule

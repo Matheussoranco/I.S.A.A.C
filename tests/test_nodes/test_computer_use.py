@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from tests.conftest import MockLLM
-
 from isaac.core.state import (
     GUIState,
     PlanStep,
@@ -20,6 +18,7 @@ from isaac.nodes.computer_use import (
     computer_use_node,
     shutdown_ui_executor,
 )
+from tests.conftest import MockLLM
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -92,9 +91,7 @@ class TestDictToUIAction:
 class TestComputerUseNode:
     def test_success_marks_step_done_and_builds_skill_candidate(self) -> None:
         state = make_initial_state()
-        state["plan"] = [
-            PlanStep(id="s1", description="open browser", status="active", mode="ui")
-        ]
+        state["plan"] = [PlanStep(id="s1", description="open browser", status="active", mode="ui")]
 
         mock_llm = MockLLM('{"done": true, "summary": "Browser opened."}')
         mock_exec = _make_mock_executor()
@@ -118,9 +115,7 @@ class TestComputerUseNode:
 
     def test_max_cycles_exhaustion_marks_step_failed(self) -> None:
         state = make_initial_state()
-        state["plan"] = [
-            PlanStep(id="s1", description="open browser", status="active", mode="ui")
-        ]
+        state["plan"] = [PlanStep(id="s1", description="open browser", status="active", mode="ui")]
 
         # LLM always says "not done yet"
         mock_llm = MockLLM(
@@ -166,9 +161,7 @@ class TestComputerUseNode:
 
     def test_empty_screenshot_aborts_loop(self) -> None:
         state = make_initial_state()
-        state["plan"] = [
-            PlanStep(id="s1", description="click button", status="active", mode="ui")
-        ]
+        state["plan"] = [PlanStep(id="s1", description="click button", status="active", mode="ui")]
 
         # Executor returns empty screenshot → loop should abort immediately
         mock_exec = _make_mock_executor(screenshot_b64="")
@@ -189,9 +182,7 @@ class TestComputerUseNode:
     def test_skill_candidate_code_buffer_contains_screenshots(self) -> None:
         """On success the code_buffer JSON must expose before/after screenshots."""
         state = make_initial_state()
-        state["plan"] = [
-            PlanStep(id="s1", description="fill form", status="active", mode="ui")
-        ]
+        state["plan"] = [PlanStep(id="s1", description="fill form", status="active", mode="ui")]
 
         mock_exec = _make_mock_executor()
         # First call: not done (so it executes an action)

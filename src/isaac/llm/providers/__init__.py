@@ -5,13 +5,18 @@ that returns a LangChain ``BaseChatModel``.  Providers register themselves
 into the :data:`PROVIDERS` registry so :func:`get_provider` can resolve
 them by name.
 
-The default routing prefers local backends in this order:
+The default provider is ``ollama`` running
+:data:`~isaac.llm.providers.ollama.DEFAULT_MODEL` — a keyless install is a
+fully working install.  Routing prefers local backends in this order:
 
-    1. ``ollama``           — local first-class
+    1. ``ollama``           — local, the default
     2. ``llamacpp``         — local llama.cpp HTTP server
     3. ``openai_compat``    — generic OpenAI-compatible (LM Studio, vLLM, ...)
-    4. ``openai``           — cloud
-    5. ``anthropic``        — cloud
+    4. ``openai``           — cloud, opt-in
+    5. ``anthropic``        — cloud, opt-in
+
+The cloud builders take a required ``model`` argument so they can never
+silently select a billable model of their own accord.
 """
 
 from __future__ import annotations
