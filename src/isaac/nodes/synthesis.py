@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -162,6 +163,85 @@ def _arc_synthesis(
         return None
 
 
+def _test_time_samples() -> int:
+    """How many samples to spend on a hard synthesis step.
+
+    Read from the environment (written by
+    :func:`isaac.llm.presets.apply_preset`) rather than passed down the graph,
+    so a preset can tune it without every node signature changing. ``1`` — the
+    default — is exactly the pre-1.4.0 single-shot behaviour.
+    """
+    raw = os.environ.get("ISAAC_TEST_TIME_SAMPLES", "").strip()
+    try:
+        return max(1, int(raw)) if raw else 1
+    except ValueError:
+        return 1
+
+
+def _sampling_temperature() -> float:
+    raw = os.environ.get("ISAAC_SAMPLING_TEMPERATURE", "").strip()
+    try:
+        return float(raw) if raw else 0.7
+    except ValueError:
+        return 0.7
+
+
+def _synthesise_code(llm: Any, prompt: Any, step_id: str) -> str:
+    """Generate code for one step, scaling compute when the first try is broken.
+
+    A single greedy sample is the common case and stays a single LLM call.
+    When ``ISAAC_TEST_TIME_SAMPLES`` > 1, escalates via
+    :func:`~isaac.reasoning.test_time.solve_hard_step` with a syntax check as
+    the verifier — the same "cheap test, exit early" discipline the ARC solver
+    uses, applied to code generation. Small models emit unparseable Python
+    often enough that resampling is usually cheaper than a sandbox round-trip
+    plus a repair turn.
+    """
+    n = _test_time_samples()
+
+    def draw() -> str:
+        response = llm.invoke(prompt)
+        content = response.content if isinstance(response.content, str) else str(response.content)
+        return _extract_code(content)
+
+    if n <= 1:
+        code = draw()
+        logger.info("Synthesis(code): generated %d chars for step '%s'.", len(code), step_id)
+        return code
+
+    from isaac.reasoning.test_time import solve_hard_step
+    from isaac.reasoning.verifiers import all_of, non_empty_verifier, python_syntax_verifier
+
+    sampled = getattr(llm, "bind", None)
+    sampler_llm = llm
+    if callable(sampled):
+        try:
+            sampler_llm = llm.bind(temperature=_sampling_temperature())
+        except Exception:  # pragma: no cover - provider-specific
+            logger.debug("could not raise temperature for sampling", exc_info=True)
+
+    def draw_at_temperature() -> str:
+        response = sampler_llm.invoke(prompt)
+        content = response.content if isinstance(response.content, str) else str(response.content)
+        return _extract_code(content)
+
+    result = solve_hard_step(
+        draw_at_temperature,
+        verifier=all_of(non_empty_verifier(), python_syntax_verifier()),
+        n=n,
+    )
+    code = result.answer or ""
+    logger.info(
+        "Synthesis(code): generated %d chars for step '%s' [%s, %d sample(s), verified=%s].",
+        len(code),
+        step_id,
+        result.strategy,
+        result.n_sampled,
+        result.verified,
+    )
+    return code
+
+
 def synthesis_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: Synthesis.
 
@@ -206,14 +286,7 @@ def synthesis_node(state: IsaacState) -> dict[str, Any]:
     # ── 'code' mode — generic CodeAgent behaviour ──────────────────────────
     if mode == "code":
         prompt = synthesis_prompt(active_step, world_model, hypothesis, available_skills)
-        response = llm.invoke(prompt)
-        content = response.content if isinstance(response.content, str) else str(response.content)
-        code = _extract_code(content)
-        logger.info(
-            "Synthesis(code): generated %d chars for step '%s'.",
-            len(code),
-            active_step.id,
-        )
+        code = _synthesise_code(llm, prompt, active_step.id)
         return {"code_buffer": code, "current_phase": "synthesis"}
 
     # ── 'ui' mode — emit UIAction JSON list ────────────────────────────────

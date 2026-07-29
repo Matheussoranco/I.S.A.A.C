@@ -7,6 +7,107 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0] — 2026-07-29 — Capable on small models
+
+Small local models fail as agents in a specific, measurable way: they choose the
+right tool and then emit the call as prose, which the provider reports as "no
+tool calls". Until now the agent loop accepted that as a *final answer* and
+stopped, handing the user a raw JSON blob. This release closes that path, adds
+grammar-constrained tool calling for models that cannot do native function
+calling at all, and ships the harness that measures the difference.
+
+### Measured — tool-call reliability on local models
+
+`isaac eval-toolcalls`, 20 prompts each requiring exactly one tool call, RTX
+3050 6 GB, Ollama 0.32.5, temperature 0.2, 2026-07-29:
+
+| Model | `tools` capability | Requests accepted | Malformed rate | Correct tool |
+|---|---|---|---|---|
+| `nemotron-3-nano:4b` | yes | 20/20 | **0.0 %** (0/20) | 20/20 |
+| `qwen3.5:2b` | yes | 19/20 | **0.0 %** (0/19) | 19/20 |
+| `gemma3:1b` — native | **no** | **0/20** | — | 0/20 |
+| `gemma3:1b` — constrained | no | 20/20 | **0.0 %** (0/20) | 8/20 |
+
+**The honest headline is that the malformed rate on tools-capable local models
+is already zero** — 39 attempts across two models, not one malformed call, and
+the new repair layer never fired. Users on `nemotron-3-nano:4b` or similar
+should expect no visible change. The repair path is a safety net for weaker and
+older models, not a fix for a problem those models still have.
+
+**The real unlock is `gemma3:1b`**, which advertises only `completion`: Ollama
+rejects every tools-bearing request with HTTP 400, so repair cannot help — the
+request never reaches the model. Under constrained decoding all 20 requests
+succeed with 20 well-formed calls. A model that could not act at all becomes one
+that acts, and picks the right tool 8 times in 20. The grammar guarantees shape,
+not judgement; tool *choice* is scored separately so that distinction stays
+visible.
+
+### Added — malformed tool-call recovery (`isaac.agents.tool_repair`)
+- `salvage_tool_calls()` parses the dialects small models actually emit: fenced
+  ```json blocks, Hermes/Qwen `<tool_call>` tags, `args`/`parameters`/`input`
+  spellings, double-encoded argument strings, Python dict syntax, trailing
+  commas, unquoted keys, smart quotes, `{"tool": {...}}` name-as-key objects,
+  and `tool(arg="x")` call expressions. Brace-counting rather than regex, so
+  nested objects and braces inside strings survive.
+- Gated on the bound tool names — prose containing a brace is never mistaken
+  for a call. Without an allow-list the riskier dialects stay off entirely.
+- **Reflexion retry**: output that is unparseable but clearly *was* an attempted
+  call gets one corrective turn showing the model its own broken output plus the
+  contract. Budgeted per run (default 2), because a model that cannot correct in
+  two tries will not manage it in ten.
+- `AgentRunResult.health` (`ToolCallHealth`) reports native / repaired /
+  reflexion-recovered / unrecovered counts per run. `isaac agent` prints it only
+  when something was malformed.
+
+### Added — constrained decoding (`isaac.llm.constrained`)
+- JSON-Schema `format` for Ollama, GBNF grammar for llama.cpp, both behind one
+  envelope: `{"tool": …, "arguments": {…}}` / `{"tool": "none", "final_answer": …}`.
+- Per-tool `oneOf` branching is the default. Measured on `gemma3:1b`: a flat
+  schema yielded only 3/20 *executable* calls because the model invented
+  argument keys; branching raised it to 8/20 with identical tool-choice accuracy
+  (every correctly-chosen tool now gets correct arguments, 8/8 vs 3/8). This
+  contradicted the initial assumption that small models degrade on branched
+  schemas.
+- Providers exposing no constraint channel fall back to prompt-only envelope
+  mode — still parsed, **not** enforced — and log a warning rather than implying
+  a guarantee that is not there.
+
+### Added — test-time compute for hard steps (`isaac.reasoning.test_time`)
+- `self_consistency()` (majority vote over *n* samples) and `best_of_n()`
+  (resample until a cheap verifier accepts, exiting on the first pass).
+- `solve_hard_step()` escalates greedy → best-of-N → agreement voting, reusing
+  the exit-early discipline of `isaac.arc.solver.synthesise()`: verify cheaply,
+  escalate only on failure, stop the moment something passes.
+- `isaac.reasoning.verifiers` — syntax, JSON, JSON-Schema, numeric-range, regex
+  and mean-combination verifiers. All pure local computation; a verifier that
+  costs an LLM call spends the budget it exists to save.
+- Wired into code synthesis: with `ISAAC_TEST_TIME_SAMPLES > 1`, unparseable
+  Python is resampled before the sandbox round-trip instead of after it. The
+  default of `1` is exactly the previous single-shot behaviour.
+
+### Added — model presets (`isaac models`)
+- Five rungs — `minimal` / `small` / `good` / `better` / `best` — each pinning a
+  model *and* the loop settings that model needs. `isaac models recommend` picks
+  from detected VRAM and stays local when a local rung fits, even with an API
+  key present.
+- Documented in `docs/MODELS.md` alongside the measurements above.
+
+### Added — `isaac eval-toolcalls`
+- The harness behind the table. `--mode native` scores the same prompts under
+  the 1.3.x policy (a salvageable call still counts as a failure, because that
+  is what 1.3.x did with it); `--mode repair` adds salvage and Reflexion;
+  `--mode constrained` uses the grammar. Before/after figures are derived from
+  the *same* model turns, so the delta is the recovery policy alone with no
+  sampling variance between runs.
+
+### Fixed
+- Results of repaired and envelope tool calls are fed back as plain observations
+  rather than `ToolMessage`s. Those calls carry no matching `tool_call_id` on
+  the assistant turn, and a strict OpenAI-compatible server rejects the
+  mismatch.
+
+---
+
 ## [1.3.2] — 2026-07-05 — GAIA L1 measured clean, fully local
 
 ### Added — clean GAIA L1 result on consumer hardware

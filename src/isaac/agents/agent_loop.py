@@ -24,11 +24,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from isaac.agents.tool_repair import (
+    RepairOutcome,
+    looks_like_attempted_call,
+    reflexion_prompt,
+    salvage_tool_calls,
+)
 from isaac.agents.trace import TraceStore
 from isaac.agents.validation import validate_args
 from isaac.security.redact import redact_secrets
@@ -52,6 +59,12 @@ UNTRUSTED_TOOLS = frozenset({"browser", "web_search", "email_read"})
 # tool outputs down to this many characters.
 _COMPACT_KEEP_RECENT = 6
 _COMPACT_STUB_CHARS = 400
+
+# How many Reflexion retries a single run may spend on malformed tool calls.
+# Budgeted per *run*, not per turn: a model that cannot emit a valid call after
+# a few corrections will not get there on the tenth, and each retry costs a
+# full LLM round-trip.
+_MAX_REFLEXION_RETRIES = 2
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are I.S.A.A.C., an autonomous problem-solving agent with access to real "
@@ -85,6 +98,57 @@ class ToolCallRecord:
 
 
 @dataclass
+class ToolCallHealth:
+    """Per-run tally of how tool calls arrived — the WS3 measurement surface.
+
+    ``malformed_rate`` is the headline number: the share of turns that intended
+    a tool call but did not arrive through the provider's native channel.  It
+    counts turns the loop *recovered* as well as those it could not, because
+    the point is to measure the model's raw reliability, not how well the
+    repair layer hides it.
+    """
+
+    native: int = 0
+    repaired: int = 0
+    reflexion_attempts: int = 0
+    reflexion_recovered: int = 0
+    unrecovered: int = 0
+
+    @property
+    def intended_calls(self) -> int:
+        """Turns that were trying to call a tool, however they came out."""
+        return self.native + self.repaired + self.reflexion_recovered + self.unrecovered
+
+    @property
+    def malformed(self) -> int:
+        return self.repaired + self.reflexion_recovered + self.unrecovered
+
+    @property
+    def malformed_rate(self) -> float:
+        total = self.intended_calls
+        return self.malformed / total if total else 0.0
+
+    @property
+    def recovered_rate(self) -> float:
+        """Share of malformed turns the loop turned back into real calls."""
+        bad = self.malformed
+        return (self.repaired + self.reflexion_recovered) / bad if bad else 0.0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "native": self.native,
+            "repaired": self.repaired,
+            "reflexion_attempts": self.reflexion_attempts,
+            "reflexion_recovered": self.reflexion_recovered,
+            "unrecovered": self.unrecovered,
+            "intended_calls": self.intended_calls,
+            "malformed": self.malformed,
+            "malformed_rate": round(self.malformed_rate, 4),
+            "recovered_rate": round(self.recovered_rate, 4),
+        }
+
+
+@dataclass
 class AgentRunResult:
     """Result of an :class:`AgentLoop` run."""
 
@@ -94,6 +158,7 @@ class AgentRunResult:
     # "final" | "max_iterations" | "budget_exhausted" | "no_progress" | "error"
     stopped_reason: str = "final"
     messages: list[Any] = field(default_factory=list)
+    health: ToolCallHealth = field(default_factory=ToolCallHealth)
 
     @property
     def success(self) -> bool:
@@ -159,6 +224,9 @@ class AgentLoop:
         trace_store: TraceStore | None = None,
         llm_retries: int = 2,
         context_budget_chars: int = 150_000,
+        repair_tool_calls: bool = True,
+        reflexion_retries: int = _MAX_REFLEXION_RETRIES,
+        constrained_decoding: bool = False,
     ) -> None:
         self._tools: dict[str, IsaacTool] = {t.name: t for t in tools}
         self._llm = llm
@@ -173,6 +241,9 @@ class AgentLoop:
         self._trace_run_id: str | None = None
         self.llm_retries = max(0, llm_retries)
         self.context_budget_chars = max(0, context_budget_chars)
+        self.repair_tool_calls = repair_tool_calls
+        self.reflexion_retries = max(0, reflexion_retries)
+        self.constrained_decoding = constrained_decoding
 
     # ------------------------------------------------------------------
     # Internals
@@ -202,6 +273,26 @@ class AgentLoop:
         if not self._tools:
             return llm
         schemas = [t.to_function_schema() for t in self._tools.values()]
+
+        if self.constrained_decoding:
+            # Envelope mode: the decoder is grammar-constrained to emit a valid
+            # call, so the native tool channel is bypassed entirely. Used for
+            # models that lack (or botch) native function calling.
+            from isaac.llm.constrained import apply_constraint, supports_constrained_decoding
+
+            channel = supports_constrained_decoding(llm)
+            if not channel:
+                # Prompt-only envelope mode: the shape is requested but not
+                # enforced. It still works — parse_envelope handles unconstrained
+                # output — but the guarantee is gone, so say so rather than let
+                # the caller assume the grammar is active.
+                logger.warning(
+                    "constrained_decoding requested but %s exposes no constraint "
+                    "channel; falling back to prompt-only envelope mode.",
+                    type(llm).__name__,
+                )
+            return apply_constraint(llm, schemas, channel=channel)
+
         try:
             return llm.bind_tools(schemas)
         except Exception as exc:
@@ -362,8 +453,16 @@ class AgentLoop:
 
         llm = self._bind_tools(self._resolve_llm())
         user = task if not context else f"{task}\n\n<context>\n{context}\n</context>"
+        system = self._system_prompt
+        if self.constrained_decoding and self._tools:
+            # The grammar enforces the shape; the prompt still has to explain
+            # what the fields mean and list the tools.
+            from isaac.llm.constrained import CONSTRAINED_SYSTEM_SUFFIX
+
+            catalogue = "\n".join(f"- {t.name}: {t.description}" for t in self._tools.values())
+            system = f"{system}\n\nTools you may call:\n{catalogue}\n{CONSTRAINED_SYSTEM_SUFFIX}"
         messages: list[Any] = [
-            SystemMessage(content=self._system_prompt),
+            SystemMessage(content=system),
             HumanMessage(content=user),
         ]
 
@@ -374,6 +473,9 @@ class AgentLoop:
         started = time.monotonic()
         last_sig: str | None = None
         repeat_count = 0
+        health = ToolCallHealth()
+        reflexion_used = 0
+        pending_reflexion = False
 
         if self._trace_store is not None:
             try:
@@ -408,11 +510,91 @@ class AgentLoop:
                 tool_calls = list(getattr(ai, "tool_calls", None) or [])
                 text = _content_text(ai)
 
-                if not tool_calls:
-                    final_text = text
-                    reason = "final"
-                    self._emit("final", text=final_text)
-                    break
+                # Whether these calls came through the provider's own channel.
+                # Salvaged and envelope calls did not, so the assistant message
+                # carries no matching tool_call_id and their results must go
+                # back as plain observations (a strict OpenAI-compatible server
+                # rejects a ToolMessage with no corresponding call).
+                native_turn = bool(tool_calls)
+
+                if tool_calls:
+                    health.native += 1
+                elif self.constrained_decoding:
+                    # Envelope mode: every turn arrives as text and is decoded
+                    # here, so there is no "native" path to fall back from.
+                    from isaac.llm.constrained import parse_envelope
+
+                    tool_calls, answer = parse_envelope(text, set(self._tools))
+                    if tool_calls:
+                        health.native += 1
+                    else:
+                        final_text = answer or text
+                        reason = "final"
+                        self._emit("final", text=final_text)
+                        break
+                else:
+                    # No native call. Either the model finished, or it tried to
+                    # call a tool and emitted it in the wrong shape — the
+                    # dominant small-model failure. Distinguish the two before
+                    # accepting this as a final answer.
+                    salvaged = (
+                        salvage_tool_calls(text, set(self._tools)) if self.repair_tool_calls else []
+                    )
+                    if salvaged:
+                        health.repaired += 1
+                        tool_calls = salvaged
+                        self._emit(
+                            "repair",
+                            outcome=RepairOutcome.REPAIRED,
+                            calls=[c["name"] for c in salvaged],
+                        )
+                        logger.info(
+                            "Repaired %d malformed tool call(s) from text output.", len(salvaged)
+                        )
+                    elif (
+                        self.repair_tool_calls
+                        and reflexion_used < self.reflexion_retries
+                        and looks_like_attempted_call(text, set(self._tools))
+                    ):
+                        # Unparseable but clearly an attempted call: hand the
+                        # model its own broken output plus the contract and let
+                        # it correct itself (Reflexion).
+                        reflexion_used += 1
+                        health.reflexion_attempts += 1
+                        pending_reflexion = True
+                        self._emit(
+                            "repair",
+                            outcome=RepairOutcome.REFLEXION,
+                            attempt=reflexion_used,
+                        )
+                        messages.append(
+                            HumanMessage(content=reflexion_prompt(text, set(self._tools)))
+                        )
+                        logger.info(
+                            "Malformed tool call unparseable; issuing Reflexion retry %d/%d.",
+                            reflexion_used,
+                            self.reflexion_retries,
+                        )
+                        continue
+                    else:
+                        if pending_reflexion:
+                            # The retry produced neither a call nor a repair.
+                            health.unrecovered += 1
+                            pending_reflexion = False
+                        final_text = text
+                        reason = "final"
+                        self._emit("final", text=final_text)
+                        break
+
+                if pending_reflexion:
+                    # We got here with calls in hand right after a retry, so the
+                    # correction worked.
+                    if health.repaired:
+                        health.repaired -= 1
+                    elif health.native:
+                        health.native -= 1
+                    health.reflexion_recovered += 1
+                    pending_reflexion = False
 
                 if text:
                     self._emit("thought", text=text)
@@ -426,13 +608,11 @@ class AgentLoop:
                     rec = await self._exec_tool(name, args)
                     all_calls.append(rec)
                     self._emit("tool_result", name=name, success=rec.success, output=rec.output)
-                    messages.append(
-                        ToolMessage(
-                            content=rec.output[:_MAX_TOOL_OUTPUT],
-                            tool_call_id=call_id,
-                            name=name,
-                        )
-                    )
+                    body = rec.output[:_MAX_TOOL_OUTPUT]
+                    if native_turn:
+                        messages.append(ToolMessage(content=body, tool_call_id=call_id, name=name))
+                    else:
+                        messages.append(HumanMessage(content=f"Result of {name}:\n{body}"))
                     try:
                         sig = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
                     except Exception:
@@ -478,6 +658,7 @@ class AgentLoop:
             tool_calls=all_calls,
             stopped_reason=reason,
             messages=messages,
+            health=health,
         )
 
     def run(self, task: str, context: str = "") -> AgentRunResult:
@@ -526,6 +707,9 @@ def build_default_agent(
     max_wall_seconds: float = 600.0,
     approval_callback: Callable[[str, dict[str, Any], int], bool] | None = None,
     trace_store: TraceStore | None = None,
+    repair_tool_calls: bool | None = None,
+    reflexion_retries: int | None = None,
+    constrained_decoding: bool | None = None,
 ) -> AgentLoop:
     """Construct an :class:`AgentLoop` wired with all registered built-in tools.
 
@@ -533,6 +717,11 @@ def build_default_agent(
     ----------
     only:
         If given, restrict the agent to tools whose names are in this list.
+    repair_tool_calls, reflexion_retries, constrained_decoding:
+        Small-model reliability settings. ``None`` reads the corresponding
+        ``ISAAC_*`` environment variable (as written by
+        :func:`isaac.llm.presets.apply_preset`), so a preset configures the
+        agent without every call site having to thread the flags through.
     """
     from isaac.tools import register_all_tools
 
@@ -541,6 +730,14 @@ def build_default_agent(
     if only is not None:
         wanted = set(only)
         tools = [t for t in tools if t.name in wanted]
+
+    if repair_tool_calls is None:
+        repair_tool_calls = _env_flag("ISAAC_REPAIR_TOOL_CALLS", True)
+    if constrained_decoding is None:
+        constrained_decoding = _env_flag("ISAAC_CONSTRAINED_DECODING", False)
+    if reflexion_retries is None:
+        reflexion_retries = _env_int("ISAAC_REFLEXION_RETRIES", _MAX_REFLEXION_RETRIES)
+
     return AgentLoop(
         tools,
         llm=llm,
@@ -552,4 +749,22 @@ def build_default_agent(
         max_wall_seconds=max_wall_seconds,
         approval_callback=approval_callback,
         trace_store=trace_store,
+        repair_tool_calls=repair_tool_calls,
+        reflexion_retries=reflexion_retries,
+        constrained_decoding=constrained_decoding,
     )
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default

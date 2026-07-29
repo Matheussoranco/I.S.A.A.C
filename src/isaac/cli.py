@@ -183,6 +183,21 @@ if typer is not None:
         else:
             typer.echo("\n=== RESULT ===")
             typer.echo(result.output or "(no output)")
+
+        # Surface tool-call reliability only when something actually went wrong;
+        # on a clean run this line is noise.
+        health = result.health
+        if health.malformed:
+            _echo(
+                f"[dim]tool-call health: {health.malformed}/{health.intended_calls} "
+                f"malformed ({health.malformed_rate:.0%}), "
+                f"{health.repaired} repaired, "
+                f"{health.reflexion_recovered} recovered via retry, "
+                f"{health.unrecovered} lost[/dim]"
+                if _rich
+                else f"tool-call health: {health.malformed}/{health.intended_calls} malformed, "
+                f"{health.repaired} repaired, {health.unrecovered} lost"
+            )
         raise typer.Exit(0 if result.success else 1)
 
     @app.command()
@@ -911,6 +926,139 @@ if typer is not None:
             typer.echo(f"Set ISAAC_SOUL_PATH={pb.active_soul_path()} in .env to persist it.")
         else:
             typer.echo(f"Unknown action: {action}")
+
+    @app.command(name="eval-toolcalls")
+    def eval_toolcalls(
+        model: str = typer.Option(
+            "nemotron-3-nano:4b", "--model", "-m", help="Ollama model tag to measure."
+        ),
+        mode: str = typer.Option(
+            "repair",
+            "--mode",
+            help="'native' (1.3.x baseline), 'repair' (+salvage/Reflexion), "
+            "or 'constrained' (grammar-enforced envelope).",
+        ),
+        base_url: str = typer.Option(
+            "http://localhost:11434", "--base-url", help="Ollama server URL."
+        ),
+        temperature: float = typer.Option(0.2, "--temperature", "-t"),
+        limit: int = typer.Option(0, "--limit", "-n", help="Run only the first N cases."),
+        no_reflexion: bool = typer.Option(
+            False, "--no-reflexion", help="Measure the parser alone, without corrective retries."
+        ),
+        out: str = typer.Option("", "--out", "-o", help="Write the full JSON report here."),
+        json_only: bool = typer.Option(False, "--json", help="Print JSON instead of a table."),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Measure how reliably a model emits well-formed tool calls.
+
+        Twenty prompts, each with exactly one correct tool call. Reports the
+        **malformed rate** — attempted calls that did not arrive through the
+        provider's native channel — plus what the 1.4.0 recovery layer salvages
+        from the same model turns.
+
+        Example::
+
+            isaac eval-toolcalls --model qwen3.5:2b --mode repair
+        """
+        _setup_logging(verbose)
+        from isaac.eval.toolcall import SUITE, run_suite
+
+        cases = SUITE[:limit] if limit > 0 else None
+        typer.echo(f"Running {len(cases) if cases else len(SUITE)} cases on {model} ({mode})…")
+        report = run_suite(
+            model=model,
+            base_url=base_url,
+            mode=mode,
+            temperature=temperature,
+            cases=cases,
+            reflexion=not no_reflexion,
+            progress=not json_only,
+        )
+        typer.echo("")
+        typer.echo(report.to_json() if json_only else report.render())
+        if out:
+            from pathlib import Path
+
+            Path(out).write_text(report.to_json(), encoding="utf-8")
+            typer.echo(f"\nWrote {out}")
+
+    @app.command(name="models")
+    def models_cmd(
+        action: str = typer.Argument("list", help="'list', 'show <name>', 'recommend', or 'use'."),
+        name: str = typer.Argument("", help="Preset name for 'show' / 'use'."),
+        json_only: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    ) -> None:
+        """Inspect and apply the good/better/best model presets.
+
+        Each preset pins a model *and* the loop settings that model needs — a
+        4B model wants constrained decoding and self-consistency; a frontier
+        model is only slowed down by them.
+
+        Example::
+
+            isaac models list
+            isaac models show good
+            isaac models use better
+        """
+        import json as _json
+
+        from isaac.llm.presets import (
+            describe_presets,
+            get_preset,
+            preset_dicts,
+            recommend_preset,
+        )
+
+        act = (action or "list").strip().lower()
+
+        if act == "list":
+            typer.echo(_json.dumps(preset_dicts(), indent=2) if json_only else describe_presets())
+            return
+
+        if act == "recommend":
+            import os as _os
+
+            preset = recommend_preset(has_api_key=bool(_os.environ.get("ANTHROPIC_API_KEY")))
+            typer.echo(f"Recommended preset: {preset.name}  ({preset.model})")
+            typer.echo(f"  {preset.tagline}")
+            typer.echo(f"\n{preset.notes}")
+            typer.echo(f"\nApply with:  isaac models use {preset.name}")
+            return
+
+        if act in {"show", "use"}:
+            if not name:
+                typer.echo(f"'{act}' needs a preset name. Try: isaac models list")
+                raise typer.Exit(2)
+            try:
+                preset = get_preset(name)
+            except KeyError as exc:
+                typer.echo(str(exc))
+                raise typer.Exit(2) from exc
+
+            if act == "show":
+                typer.echo(f"{preset.name} — {preset.tagline}")
+                typer.echo(f"  provider   {preset.provider}")
+                typer.echo(f"  model      {preset.model}")
+                if preset.vram_gb:
+                    typer.echo(f"  VRAM       ~{preset.vram_gb:.0f} GB ({preset.quantisation})")
+                typer.echo(f"  constrain  {preset.constrained_decoding}")
+                typer.echo(f"  samples    {preset.test_time_samples}")
+                typer.echo(f"\n{preset.notes}")
+                typer.echo("\nEnvironment:")
+                for key, value in preset.as_env().items():
+                    typer.echo(f"  {key}={value}")
+                return
+
+            # 'use' — presets are per-process, so print the .env block rather
+            # than pretend a child process inherits this one's environment.
+            typer.echo(f"# Add to your .env to activate the '{preset.name}' preset:")
+            for key, value in preset.as_env().items():
+                typer.echo(f"{key}={value}")
+            return
+
+        typer.echo(f"Unknown action: {action}. Try 'list', 'show', 'recommend', or 'use'.")
+        raise typer.Exit(2)
 
 
 def main() -> int:

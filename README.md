@@ -26,6 +26,8 @@ self-curation, and a hardened security stack.
 | **Host reach** | Constitution-gated `shell`, real-filesystem `fs_*` tools (organise your actual files, confined to `allowed_paths`), and read-only `system_info` — so it can do nearly any task on the PC. |
 | **User personas** | Build, store, and activate custom agent identities (`isaac persona new`); the whole team speaks with your chosen voice. |
 | **Local-first LLMs** | Ollama + `qwen3.6` **by default** — zero API keys, nothing leaves the machine. llama.cpp and any OpenAI-compatible endpoint are first-class too; cloud (OpenAI/Anthropic) stays fully supported but strictly opt-in. |
+| **Capable on small models** | Grammar/JSON-constrained tool calling (Ollama `format`, llama.cpp GBNF) plus salvage + Reflexion retry for malformed calls. Runs agents on models with *no* native tool support: `gemma3:1b` goes from 0/20 to 20/20 well-formed calls. Measured in [`docs/MODELS.md`](docs/MODELS.md). |
+| **Test-time compute** | Self-consistency and best-of-N with cheap local verifiers on hard steps, escalating and exiting early exactly as the ARC solver does. |
 | **Voice I/O** | Whisper (STT) ↔ Piper / Coqui / pyttsx3 (TTS) with VAD-driven hands-free mode. |
 | **Vision** | Local VLMs via Ollama (`llava`, `qwen2.5-vl`). Image / screen-capture input. |
 | **Self-improving** | Per-node telemetry, A/B prompt evolution, skill auto-curation, periodic self-critique. |
@@ -268,6 +270,15 @@ isaac agent "Summarise today's top Hacker News post" --tools browser,web_search 
 # Inspect past runs (every agent run is traced to SQLite)
 isaac trace                 # list recent runs
 isaac trace <run_id>        # replay one run's event stream
+
+# Pick a model for the GPU you actually have — each preset pins a model *and*
+# the loop settings that model needs (see docs/MODELS.md).
+isaac models list
+isaac models recommend      # reads your VRAM; stays local when a local rung fits
+isaac models use good       # prints the .env block to paste
+
+# Measure how reliably a model emits well-formed tool calls (20 prompts)
+isaac eval-toolcalls --model nemotron-3-nano:4b
 
 # Specialist team — a manager decomposes the goal and dispatches it to the
 # right specialists (researcher → designer → coder …), in parallel where it can.
