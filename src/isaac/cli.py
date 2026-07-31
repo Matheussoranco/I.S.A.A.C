@@ -1060,6 +1060,426 @@ if typer is not None:
         typer.echo(f"Unknown action: {action}. Try 'list', 'show', 'recommend', or 'use'.")
         raise typer.Exit(2)
 
+    @app.command(name="arc")
+    def arc_cmd(
+        action: str = typer.Argument(
+            "eval", help="'eval', 'solve', 'primitives', or 'show'."
+        ),
+        path: str = typer.Argument("", help="Task .json file or a directory of them."),
+        solver: str = typer.Option(
+            "synthesis",
+            "--solver",
+            help="'synthesis' (full neurosymbolic), 'dsl' (brute-force only), or 'llm'.",
+        ),
+        budget: float = typer.Option(
+            30.0, "--budget", "-b", help="Per-task time budget in seconds."
+        ),
+        beam: int = typer.Option(30, "--beam", help="Beam width for DSL search."),
+        depth: int = typer.Option(3, "--depth", help="Max program depth."),
+        limit: int = typer.Option(0, "--limit", "-n", help="Only use the first N tasks."),
+        task_id: str = typer.Option("", "--task", help="Only run the task with this id."),
+        json_only: bool = typer.Option(False, "--json", help="Machine-readable output."),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Run the ARC-AGI neurosymbolic solver (program synthesis over the DSL).
+
+        This drives the ``isaac.arc`` subsystem directly — beam search over the
+        DSL, the analogy engine, object-level synthesis and the LLM fallback —
+        rather than routing an ARC task through the general agent loop
+        (which is what ``isaac eval --format arc`` does).
+
+        Example::
+
+            isaac arc primitives
+            isaac arc eval path/to/arc/evaluation/
+            isaac arc solve task.json --solver dsl --budget 5
+        """
+        _setup_logging(verbose)
+        import json as _json
+        from pathlib import Path as _Path
+
+        act = (action or "eval").strip().lower()
+
+        if act == "primitives":
+            from isaac.arc.dsl import PRIMITIVES
+
+            if json_only:
+                typer.echo(_json.dumps(sorted(PRIMITIVES), indent=2))
+                return
+            typer.echo(f"{len(PRIMITIVES)} DSL primitives:")
+            for pname in sorted(PRIMITIVES):
+                doc = (PRIMITIVES[pname].__doc__ or "").strip().splitlines()
+                typer.echo(f"  {pname:32s} {doc[0] if doc else ''}")
+            return
+
+        if not path:
+            typer.echo(f"'{act}' needs a task file or directory. Try: isaac arc primitives")
+            raise typer.Exit(2)
+
+        from isaac.arc.evaluator import load_tasks, load_tasks_from_dir
+
+        target = _Path(path)
+        if not target.exists():
+            typer.echo(f"No such path: {target}")
+            raise typer.Exit(2)
+
+        tasks = load_tasks_from_dir(target) if target.is_dir() else load_tasks(target)
+        if task_id:
+            tasks = [t for t in tasks if t.id == task_id]
+        if limit > 0:
+            tasks = tasks[:limit]
+        if not tasks:
+            typer.echo("No tasks loaded.")
+            raise typer.Exit(1)
+
+        if act == "show":
+
+            def _dims(grid: object) -> str:
+                # Grids may be lists-of-lists or numpy arrays; avoid truthiness
+                # on arrays (ambiguous) and read .shape when it is available.
+                shape = getattr(grid, "shape", None)
+                if shape is not None:
+                    return "x".join(str(d) for d in shape)
+                rows = len(grid)  # type: ignore[arg-type]
+                cols = len(grid[0]) if rows else 0  # type: ignore[index]
+                return f"{rows}x{cols}"
+
+            for t in tasks:
+                typer.echo(f"{t.id}  train={len(t.train)} test={len(t.test)}")
+                for i, pair in enumerate(t.train):
+                    typer.echo(f"    train[{i}]  {_dims(pair.input)} -> {_dims(pair.output)}")
+                for i, pair in enumerate(t.test):
+                    typer.echo(f"    test [{i}]  {_dims(pair.input)} -> {_dims(pair.output)}")
+            return
+
+        if act in {"eval", "solve"}:
+            from isaac.arc.evaluator import evaluate, print_report
+
+            report = evaluate(
+                tasks,
+                solver=solver,
+                time_budget_per_task_s=budget,
+                beam_width=beam,
+                max_depth=depth,
+            )
+
+            if json_only:
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "total_tasks": report.total_tasks,
+                            "correct": report.correct,
+                            "accuracy": report.accuracy,
+                            "total_time_ms": report.total_time_ms,
+                            "results": [
+                                {
+                                    "task_id": r.task_id,
+                                    "correct": r.correct,
+                                    "method": r.method,
+                                    "solve_time_ms": r.solve_time_ms,
+                                    "program": r.program,
+                                }
+                                for r in report.results
+                            ],
+                        },
+                        indent=2,
+                        default=str,
+                    )
+                )
+            else:
+                print_report(report)
+            raise typer.Exit(0 if report.correct == report.total_tasks else 1)
+
+        typer.echo(f"Unknown action: {action}. Try 'eval', 'solve', 'primitives', or 'show'.")
+        raise typer.Exit(2)
+
+    @app.command(name="config")
+    def config_cmd(
+        action: str = typer.Argument("show", help="'show', 'get <dotted.key>', or 'paths'."),
+        key: str = typer.Argument("", help="Dotted settings key for 'get' (e.g. llm.model_name)."),
+        json_only: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    ) -> None:
+        """Inspect the effective configuration (env + .env + defaults).
+
+        Settings are read-only from the CLI on purpose: I.S.A.A.C. resolves them
+        per-process from the environment, so a mutation here would not survive.
+        Use ``isaac models use <preset>`` to get a ready-made ``.env`` block.
+
+        Example::
+
+            isaac config show
+            isaac config get llm.model_name
+        """
+        _setup_logging()
+        import json as _json
+
+        from isaac.config.settings import get_settings
+
+        settings = get_settings()
+        act = (action or "show").strip().lower()
+
+        if act == "paths":
+            typer.echo(f"  isaac_home  {settings.isaac_home}")
+            typer.echo(f"  skills_dir  {settings.skills_dir}")
+            return
+
+        try:
+            data = settings.model_dump(mode="json")
+        except AttributeError:  # pydantic v1 fallback
+            data = _json.loads(settings.json())
+
+        # Never print secrets in full.
+        def _redact(obj: object, path: str = "") -> object:
+            if isinstance(obj, dict):
+                return {k: _redact(v, f"{path}.{k}" if path else k) for k, v in obj.items()}
+            if isinstance(obj, str) and obj and (
+                "api_key" in path or "token" in path or "secret" in path
+            ):
+                return f"<set: {len(obj)} chars>"
+            return obj
+
+        data = _redact(data)
+
+        if act == "get":
+            if not key:
+                typer.echo("'get' needs a dotted key, e.g. isaac config get llm.model_name")
+                raise typer.Exit(2)
+            node: object = data
+            for part in key.split("."):
+                if not isinstance(node, dict) or part not in node:
+                    typer.echo(f"No such setting: {key}")
+                    raise typer.Exit(2)
+                node = node[part]
+            typer.echo(_json.dumps(node, indent=2) if isinstance(node, (dict, list)) else str(node))
+            return
+
+        if act == "show":
+            typer.echo(_json.dumps(data, indent=2, default=str))
+            return
+
+        typer.echo(f"Unknown action: {action}. Try 'show', 'get', or 'paths'.")
+        raise typer.Exit(2)
+
+    @app.command(name="experts")
+    def experts_cmd(
+        action: str = typer.Argument("list", help="'list' or 'route <question>'."),
+        question: str = typer.Argument("", help="Question to route (for 'route')."),
+    ) -> None:
+        """List the Mixture-of-Experts panel, or show which expert would answer.
+
+        Example::
+
+            isaac experts list
+            isaac experts route "integrate x^2 from 0 to 3"
+        """
+        _setup_logging()
+        from isaac.experts.registry import get_registry
+
+        registry = get_registry()
+        act = (action or "list").strip().lower()
+
+        if act == "list":
+            experts = list(registry.all())
+            if not experts:
+                typer.echo("No experts registered.")
+                return
+            for ex in experts:
+                typer.echo(f"  {ex.name:14s} {ex.description}")
+            return
+
+        if act == "route":
+            if not question:
+                typer.echo("'route' needs a question.")
+                raise typer.Exit(2)
+            from isaac.experts.router import HybridRouter
+
+            result = HybridRouter(registry).route(question, top_k=len(registry.all()) or 1)
+            sel = result.selection
+            typer.echo(f"primary: {sel.primary}")
+            if sel.rationale:
+                typer.echo(f"  {sel.rationale}")
+            if sel.candidates:
+                typer.echo("\nranked:")
+                for cand_name, score in sel.candidates:
+                    feat = result.features.get(cand_name)
+                    detail = (
+                        f"  raw={feat.raw_confidence:.2f} winrate={feat.meta_winrate:.2f} "
+                        f"cost={feat.cost:.1f}"
+                        if feat
+                        else ""
+                    )
+                    typer.echo(f"  {cand_name:14s} score={score:.3f}{detail}")
+            return
+
+        typer.echo(f"Unknown action: {action}. Try 'list' or 'route'.")
+        raise typer.Exit(2)
+
+    @app.command(name="skills")
+    def skills_cmd(
+        action: str = typer.Argument(
+            "list", help="'list', 'show <name>', 'search <query>', 'stats', or 'deprecate <name>'."
+        ),
+        name: str = typer.Argument("", help="Skill name or search query."),
+        k: int = typer.Option(5, "--k", help="Number of search results."),
+    ) -> None:
+        """Inspect the learned-skill library (procedural memory).
+
+        Skills are Python functions I.S.A.A.C. wrote for itself and committed
+        after they worked; this is the read/write surface for that library.
+
+        Example::
+
+            isaac skills list
+            isaac skills show sort_numbers
+            isaac skills search "parse csv"
+        """
+        _setup_logging()
+        from isaac.memory.procedural import ProceduralMemory
+
+        pm = ProceduralMemory()
+        act = (action or "list").strip().lower()
+
+        if act == "list":
+            names = pm.list_active()
+            if not names:
+                typer.echo("No skills learned yet.")
+                return
+            for sname in names:
+                rate = pm.get_success_rate(sname)
+                rec = pm.get_record(sname)
+                uses = rec.total_invocations if rec else 0
+                ver = f" v{rec.current_version}" if rec else ""
+                typer.echo(f"  {sname:32s} success={rate:.0%} uses={uses}{ver}")
+            return
+
+        if act == "stats":
+            names = pm.list_active()
+            typer.echo(f"  skills     {len(names)}")
+            typer.echo(f"  library    {pm.base_library.size} committed")
+            if names:
+                avg = sum(pm.get_success_rate(n) for n in names) / len(names)
+                typer.echo(f"  avg succ.  {avg:.0%}")
+            return
+
+        if act == "show":
+            if not name:
+                typer.echo("'show' needs a skill name.")
+                raise typer.Exit(2)
+            code = pm.base_library.get_code(name)
+            if code is None:
+                typer.echo(f"No such skill: {name}")
+                raise typer.Exit(2)
+            meta = pm.base_library.get_metadata(name) or {}
+            if meta:
+                typer.echo(f"# {name}  success={pm.get_success_rate(name):.0%}")
+                for mk, mv in meta.items():
+                    typer.echo(f"#   {mk}: {mv}")
+                typer.echo("")
+            typer.echo(code)
+            return
+
+        if act == "search":
+            if not name:
+                typer.echo("'search' needs a query.")
+                raise typer.Exit(2)
+            hits = pm.search(name, top_k=k)
+            if not hits:
+                typer.echo("No matching skills.")
+                return
+            for hit in hits:
+                typer.echo(f"  {hit:32s} success={pm.get_success_rate(hit):.0%}")
+            return
+
+        if act == "deprecate":
+            if not name:
+                typer.echo("'deprecate' needs a skill name.")
+                raise typer.Exit(2)
+            pm.deprecate(name)
+            typer.echo(f"Deprecated skill '{name}'.")
+            return
+
+        typer.echo(
+            f"Unknown action: {action}. Try 'list', 'show', 'search', 'stats', or 'deprecate'."
+        )
+        raise typer.Exit(2)
+
+    @app.command(name="sandbox")
+    def sandbox_cmd(
+        action: str = typer.Argument("status", help="'status' or 'run <code>'."),
+        code: str = typer.Argument("", help="Python source to execute (for 'run')."),
+        timeout: int = typer.Option(0, "--timeout", help="Override timeout in seconds."),
+    ) -> None:
+        """Check the Docker sandbox, or run code inside it.
+
+        Example::
+
+            isaac sandbox status
+            isaac sandbox run "print(sum(range(10)))"
+        """
+        _setup_logging()
+        from isaac.config.settings import get_settings
+
+        settings = get_settings()
+        act = (action or "status").strip().lower()
+
+        if act == "status":
+            typer.echo("Code sandbox:")
+            typer.echo(f"  image      {settings.sandbox.image}")
+            typer.echo(f"  timeout    {settings.sandbox.timeout_seconds}s")
+            typer.echo(f"  memory     {settings.sandbox.memory_limit}")
+            typer.echo(f"  cpus       {settings.sandbox.cpu_limit}")
+            typer.echo(f"  network    {settings.sandbox.network}")
+            typer.echo("UI sandbox:")
+            typer.echo(f"  image      {settings.ui_sandbox.image}")
+            typer.echo(f"  timeout    {settings.ui_sandbox.timeout_seconds}s")
+
+            import shutil as _shutil
+
+            docker = _shutil.which("docker")
+            typer.echo(f"\ndocker     {docker or 'NOT FOUND — sandboxed tools will fail'}")
+            if docker:
+                import subprocess as _sp
+
+                try:
+                    _sp.run(
+                        ["docker", "image", "inspect", settings.sandbox.image],
+                        capture_output=True,
+                        check=True,
+                        timeout=20,
+                    )
+                    typer.echo(f"image      {settings.sandbox.image} present")
+                except Exception:
+                    typer.echo(
+                        f"image      {settings.sandbox.image} MISSING — "
+                        f"build it with:  docker build -t {settings.sandbox.image} sandbox_image/"
+                    )
+            return
+
+        if act == "run":
+            if not code:
+                typer.echo("'run' needs a code string.")
+                raise typer.Exit(2)
+            from isaac.sandbox.executor import CodeExecutor
+            from isaac.sandbox.security import default_policy
+
+            policy = default_policy()
+            if timeout > 0:
+                policy.timeout_seconds = timeout
+            executor = CodeExecutor(policy=policy)
+            try:
+                result = executor.execute(code)
+            finally:
+                executor.close()
+            if result.stdout:
+                typer.echo(result.stdout)
+            if result.stderr:
+                typer.echo(result.stderr, err=True)
+            typer.echo(f"[exit {result.exit_code} in {result.duration_ms:.0f}ms]", err=True)
+            raise typer.Exit(result.exit_code if result.exit_code >= 0 else 1)
+
+        typer.echo(f"Unknown action: {action}. Try 'status' or 'run'.")
+        raise typer.Exit(2)
+
 
 def main() -> int:
     """Entry point — delegates to Typer if available, else basic argparse."""
