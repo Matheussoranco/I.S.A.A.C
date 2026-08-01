@@ -181,7 +181,8 @@ isaac improve --report   # cycle + show curation decisions
 ### Provider / model inspection
 
 ```bash
-isaac models             # all providers + ollama install list
+isaac providers          # all providers + ollama install list
+isaac models list        # the good/better/best preset ladder
 ```
 
 ### Telegram + scheduler daemon
@@ -199,7 +200,9 @@ isaac serve
 | `isaac voice [--hands-free]`| Voice REPL                                  |
 | `isaac vision <path>`       | Ask the local VLM about an image            |
 | `isaac improve [--report]`  | Run one self-improvement cycle              |
-| `isaac models`              | List providers + Ollama models              |
+| `isaac providers`           | List providers + Ollama models              |
+| `isaac models [list\|show\|recommend\|use]` | Good/better/best model presets |
+| `isaac eval-toolcalls`      | Measure tool-call reliability on a model    |
 | `isaac serve`               | Telegram gateway + heartbeat scheduler      |
 | `isaac audit [--verify]`    | View / verify the audit chain               |
 | `isaac memory "<query>"`    | Query the unified memory system             |

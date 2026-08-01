@@ -76,8 +76,13 @@ def transpose(grid: Grid) -> Grid:
 
 
 def diagonal_flip(grid: Grid) -> Grid:
-    """Flip along the anti-diagonal (rotate 90 then flip left-right)."""
-    return np.rot90(np.fliplr(grid)).copy()
+    """Flip along the anti-diagonal.
+
+    ``A[i, j] -> A[n-1-j, m-1-i]``.  The counter-clockwise rotation here is
+    deliberate: ``np.rot90(np.fliplr(grid))`` collapses to the *main*-diagonal
+    transpose, which :func:`transpose` already provides.
+    """
+    return np.rot90(np.fliplr(grid), k=-1).copy()
 
 
 def shift_right(grid: Grid, n: int = 1) -> Grid:

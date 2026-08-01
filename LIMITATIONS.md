@@ -1,4 +1,4 @@
-# Known Limitations (1.3.2)
+# Known Limitations (1.4.0)
 
 I.S.A.A.C. 1.0 is a stable, tested, local-first autonomous agent **framework**.
 This file states plainly what that does — and does not — mean. It exists so
@@ -34,9 +34,19 @@ the README's capability claims can be read with the right calibration.
 - **Tests mock the LLM.** The test suite validates the machinery (loops,
   routing, memory, safety gates), not end-to-end task success against a live
   model. Real-world quality depends heavily on the model you configure.
-- **Local-model ceiling.** With the default 7B-class local model, hard
+- **Local-model ceiling.** With the default 4B-class local model, hard
   multi-step tasks will fail more often than with a frontier cloud model.
   Configure a larger local model or an opt-in cloud fallback for harder work.
+- **Constrained decoding fixes call *shape*, not tool *choice*.** 1.4.0 makes
+  `gemma3:1b` — a model Ollama rejects every tools-bearing request for — usable
+  as an agent: 0/20 requests accepted natively becomes 20/20 accepted with
+  20/20 well-formed calls under the grammar. But it picks the **right** tool
+  only 8 times in 20 (40%). A grammar cannot make a 1B model reason, so the
+  `minimal` rung needs supervision on multi-step tasks and is there to run on
+  hardware that cannot hold anything larger — not to match the rungs above.
+  On models that *do* advertise the `tools` capability the measured malformed
+  rate is already 0.0%, so the repair and Reflexion layers are a safety net
+  that never fired in testing rather than a visible upgrade (`docs/MODELS.md`).
 
 ## Operational caveats
 

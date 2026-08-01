@@ -293,8 +293,13 @@ class ToolCallReport:
             f"  no attempt           {s['no_attempt']}",
             f"  errors               {s['error']}",
             "-" * 64,
+            # With no accepted attempt there is nothing to be malformed about.
+            # Printing "0.0%" there reads as a perfect score for a model that
+            # never got to answer, so say so instead.
             f"  MALFORMED RATE       {s['malformed_rate']:.1%}  "
-            f"({s['malformed']}/{s['attempts']} attempts)",
+            f"({s['malformed']}/{s['attempts']} attempts)"
+            if s["attempts"]
+            else "  MALFORMED RATE       —  (no request was accepted; nothing measured)",
         ]
 
         if self.mode == "constrained":

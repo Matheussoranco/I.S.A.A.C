@@ -2,7 +2,7 @@
 
 I.S.A.A.C. is local-first. The question that decides how well it works is not
 "which framework" but "which model, on the GPU you actually have". This page
-gives four rungs, what each one costs, and — for tool calling, the thing that
+gives five rungs, what each one costs, and — for tool calling, the thing that
 most often breaks small-model agents — what was measured rather than assumed.
 
 ```bash

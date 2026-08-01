@@ -307,6 +307,41 @@ class TestHealthMetrics:
         assert health.malformed_rate == 0.0
         assert health.recovered_rate == 0.0
 
+    def test_reflexion_credit_does_not_rob_an_earlier_repaired_turn(self) -> None:
+        # Regression: the recovery credit used to be taken from whichever
+        # cumulative counter was non-zero, so an *earlier* repaired turn paid
+        # for a *later* reflexion recovery. That moved a malformed turn into
+        # the native bucket and understated the headline malformed_rate.
+        tool = SearchTool()
+        llm = ScriptedLLM(
+            [
+                # turn 1: salvaged from text -> repaired
+                AIMessage(content='{"name": "web_search", "arguments": {"query": "a"}}'),
+                # turn 2: unparseable attempt -> Reflexion retry
+                AIMessage(content='I will call the web_search tool with {"query": '),
+                # turn 3: the correction lands as a native call
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "web_search",
+                            "args": {"query": "fixed"},
+                            "id": "c1",
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                AIMessage(content="done"),
+            ]
+        )
+        health = AgentLoop([tool], llm=llm, auto_approve=True).run("q").health
+
+        assert health.repaired == 1, "the first turn was repaired and must stay repaired"
+        assert health.reflexion_recovered == 1
+        assert health.native == 0, "no turn arrived cleanly through the native channel"
+        assert health.malformed == 2
+        assert health.malformed_rate == 1.0
+
     def test_as_dict_is_serialisable(self) -> None:
         tool = SearchTool()
         llm = ScriptedLLM(

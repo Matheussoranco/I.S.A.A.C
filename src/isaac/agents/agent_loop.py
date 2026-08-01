@@ -516,9 +516,14 @@ class AgentLoop:
                 # back as plain observations (a strict OpenAI-compatible server
                 # rejects a ToolMessage with no corresponding call).
                 native_turn = bool(tool_calls)
+                # Which bucket *this* turn incremented. Checking the cumulative
+                # counters instead would mis-attribute the reflexion credit to
+                # an earlier turn's bucket and undercount malformed_rate.
+                turn_bucket = ""
 
                 if tool_calls:
                     health.native += 1
+                    turn_bucket = "native"
                 elif self.constrained_decoding:
                     # Envelope mode: every turn arrives as text and is decoded
                     # here, so there is no "native" path to fall back from.
@@ -527,6 +532,7 @@ class AgentLoop:
                     tool_calls, answer = parse_envelope(text, set(self._tools))
                     if tool_calls:
                         health.native += 1
+                        turn_bucket = "native"
                     else:
                         final_text = answer or text
                         reason = "final"
@@ -542,6 +548,7 @@ class AgentLoop:
                     )
                     if salvaged:
                         health.repaired += 1
+                        turn_bucket = "repaired"
                         tool_calls = salvaged
                         self._emit(
                             "repair",
@@ -588,10 +595,11 @@ class AgentLoop:
 
                 if pending_reflexion:
                     # We got here with calls in hand right after a retry, so the
-                    # correction worked.
-                    if health.repaired:
+                    # correction worked. Move only *this* turn out of the bucket
+                    # it just landed in.
+                    if turn_bucket == "repaired":
                         health.repaired -= 1
-                    elif health.native:
+                    elif turn_bucket == "native":
                         health.native -= 1
                     health.reflexion_recovered += 1
                     pending_reflexion = False
