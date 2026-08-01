@@ -9,6 +9,7 @@ from isaac.arc.dsl import (
     apply_program,
     compose,
     crop_to_object,
+    diagonal_flip,
     fill_colour,
     flip_horizontal,
     flip_vertical,
@@ -91,6 +92,31 @@ class TestTranspose:
         grid = np.array([[1, 2, 3], [4, 5, 6]])
         result = transpose(grid)
         assert result.shape == (3, 2)
+
+
+class TestDiagonalFlip:
+    """``diagonal_flip`` reflects about the ANTI-diagonal.
+
+    It once used a counter-clockwise ``np.rot90``, which collapses to the
+    main-diagonal transpose — leaving the DSL with three aliases of
+    ``transpose`` and no anti-diagonal reflection at all.
+    """
+
+    def test_is_the_anti_transpose(self) -> None:
+        grid = np.array([[1, 2, 3], [4, 5, 6]])
+        # A[i, j] -> A[n-1-j, m-1-i]: reverse both axes, then transpose.
+        assert np.array_equal(diagonal_flip(grid), grid[::-1, ::-1].T)
+
+    def test_is_not_the_main_diagonal_transpose(self) -> None:
+        grid = np.array([[1, 2], [3, 4]])
+        assert not np.array_equal(diagonal_flip(grid), transpose(grid))
+
+    def test_is_an_involution(self) -> None:
+        grid = np.array([[1, 2, 3], [4, 5, 6]])
+        assert np.array_equal(diagonal_flip(diagonal_flip(grid)), grid)
+
+    def test_transposes_the_shape(self) -> None:
+        assert diagonal_flip(np.array([[1, 2, 3], [4, 5, 6]])).shape == (3, 2)
 
 
 class TestShifts:

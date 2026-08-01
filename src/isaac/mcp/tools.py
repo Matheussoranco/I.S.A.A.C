@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict, replace
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -277,11 +279,12 @@ def _handle_memory_search(args: dict[str, Any]) -> dict[str, Any]:
 
     query = args["query"]
     top_k = args.get("top_k", 5)
-    args.get("layers", ["all"])
 
+    # recall() spells the limit ``k``, and returns a RecallResult dataclass
+    # that has to be flattened before it can go back over JSON-RPC.
     mgr = MemoryManager()
-    results = mgr.recall(query, top_k=top_k)
-    return {"query": query, "results": results}
+    recalled = mgr.recall(query, k=top_k)
+    return {"query": query, "results": asdict(recalled)}
 
 
 def _handle_skill_search(args: dict[str, Any]) -> dict[str, Any]:
@@ -291,22 +294,24 @@ def _handle_skill_search(args: dict[str, Any]) -> dict[str, Any]:
     query = args["query"]
     top_k = args.get("top_k", 3)
 
-    lib = SkillLibrary(str(settings.skills_dir))
+    # SkillLibrary calls .mkdir() on this: it must stay a Path, not str().
+    lib = SkillLibrary(Path(settings.skills_dir))
     skills = lib.search(query, top_k=top_k)
     return {"query": query, "skills": skills}
 
 
 def _handle_code_execute(args: dict[str, Any]) -> dict[str, Any]:
-    import asyncio
-
-    from isaac.sandbox.executor import SandboxExecutor
+    # The class is CodeExecutor and execute() is synchronous; the timeout lives
+    # on the (frozen) SecurityPolicy rather than on the call.
+    from isaac.sandbox.executor import CodeExecutor
+    from isaac.sandbox.security import default_policy
 
     code = args["code"]
     timeout = min(args.get("timeout", 30), 120)
 
-    executor = SandboxExecutor()
     try:
-        result = asyncio.run(executor.run(code, timeout_seconds=timeout))
+        executor = CodeExecutor(policy=replace(default_policy(), timeout_seconds=int(timeout)))
+        result = executor.execute(code)
         return {
             "exit_code": result.exit_code,
             "stdout": result.stdout[:3000],
@@ -323,9 +328,13 @@ def _handle_web_search(args: dict[str, Any]) -> dict[str, Any]:
     query = args["query"]
     max_results = args.get("max_results", 5)
 
+    # BaseConnector exposes run(**kwargs); there is no .search().
     connector = WebSearchConnector()
-    results = connector.search(query, max_results=max_results)
-    return {"query": query, "results": results}
+    payload = connector.run(query=query, max_results=max_results)
+    out: dict[str, Any] = {"query": query, "results": payload.get("results", [])}
+    if payload.get("error"):
+        out["error"] = payload["error"]
+    return out
 
 
 def _handle_knowledge_query(args: dict[str, Any]) -> dict[str, Any]:
@@ -336,11 +345,15 @@ def _handle_knowledge_query(args: dict[str, Any]) -> dict[str, Any]:
     query = args.get("query", "")
 
     mem = SemanticMemory()
+    # The real API is search_similar_facts / query_facts, and the latter reads
+    # ``None`` — not "" — as "match any", so blank filters must be dropped or
+    # every query matches nothing. Facts are dataclasses: serialise them, since
+    # the MCP response has to be JSON.
     if query:
-        results = mem.search(query)
+        facts = mem.search_similar_facts(query)
     else:
-        results = mem.query_triples(subject=subject, predicate=predicate)
-    return {"results": results}
+        facts = mem.query_facts(subject=subject or None, predicate=predicate or None)
+    return {"results": [f.to_dict() for f in facts]}
 
 
 def _handle_agent(args: dict[str, Any]) -> dict[str, Any]:

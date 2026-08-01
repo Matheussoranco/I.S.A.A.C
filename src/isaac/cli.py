@@ -751,9 +751,14 @@ if typer is not None:
             raise typer.Exit(1)
         typer.echo("\nAll core checks passed.")
 
-    @app.command()
-    def models() -> None:
-        """List available providers and detect locally-installed models."""
+    @app.command(name="providers")
+    def providers_cmd() -> None:
+        """List available providers and detect locally-installed models.
+
+        Named ``providers`` rather than ``models``: since 1.4.0 ``isaac models``
+        is the preset ladder, and registering both under one name silently
+        shadowed whichever lost the race.
+        """
         _setup_logging()
         from isaac.config.settings import settings
         from isaac.llm.providers import LOCAL_PROVIDERS, PROVIDERS
@@ -1062,9 +1067,7 @@ if typer is not None:
 
     @app.command(name="arc")
     def arc_cmd(
-        action: str = typer.Argument(
-            "eval", help="'eval', 'solve', 'primitives', or 'show'."
-        ),
+        action: str = typer.Argument("eval", help="'eval', 'solve', 'primitives', or 'show'."),
         path: str = typer.Argument("", help="Task .json file or a directory of them."),
         solver: str = typer.Option(
             "synthesis",
@@ -1232,8 +1235,10 @@ if typer is not None:
         def _redact(obj: object, path: str = "") -> object:
             if isinstance(obj, dict):
                 return {k: _redact(v, f"{path}.{k}" if path else k) for k, v in obj.items()}
-            if isinstance(obj, str) and obj and (
-                "api_key" in path or "token" in path or "secret" in path
+            if (
+                isinstance(obj, str)
+                and obj
+                and ("api_key" in path or "token" in path or "secret" in path)
             ):
                 return f"<set: {len(obj)} chars>"
             return obj
@@ -1459,12 +1464,16 @@ if typer is not None:
             if not code:
                 typer.echo("'run' needs a code string.")
                 raise typer.Exit(2)
+            from dataclasses import replace
+
             from isaac.sandbox.executor import CodeExecutor
             from isaac.sandbox.security import default_policy
 
+            # SecurityPolicy is a frozen dataclass — assigning to it raises
+            # FrozenInstanceError, so --timeout has to rebuild it.
             policy = default_policy()
             if timeout > 0:
-                policy.timeout_seconds = timeout
+                policy = replace(policy, timeout_seconds=timeout)
             executor = CodeExecutor(policy=policy)
             try:
                 result = executor.execute(code)

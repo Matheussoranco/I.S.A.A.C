@@ -3,7 +3,7 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.3.2-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.3.2)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.4.0)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
@@ -309,7 +309,7 @@ isaac improve
 isaac improve --report
 
 # List all providers + locally-installed Ollama models
-isaac models
+isaac providers
 
 # Telegram bot + heartbeat scheduler
 isaac serve
