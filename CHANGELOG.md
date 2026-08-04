@@ -7,6 +7,63 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1] — 2026-08-03 — Small-model reliability fixes
+
+1.4.0 shipped the machinery that makes small local models usable as agents.
+Auditing that machinery against the output those models actually produce turned
+up five defects in it, three of which silently disabled the feature they belong
+to. No API changes; upgrading is a drop-in.
+
+### Fixed
+
+- **Salvage lost every call that followed an apostrophe** (`agents.tool_repair`).
+  `_extract_balanced` tracked quote characters at every nesting depth, so the
+  apostrophe in prose like `I'll search for that: {"name": ...}` opened a string
+  literal that never closed and the JSON call after it was never seen. The turn
+  was then accepted as a *final answer* — precisely the 1.3.x failure 1.4.0 was
+  written to eliminate, still reachable through the most natural phrasing a
+  small model uses. Quotes now delimit strings only inside an object
+  (`depth > 0`), where JSON payloads actually live; braces inside argument
+  values are still protected.
+
+- **Argument-less tools could never be repaired** (`agents.tool_repair`).
+  `_from_pycall` required at least one keyword argument, so `system_info()` or
+  `file_list()` — both genuinely argument-less built-ins — were dropped. A
+  zero-argument call is now recovered when it is the whole message, which
+  admits the real case without firing on prose that merely mentions a tool.
+  Positional arguments are now refused explicitly rather than silently
+  producing an empty-argument call.
+
+- **Ollama hosts were handed a llama.cpp grammar**
+  (`llm.constrained.supports_constrained_decoding`). `"ollama"` contains
+  `"llama"`, and the llama.cpp branch was tested first, so any Ollama server
+  reached by hostname rather than on port 11434 (`https://ollama.example.com`)
+  was given GBNF it cannot honour — leaving the decoder unconstrained on the
+  models that depend on the constraint to act at all.
+
+- **`per_tool=False` was accepted and ignored on the grammar channel**
+  (`llm.constrained.apply_constraint`). The llama.cpp path called
+  `gbnf_for_tools(tools)` without forwarding the flag, so a caller asking for
+  the flat grammar silently got the branched one.
+
+- **Switching presets left the previous rung's models bound**
+  (`llm.presets.ModelPreset.as_env`). `ISAAC_FAST_MODEL` and
+  `ISAAC_STRONG_MODEL` were emitted only when a preset pinned them, so moving
+  from `best` to a local rung kept routing fast and strong turns to
+  `claude-haiku` / `claude-opus` — a preset documented as fully local continued
+  sending task content off the machine. Both keys are now always written, empty
+  when unpinned, which reads as "use the default model" everywhere they are
+  consumed and makes the `.env` block printed by `isaac models use` correct
+  under repeated application.
+
+### Tests
+
+- 31 regression tests covering each defect above, including the negative cases
+  that keep the parser conservative: prose mentions of a tool, positional
+  arguments, and braces inside argument strings. Suite: 799 passing.
+
+---
+
 ## [1.4.0] — 2026-07-29 — Capable on small models
 
 Small local models fail as agents in a specific, measurable way: they choose the

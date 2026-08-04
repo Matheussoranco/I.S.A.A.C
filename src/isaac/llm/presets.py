@@ -72,10 +72,15 @@ class ModelPreset:
             "ISAAC_TEST_TIME_SAMPLES": str(self.test_time_samples),
             "ISAAC_SAMPLING_TEMPERATURE": str(self.sampling_temperature),
         }
-        if self.fast_model:
-            out["ISAAC_FAST_MODEL"] = self.fast_model
-        if self.strong_model:
-            out["ISAAC_STRONG_MODEL"] = self.strong_model
+        # Always emitted, empty when the preset does not pin a tier. Presets are
+        # applied over a live environment, so omitting the key would leave the
+        # *previous* preset's value in place — switching from "best" to a local
+        # rung would keep routing fast/strong turns to the API models, off the
+        # machine, under a preset documented as fully local. Empty is falsy
+        # everywhere these are read (``cfg.fast_model or cfg.model_name``), so
+        # it restores the default rather than pinning "".
+        out["ISAAC_FAST_MODEL"] = self.fast_model
+        out["ISAAC_STRONG_MODEL"] = self.strong_model
         out.update(self.env)
         return out
 

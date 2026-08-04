@@ -193,3 +193,81 @@ class TestReflexionPrompt:
 
     def test_includes_parser_error_when_given(self) -> None:
         assert "Unexpected token" in reflexion_prompt("{", KNOWN, error="Unexpected token")
+
+
+class TestProseAroundTheCall:
+    """Small models narrate before they act, and they use contractions.
+
+    ``_extract_balanced`` used to track quotes at every depth, so the
+    apostrophe in "I'll" opened a string literal that never closed and the
+    JSON call after it was never seen — silently turning the model's intended
+    call into a final answer, the exact failure 1.4.0 set out to fix.
+    """
+
+    CALL = '{"name": "web_search", "arguments": {"query": "cats"}}'
+
+    @pytest.mark.parametrize(
+        "preamble",
+        [
+            "I'll use the search tool now: ",
+            "Don't worry, I can look that up: ",
+            "Let's search for it: ",
+            "It's easier to just search: ",
+            "I will search: ",
+        ],
+        ids=["ill", "dont", "lets", "its", "no-contraction"],
+    )
+    def test_contractions_do_not_hide_the_call(self, preamble: str) -> None:
+        calls = salvage_tool_calls(preamble + self.CALL, KNOWN)
+        assert [c["name"] for c in calls] == ["web_search"]
+        assert calls[0]["args"] == {"query": "cats"}
+
+    def test_braces_inside_strings_still_survive(self) -> None:
+        # The reason quote tracking exists at all: a brace inside an argument
+        # value must not end the object early.
+        text = '{"name": "web_search", "arguments": {"query": "a } b"}}'
+        assert salvage_tool_calls(text, KNOWN)[0]["args"] == {"query": "a } b"}
+
+    def test_single_quoted_python_dialect_still_survives(self) -> None:
+        text = "{'name': 'web_search', 'args': {'query': 'x } y'}}"
+        assert salvage_tool_calls(text, KNOWN)[0]["args"] == {"query": "x } y"}
+
+
+class TestZeroArgumentCalls:
+    """``system_info()`` and ``file_list()`` are real, genuinely argument-less
+    tools. Requiring at least one keyword made them unrecoverable, while
+    accepting a bare ``name()`` anywhere in prose would fire on discussion of a
+    tool rather than a call. Whole-message calls are accepted; mentions are not.
+    """
+
+    ZERO_ARG = {"system_info", "file_list", "web_search"}
+
+    @pytest.mark.parametrize(
+        "text",
+        ["system_info()", "  system_info()  ", "```python\nsystem_info()\n```"],
+        ids=["bare", "padded", "fenced"],
+    )
+    def test_whole_message_zero_arg_call_is_recovered(self, text: str) -> None:
+        calls = salvage_tool_calls(text, self.ZERO_ARG)
+        assert calls and calls[0]["name"] == "system_info"
+        assert calls[0]["args"] == {}
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "the file_list() helper returns a list of paths",
+            "You could call system_info() but I already know the answer.",
+        ],
+        ids=["prose-mention", "prose-aside"],
+    )
+    def test_zero_arg_mentions_in_prose_are_ignored(self, text: str) -> None:
+        assert salvage_tool_calls(text, self.ZERO_ARG) == []
+
+    def test_positional_arguments_are_refused(self) -> None:
+        # Without the tool signature a positional cannot be mapped to a name;
+        # guessing is worse than letting Reflexion ask again.
+        assert salvage_tool_calls('web_search("cats")', self.ZERO_ARG) == []
+
+    def test_keyword_arguments_still_parse(self) -> None:
+        calls = salvage_tool_calls('web_search(query="cats", limit=3)', self.ZERO_ARG)
+        assert calls[0]["args"] == {"query": "cats", "limit": 3}

@@ -131,6 +131,11 @@ def _extract_balanced(text: str) -> list[str]:
     A brace-counting scan rather than a regex, because tool arguments nest and
     regexes cannot match balanced delimiters.  Braces inside string literals
     are skipped so ``{"q": "a } b"}`` stays intact.
+
+    Quotes only delimit strings *inside* an object (``depth > 0``).  At depth 0
+    the text is the model's prose, where the apostrophe in "I'll" or "don't" is
+    punctuation — tracking it as an opening quote used to swallow the rest of
+    the turn, so the JSON call that followed was never found.
     """
     out: list[str] = []
     depth = 0
@@ -147,7 +152,7 @@ def _extract_balanced(text: str) -> list[str]:
             elif ch == quote:
                 in_str = False
             continue
-        if ch in ('"', "'"):
+        if depth > 0 and ch in ('"', "'"):
             in_str = True
             quote = ch
             continue
@@ -216,17 +221,30 @@ def _normalise(obj: Any, known: set[str] | None) -> dict[str, Any] | None:
 
 
 def _from_pycall(text: str, known: set[str]) -> list[dict[str, Any]]:
-    """Parse ``tool(arg="x", n=3)`` expressions naming a known tool."""
+    """Parse ``tool(arg="x", n=3)`` expressions naming a known tool.
+
+    Positional arguments are rejected: without the tool's signature there is no
+    way to map them onto parameter names, and inventing names is worse than
+    letting Reflexion ask again.
+
+    A *zero-argument* call is accepted only when it is the whole message.
+    Several real tools (``system_info``, ``file_list``) legitimately take no
+    arguments, so requiring at least one argument made them unrecoverable — but
+    a bare ``name()`` buried in prose is far more likely to be the model talking
+    about a tool than calling it.
+    """
     calls: list[dict[str, Any]] = []
+    whole = text.strip()
     for match in _PYCALL_RE.finditer(text):
         name = match.group("name")
         if name not in known:
             continue
+        expr = match.group(0).strip()
         try:
-            node = ast.parse(match.group(0).strip(), mode="eval").body
+            node = ast.parse(expr, mode="eval").body
         except Exception:
             continue
-        if not isinstance(node, ast.Call):
+        if not isinstance(node, ast.Call) or node.args:
             continue
         args: dict[str, Any] = {}
         ok = True
@@ -239,8 +257,9 @@ def _from_pycall(text: str, known: set[str]) -> list[dict[str, Any]]:
             except Exception:
                 ok = False
                 break
-        if ok and args:
-            calls.append({"name": name, "args": args, "id": f"repair_{uuid.uuid4().hex[:8]}"})
+        if not ok or (not args and expr != whole):
+            continue
+        calls.append({"name": name, "args": args, "id": f"repair_{uuid.uuid4().hex[:8]}"})
     return calls
 
 
