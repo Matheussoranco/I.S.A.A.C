@@ -224,7 +224,11 @@ def supports_constrained_decoding(llm: Any) -> str:
     base_url = str(
         getattr(llm, "openai_api_base", "") or getattr(llm, "base_url", "") or ""
     ).lower()
-    if "11434" in base_url:
+    # "ollama" must be tested before "llama": the former *contains* the latter,
+    # so an Ollama host reached by name rather than on the default port (e.g.
+    # ``https://ollama.example.com``) would otherwise be handed a llama.cpp
+    # GBNF grammar it cannot honour.
+    if "11434" in base_url or "ollama" in base_url:
         return "ollama"
     if "8080" in base_url or "llama" in base_url:
         return "grammar"
@@ -254,7 +258,7 @@ def apply_constraint(
             schema = tool_envelope_schema(tools, per_tool=per_tool)
             return llm.bind(format=schema)
         if channel == "grammar":
-            grammar = gbnf_for_tools(tools)
+            grammar = gbnf_for_tools(tools, per_tool=per_tool)
             return llm.bind(extra_body={"grammar": grammar})
         if channel == "json":
             return llm.bind(response_format={"type": "json_object"})

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from isaac.llm.constrained import (
     NO_TOOL,
     apply_constraint,
@@ -206,3 +208,65 @@ class TestApplyConstraint:
     def test_no_channel_is_a_passthrough(self) -> None:
         obj = object()
         assert apply_constraint(obj, TOOLS) is obj
+
+
+class _FakeClient:
+    """Minimal stand-in for a LangChain chat model with a base URL."""
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url
+
+    def bind(self, **kwargs: object) -> dict[str, object]:
+        return kwargs
+
+
+class TestChannelDetection:
+    """``"ollama"`` contains ``"llama"``, so substring order decides the answer.
+
+    An Ollama server reached by hostname rather than on port 11434 was matched
+    by the llama.cpp branch and handed a GBNF grammar it cannot honour, leaving
+    the decoder unconstrained on exactly the small models that need it most.
+    """
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "http://localhost:11434",
+            "https://ollama.example.com",
+            "http://ollama.internal:11500",
+            "http://OLLAMA.example.com/v1",
+        ],
+        ids=["default-port", "hostname", "custom-port", "uppercase"],
+    )
+    def test_ollama_hosts_use_the_schema_channel(self, base_url: str) -> None:
+        assert supports_constrained_decoding(_FakeClient(base_url)) == "ollama"
+
+    @pytest.mark.parametrize(
+        "base_url",
+        ["http://localhost:8080", "http://llama-server:9999/v1"],
+        ids=["default-port", "llama-hostname"],
+    )
+    def test_llamacpp_hosts_still_use_the_grammar_channel(self, base_url: str) -> None:
+        assert supports_constrained_decoding(_FakeClient(base_url)) == "grammar"
+
+
+class TestApplyConstraintHonoursPerTool:
+    """``per_tool`` was accepted and then dropped on the grammar path, so a
+    caller asking for the flat schema silently got the branched grammar."""
+
+    def test_grammar_channel_passes_per_tool_through(self) -> None:
+        client = _FakeClient("http://localhost:8080")
+        flat = apply_constraint(client, TOOLS, per_tool=False)["extra_body"]["grammar"]
+        assert flat == gbnf_for_tools(TOOLS, per_tool=False)
+        assert flat != gbnf_for_tools(TOOLS, per_tool=True)
+
+    def test_grammar_channel_still_branches_by_default(self) -> None:
+        client = _FakeClient("http://localhost:8080")
+        branched = apply_constraint(client, TOOLS)["extra_body"]["grammar"]
+        assert branched == gbnf_for_tools(TOOLS, per_tool=True)
+
+    def test_ollama_channel_still_honours_per_tool(self) -> None:
+        client = _FakeClient("http://localhost:11434")
+        assert apply_constraint(client, TOOLS, per_tool=False)["format"] == tool_envelope_schema(
+            TOOLS, per_tool=False
+        )

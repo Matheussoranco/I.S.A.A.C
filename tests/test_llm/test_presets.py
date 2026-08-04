@@ -78,9 +78,12 @@ class TestAsEnv:
         assert PRESETS["minimal"].as_env()["ISAAC_CONSTRAINED_DECODING"] == "1"
         assert PRESETS["good"].as_env()["ISAAC_CONSTRAINED_DECODING"] == "0"
 
-    def test_tier_models_are_emitted_only_when_set(self) -> None:
-        assert "ISAAC_STRONG_MODEL" in PRESETS["best"].as_env()
-        assert "ISAAC_STRONG_MODEL" not in PRESETS["good"].as_env()
+    def test_tier_models_are_always_emitted_empty_when_unset(self) -> None:
+        # Emitted unconditionally so applying a preset over a live environment
+        # clears the previous one's tiers instead of inheriting them; empty
+        # reads as "use the default model" everywhere these are consumed.
+        assert PRESETS["best"].as_env()["ISAAC_STRONG_MODEL"] == "claude-opus-5"
+        assert PRESETS["good"].as_env()["ISAAC_STRONG_MODEL"] == ""
 
     def test_all_values_are_strings(self) -> None:
         # These go straight into os.environ, which rejects non-strings.
@@ -137,3 +140,43 @@ class TestRendering:
         import json
 
         json.dumps(preset_dicts())
+
+
+class TestPresetSwitchingClearsStaleTiers:
+    """Presets are applied over a live environment, so every key a preset owns
+    must be written every time.
+
+    ``ISAAC_FAST_MODEL``/``ISAAC_STRONG_MODEL`` were only emitted when the
+    preset pinned them, so switching from ``best`` to a local rung left the
+    Anthropic models bound to the fast and strong tiers — a preset documented
+    as fully local would keep sending task content off the machine.
+    """
+
+    @pytest.mark.parametrize("name", list(PRESETS))
+    def test_every_preset_writes_both_tier_keys(self, name: str) -> None:
+        env = apply_preset(name, {})
+        assert "ISAAC_FAST_MODEL" in env
+        assert "ISAAC_STRONG_MODEL" in env
+
+    def test_switching_from_best_to_local_clears_the_api_models(self) -> None:
+        env: dict[str, str] = {}
+        apply_preset("best", env)
+        assert env["ISAAC_STRONG_MODEL"] == "claude-opus-5"
+
+        apply_preset("good", env)
+        assert env["ISAAC_LLM_PROVIDER"] == "ollama"
+        # Empty, not absent: falsy is what the provider reads as "use default".
+        assert env["ISAAC_FAST_MODEL"] == ""
+        assert env["ISAAC_STRONG_MODEL"] == ""
+
+    def test_a_preset_that_pins_a_fast_model_still_does(self) -> None:
+        env = apply_preset("better", {})
+        assert env["ISAAC_FAST_MODEL"] == PRESETS["better"].fast_model
+
+    def test_no_local_preset_leaks_a_non_local_model(self) -> None:
+        for name in ("minimal", "small", "good", "better"):
+            env = apply_preset(name, {})
+            tiers = (env["ISAAC_MODEL_NAME"], env["ISAAC_FAST_MODEL"], env["ISAAC_STRONG_MODEL"])
+            assert not any("claude" in t or "gpt" in t for t in tiers), (
+                f"local preset {name!r} routes a tier to an API model"
+            )

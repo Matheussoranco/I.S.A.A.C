@@ -1,4 +1,4 @@
-# Known Limitations (1.4.0)
+# Known Limitations (1.4.1)
 
 I.S.A.A.C. 1.0 is a stable, tested, local-first autonomous agent **framework**.
 This file states plainly what that does — and does not — mean. It exists so
