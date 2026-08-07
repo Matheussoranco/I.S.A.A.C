@@ -270,9 +270,7 @@ class SkillLibrary:
 
         enabled = verification_enabled() if verify is None else bool(verify)
         if not enabled:
-            return PromotionOutcome(
-                name, True, "verification disabled", evidence="unverified"
-            )
+            return PromotionOutcome(name, True, "verification disabled", evidence="unverified")
 
         try:
             if verifier is None:

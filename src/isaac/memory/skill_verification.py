@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 #: Marker the harness prints so its verdict can be found in noisy stdout.
 _RESULT_MARKER = "__ISAAC_SKILL_VERIFY__"
 
-_HARNESS = '''
+_HARNESS = """
 import doctest, inspect, json, os, sys, traceback
 
 # ``python -I`` implies ``-P`` (3.11+), which keeps the script directory off
@@ -141,7 +141,7 @@ else:
     _add("example", "skipped", "no example args in input_schema")
 
 print("{marker}" + json.dumps(_RESULT))
-'''
+"""
 
 
 @dataclass
@@ -286,8 +286,7 @@ class SkillVerifier:
             checks.append(Check("import", "skipped", "Docker sandbox unavailable"))
             return done(
                 False,
-                "sandbox required but unavailable "
-                "(ISAAC_SKILL_VERIFICATION_REQUIRE_SANDBOX=true)",
+                "sandbox required but unavailable (ISAAC_SKILL_VERIFICATION_REQUIRE_SANDBOX=true)",
                 checks,
             )
 
@@ -303,9 +302,7 @@ class SkillVerifier:
                 callables=run.callables or defined,
             )
 
-        behavioural = [
-            c for c in run.checks if c.name in self.BEHAVIOURAL and c.status == "passed"
-        ]
+        behavioural = [c for c in run.checks if c.name in self.BEHAVIOURAL and c.status == "passed"]
         evidence = "behaviour" if behavioural else "import"
         reason = (
             "executed; " + ", ".join(f"{c.name} passed" for c in behavioural)

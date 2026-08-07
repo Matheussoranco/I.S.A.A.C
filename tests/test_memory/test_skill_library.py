@@ -56,7 +56,12 @@ class TestSkillLibrary:
 
     def test_persistence(self, tmp_path: Path) -> None:
         lib1 = SkillLibrary(tmp_path)
-        lib1.commit(SkillCandidate(name="my_skill", code="pass", success_count=1))
+        # ``code="pass"`` used to be enough here; since 1.5.0 the promotion
+        # gate rejects a skill that defines nothing reusable, so the fixture
+        # is now an actual function.
+        lib1.commit(
+            SkillCandidate(name="my_skill", code="def go():\n    return 1", success_count=1)
+        )
 
         # Re-open from same directory
         lib2 = SkillLibrary(tmp_path)
