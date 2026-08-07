@@ -169,11 +169,6 @@ def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
             if tag not in existing_tags:
                 existing_tags.append(tag)
         candidate.tags = existing_tags
-        skill_lib.commit(candidate)
-        logger.info(
-            "Skill Abstraction (UI): committed Playwright skill '%s' to library.",
-            candidate.name,
-        )
     else:
         # ── Code / default path ──────────────────────────────────────────
         prompt = skill_abstraction_prompt(
@@ -185,10 +180,23 @@ def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
         generalised_code = _extract_code(content)
         candidate.code = generalised_code
         candidate.success_count += 1
-        skill_lib.commit(candidate)
+
+    # ── Promotion gate ───────────────────────────────────────────────────
+    # Since 1.5.0 the library re-executes the generalised skill before
+    # accepting it; a candidate that does not run is rejected and logged
+    # rather than written to disk unverified.
+    outcome = skill_lib.commit(candidate)
+    if getattr(outcome, "promoted", True):
         logger.info(
-            "Skill Abstraction: committed skill '%s' to library.",
+            "Skill Abstraction: promoted skill '%s' to library (evidence=%s).",
             candidate.name,
+            getattr(outcome, "evidence", "unknown"),
+        )
+    else:
+        logger.warning(
+            "Skill Abstraction: skill '%s' rejected by the verification gate — %s",
+            candidate.name,
+            getattr(outcome, "reason", "unknown"),
         )
 
     # Activate next pending step if any remain

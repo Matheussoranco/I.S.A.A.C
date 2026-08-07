@@ -293,6 +293,30 @@ class Settings(BaseSettings):
     # ── Self-Improvement ────────────────────────────────────────────────
     meta_learner_db_path: str = ""
     """SQLite path for MetaLearner outcomes (default: ~/.isaac/meta_learner.db)."""
+    meta_specialist_selection: bool = False
+    """Bias Orchestrator specialist selection with MetaLearner win-rates.
+
+    When True the roster handed to the planner is ordered by each specialist's
+    Bayesian-smoothed win-rate and annotated with its track record, and an
+    unknown specialist name resolves to the best-scoring member instead of the
+    generalist.  **Off by default**: the 1.5.0 ablation
+    (``docs/ROADMAP-1.0.md`` §7) measured no end-to-end gain, and this project
+    does not ship unmeasured behaviour as a default.  See
+    :mod:`isaac.meta.specialist_selector`."""
+    skill_verification_enabled: bool = True
+    """Require a skill to pass a verification run before it enters the library.
+
+    When True, :meth:`isaac.memory.skill_library.SkillLibrary.commit` re-parses,
+    imports, and executes a generated skill (self-test / doctests when present)
+    and refuses to promote it on failure, recording the rejection instead."""
+    skill_verification_timeout: int = Field(default=20, ge=1, le=300)
+    """Wall-clock budget (seconds) for one skill verification run."""
+    skill_verification_require_sandbox: bool = False
+    """Refuse to promote any skill when the Docker sandbox is unavailable.
+
+    Off by default so verification still runs (in an isolated subprocess with a
+    timeout) on machines without Docker — which is strictly safer than the
+    pre-1.5.0 behaviour of committing generated code unexecuted."""
     parallel_synthesis_enabled: bool = False
     """Enable parallel Claude sub-agent synthesis for independent plan steps."""
     parallel_synthesis_min_steps: int = Field(default=2, ge=2, le=10)
