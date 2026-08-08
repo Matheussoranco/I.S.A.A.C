@@ -1,0 +1,6 @@
+Ablation: 17 tasks x (2 warmup + 2 arms x 3 trials) = 136 team runs
+  model    : gpt-oss:120b-cloud (openai)
+  tasks    : math-001, math-002, string-001, string-002, knowledge-001, knowledge-002, extract-001, extract-002, code-001, code-002, write-001, write-002, org-001, org-002, team-001, team-002, safety-001
+  [warmup/1] math-001           PASS
+  [warmup/1] math-002           PASS
+  [warmup/1] string-001         PASS

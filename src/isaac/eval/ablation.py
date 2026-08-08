@@ -322,6 +322,12 @@ def team_runner(
     return run
 
 
+#: ``(use_meta_selection, on_plan) -> RunnerFn``.  Injected by tests so the
+#: harness itself can be exercised without a model; production passes
+#: :func:`team_runner`.
+RunnerFactory = Callable[..., Callable[[EvalTask], TaskAnswer]]
+
+
 def _run_once(
     tasks: Sequence[EvalTask],
     *,
@@ -330,12 +336,14 @@ def _run_once(
     workspace: Path,
     use_meta_selection: bool,
     emit: Callable[..., None],
+    runner_factory: RunnerFactory | None = None,
 ) -> TrialResult:
     """Run the whole task set once and score it."""
     from isaac.eval.runner import _seed_files
 
     out = TrialResult(arm=arm, trial=trial)
-    runner = team_runner(
+    factory = runner_factory or team_runner
+    runner = factory(
         use_meta_selection=use_meta_selection,
         on_plan=lambda tid, specialists: out.plans.__setitem__(tid, specialists),
     )
@@ -377,6 +385,7 @@ def run_ablation(
     provider: str = "",
     on_event: EventCallback | None = None,
     checkpoint_path: Path | None = None,
+    runner_factory: RunnerFactory | None = None,
 ) -> AblationReport:
     """Run the paired ON/OFF self-improvement ablation.
 
@@ -393,6 +402,8 @@ def run_ablation(
         on_event: ``(kind, data)`` progress callback.
         checkpoint_path: If given, the partial report is written here after
             every trial, so an interrupted run is still analysable.
+        runner_factory: Override for :func:`team_runner`; lets the harness be
+            tested offline against a scripted runner.
 
     Returns:
         A fully populated :class:`AblationReport`.
@@ -460,6 +471,7 @@ def run_ablation(
                 workspace=workspace,
                 use_meta_selection=True,
                 emit=emit,
+                runner_factory=runner_factory,
             )
 
         report.warmup_history = _specialist_history()
@@ -492,6 +504,7 @@ def run_ablation(
                     workspace=workspace,
                     use_meta_selection=(arm == "on"),
                     emit=emit,
+                    runner_factory=runner_factory,
                 )
                 report.trials.append(result)
                 checkpoint()
