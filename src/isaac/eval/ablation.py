@@ -166,18 +166,11 @@ class AblationReport:
         """ON minus OFF, in accuracy points (positive = learning helped)."""
         return self.mean("on") - self.mean("off")
 
-    def permutation_p(self, iterations: int = 20000, seed: int = 0) -> float:
-        """Two-sided p-value for the paired ON/OFF difference.
-
-        Pairs trial *i* of each arm, then randomly flips the sign of each
-        pair's difference (the exact null: the ON/OFF label carries no
-        information).  Returns 1.0 when there is nothing to test.
-        """
-        on, off = self.accuracies("on"), self.accuracies("off")
-        n = min(len(on), len(off))
-        if n == 0:
+    @staticmethod
+    def _sign_flip_p(diffs: list[float], iterations: int, seed: int) -> float:
+        """Two-sided sign-flip permutation p-value for paired differences."""
+        if not diffs:
             return 1.0
-        diffs = [on[i] - off[i] for i in range(n)]
         observed = abs(statistics.fmean(diffs))
         if observed == 0.0:
             return 1.0
@@ -188,6 +181,33 @@ class AblationReport:
             if abs(flipped) >= observed - 1e-12:
                 hits += 1
         return (hits + 1) / (iterations + 1)
+
+    def permutation_p(self, iterations: int = 20000, seed: int = 0) -> float:
+        """Two-sided p-value for the ON/OFF difference, paired **by task**.
+
+        Each task contributes one difference: its ON pass-count minus its OFF
+        pass-count across trials.  The null is that the arm label carries no
+        information, so each task's difference may independently flip sign.
+
+        Pairing by task rather than by trial is a deliberate power decision.
+        With ``t`` trials there are only ``2**t`` distinct trial-level sign
+        patterns — at three trials the smallest reachable p-value is ~0.12, so
+        a trial-level test *cannot* reach significance no matter how large the
+        effect.  Pairing across ``k`` tasks gives ``2**k`` patterns instead.
+        """
+        on, off = self.task_pass_counts("on"), self.task_pass_counts("off")
+        diffs = [float(on.get(t, 0) - off.get(t, 0)) for t in self.task_ids]
+        return self._sign_flip_p(diffs, iterations, seed)
+
+    def trial_permutation_p(self, iterations: int = 20000, seed: int = 0) -> float:
+        """The same test paired by *trial* — reported for completeness.
+
+        Underpowered at small trial counts (see :meth:`permutation_p`); kept so
+        the report shows both rather than appearing to pick the flattering one.
+        """
+        on, off = self.accuracies("on"), self.accuracies("off")
+        n = min(len(on), len(off))
+        return self._sign_flip_p([on[i] - off[i] for i in range(n)], iterations, seed)
 
     @property
     def verdict(self) -> str:
@@ -222,7 +242,8 @@ class AblationReport:
                 for a in ARMS
             },
             "delta": round(self.delta, 4),
-            "permutation_p": round(self.permutation_p(), 4),
+            "permutation_p_by_task": round(self.permutation_p(), 4),
+            "permutation_p_by_trial": round(self.trial_permutation_p(), 4),
             "verdict": self.verdict,
             "task_table": self.task_table(),
             "trials": [t.to_dict() for t in self.trials],
@@ -629,9 +650,10 @@ def format_report(report: AblationReport) -> str:
         per = ", ".join(f"{x:.3f}" for x in report.accuracies(a))
         lines.append(f"  {a.upper():<5} {report.mean(a):>8.3f} {report.stdev(a):>8.3f}  [{per}]")
     lines.append("")
+    lines.append(f"  delta (ON - OFF) : {report.delta:+.3f} accuracy points")
     lines.append(
-        f"  delta (ON - OFF) : {report.delta:+.3f}  "
-        f"(p = {report.permutation_p():.3f}, paired sign-flip permutation)"
+        f"  permutation p    : {report.permutation_p():.3f} paired by task "
+        f"(by trial: {report.trial_permutation_p():.3f}, underpowered at n={n_on})"
     )
     lines.append(f"  verdict          : {report.verdict.upper()}")
 
