@@ -104,7 +104,9 @@ def main() -> int:
     llm = get_llm("strong")
     records: list[dict] = []
 
-    with tempfile.TemporaryDirectory(prefix="isaac-gate-") as tmp:
+    # ignore_cleanup_errors: ChromaDB keeps handles open on Windows and the
+    # teardown otherwise raises after the measurement has already succeeded.
+    with tempfile.TemporaryDirectory(prefix="isaac-gate-", ignore_cleanup_errors=True) as tmp:
         lib = SkillLibrary(Path(tmp))
         for name, concrete in SNIPPETS:
             try:
