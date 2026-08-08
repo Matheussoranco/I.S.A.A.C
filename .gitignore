@@ -49,3 +49,13 @@ Thumbs.db
 # ChromaDB vector store for the skill index - a runtime cache, regenerated
 # on demand via get_or_create_collection(). Committing it churns binary blobs.
 skills/.chromadb/
+
+# Ablation run scratch (the JSON report is committed, the transcript is not)
+evals/_run_ablation.cmd
+evals/results/*.log
+evals/results/*.err
+combine_notes.py
+combined.md
+index.md
+inbox/
+fizzbuzz.py

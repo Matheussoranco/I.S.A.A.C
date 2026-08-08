@@ -242,8 +242,36 @@ class MetaLearner:
 _learner: MetaLearner | None = None
 
 
+def _configured_db_path() -> Path | None:
+    """Return ``ISAAC_META_LEARNER_DB_PATH`` when set, else ``None``.
+
+    The setting existed since 0.4.0 but was never consulted — every process
+    opened the hardcoded default.  Honouring it is what lets the ablation
+    harness give each arm its own isolated history.
+    """
+    try:
+        from isaac.config.settings import get_settings
+
+        configured = get_settings().meta_learner_db_path
+    except Exception:  # pragma: no cover - defensive
+        return None
+    return Path(configured) if configured else None
+
+
 def get_learner() -> MetaLearner:
+    """Return the process-wide :class:`MetaLearner` (created on first use)."""
     global _learner
     if _learner is None:
-        _learner = MetaLearner()
+        _learner = MetaLearner(_configured_db_path())
     return _learner
+
+
+def reset_learner() -> None:
+    """Close and drop the cached learner so the next call re-reads settings."""
+    global _learner
+    if _learner is not None:
+        try:
+            _learner.close()
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("MetaLearner close failed during reset", exc_info=True)
+    _learner = None

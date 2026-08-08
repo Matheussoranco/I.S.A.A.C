@@ -7,6 +7,84 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.0] — 2026-08-08 — Self-improvement, wired and measured (result: flat)
+
+The framework has carried a MetaLearner, a skill curator, and prompt evolution
+since 0.4.0 with no evidence that any of it helped. 1.5.0 wires two of those
+mechanisms into the paths they were supposed to influence, then measures
+whether it made any difference.
+
+**It did not.** The ablation is flat: **+0.059 accuracy points, p = 0.53, n = 3
+paired trials** on 17 golden-suite tasks. The OFF arm alone spans 0.294→0.765
+across identical trials, so the run-to-run spread is roughly four times the
+effect. Roadmap WS6's acceptance bar ("ablation >= baseline") is **not met**,
+and MetaLearner-guided selection therefore ships **off by default**. Full
+numbers, dispatch counts, and the post-mortem are in `docs/ROADMAP-1.0.md` §7.
+
+Worth separating, because they are easy to conflate: the mechanism *worked* —
+dispatch to the top-scored specialist went from 4 to 14 while the generalist
+fell from 22 to 13, so the planner did read the ranking and act on it. It just
+did not improve outcomes. Only the second fact governs the default.
+
+### Added
+
+- **`isaac.meta.specialist_selector`** — Bayesian-smoothed per-specialist
+  win-rates (Beta prior, optimistic mean 0.7 / strength 3) so an untried
+  specialist outranks a mediocre one and cold start never starves exploration.
+  `rank()` is a stable sort, making it an exact no-op on an empty history —
+  the property that makes the ON/OFF comparison fair.
+- **`isaac.memory.skill_verification`** — the promotion gate. A candidate must
+  parse, define a module-level callable, and execute in an isolated subprocess
+  (`python -I`, temp cwd, wall-clock timeout) before entering the library.
+  Doctests, a `_selftest()`, and `input_schema["example"]` run when present;
+  absent, the outcome is labelled `evidence="import"` rather than implying
+  behaviour was tested.
+- **`isaac.eval.ablation`** + **`isaac ablate`** — the paired ON/OFF harness.
+  Warm-up builds a history, both arms then start from byte-identical copies of
+  it in separate SQLite files. Reports every per-trial accuracy (not just the
+  mean), a sign-flip permutation p-value paired by task, and a `flat` verdict
+  computed from the numbers. `--simulate` runs an LLM-free mechanism proxy,
+  labelled as such in its own output.
+- `evals/run_ablation.py` and `evals/summarise_ablation.py`; the task-selection
+  rule (first N per category, file order) is fixed before the run.
+
+### Changed
+
+- **`Orchestrator` now reads the history it has always written.** The roster
+  handed to the planner is ordered by score and annotated with each
+  specialist's track record; an unknown specialist name resolves to the
+  best-scoring member instead of always falling through to the generalist.
+  Behind `ISAAC_META_SPECIALIST_SELECTION` (**default off**, per the result
+  above) or `Orchestrator(use_meta_selection=...)`.
+- **`Orchestrator` records one row per subtask per specialist**, not just one
+  aggregate row per run. Recording stays on in both arms — collecting evidence
+  is free, only its use is ablated.
+- **`SkillLibrary.commit()` returns a `PromotionOutcome`** and writes no `.py`
+  for a rejected candidate. Rejections are logged in the manifest and
+  summarised by `promotion_stats()`. Behind
+  `ISAAC_SKILL_VERIFICATION_ENABLED` (default **on**). On 10 real
+  LLM-generalised skills: 8 promoted, 2 rejected — both for documenting an
+  import from a module that does not exist. Only 2 of the 8 promotions carried
+  behavioural evidence, so the gate is currently a smoke test rather than a
+  correctness check.
+
+### Fixed
+
+- **`ISAAC_META_LEARNER_DB_PATH` was declared in 0.4.0 and never consulted** —
+  every process opened the hardcoded default. `get_learner()` now honours it,
+  and `reset_learner()` exists so each ablation arm gets an isolated history.
+
+### Known limitations
+
+- The team runner honours `max_iterations` but **not** `timeout_seconds`; team
+  runs are wall-clock-unbounded. True of the code that produced the numbers
+  above, so it is recorded rather than patched after the fact.
+- 4 of the 17 ablation tasks score 0 in both arms on every trial because the
+  test host has no Docker daemon and no Playwright browsers. The intervention
+  cannot reach them, which caps the measurable range.
+
+---
+
 ## [1.4.1] — 2026-08-03 — Small-model reliability fixes
 
 1.4.0 shipped the machinery that makes small local models usable as agents.

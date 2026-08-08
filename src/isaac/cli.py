@@ -732,6 +732,109 @@ if typer is not None:
         typer.echo("\n" + format_summary(summary))
         raise typer.Exit(0 if summary.accuracy == 1.0 else 1)
 
+    @app.command(name="ablate")
+    def ablate_cmd(
+        suite: str = typer.Argument(
+            "", help="Path to a JSONL task suite (default: evals/golden_v1.jsonl)."
+        ),
+        trials: int = typer.Option(3, "--trials", "-t", help="Paired trials per arm."),
+        warmup: int = typer.Option(
+            2, "--warmup", "-w", help="History-building passes before measuring."
+        ),
+        per_category: int = typer.Option(
+            2, "--per-category", help="Tasks to take from each category (0 = all)."
+        ),
+        task_timeout: float = typer.Option(180.0, "--task-timeout"),
+        out: str = typer.Option("", "--out", "-o", help="Write the JSON report here."),
+        simulate: bool = typer.Option(
+            False, "--simulate", help="Run the LLM-free mechanism simulation instead."
+        ),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Measure whether self-improvement actually helps (ON vs OFF).
+
+        Runs the task set through the specialist team twice per trial — once
+        with MetaLearner-guided specialist selection, once without — from an
+        identical warmed-up history, and reports the paired difference with a
+        permutation p-value.
+
+        A **flat** verdict is a real answer, not a failed run: it says the
+        machinery does not pay for itself on this suite, which is exactly what
+        1.5.0 measured. See ``docs/ROADMAP-1.0.md`` §7.
+
+        Example::
+
+            isaac ablate --trials 3 --warmup 2
+            isaac ablate --simulate
+        """
+        _setup_logging(verbose)
+        import json as _json
+        from pathlib import Path as _Path
+
+        from isaac.eval.ablation import format_report, run_ablation, simulate_selection
+
+        if simulate:
+            # Kept small enough to answer interactively; the numbers quoted in
+            # the roadmap come from a longer run.
+            result = simulate_selection(rounds=120, repeats=40)
+            typer.echo("Mechanism simulation (no LLM, seeded) — a PROXY, not task accuracy:")
+            for key, value in result.to_dict().items():
+                typer.echo(f"  {key:<20} {value}")
+            raise typer.Exit(0)
+
+        from isaac.eval.suite import load_suite
+        from isaac.tools import register_all_tools
+
+        register_all_tools()
+
+        suite_path = _Path(suite) if suite else _Path("evals/golden_v1.jsonl")
+        if not suite_path.exists():
+            typer.echo(f"Suite not found: {suite_path}")
+            raise typer.Exit(2)
+
+        tasks = load_suite(suite_path)
+        if per_category > 0:
+            seen: dict[str, int] = {}
+            kept = []
+            for task in tasks:
+                n = seen.get(task.category, 0)
+                if n < per_category:
+                    seen[task.category] = n + 1
+                    kept.append(task)
+            tasks = kept
+        for task in tasks:
+            task.runner = "team"  # the arm under test only exists on this path
+            task.timeout_seconds = task_timeout
+
+        total = (warmup + 2 * trials) * len(tasks)
+        typer.echo(
+            f"{len(tasks)} tasks x ({warmup} warm-up + 2 arms x {trials} trials) "
+            f"= {total} team runs"
+        )
+
+        def on_event(kind: str, data: dict) -> None:
+            if kind == "task_done":
+                mark = "PASS" if data["passed"] else "FAIL"
+                typer.echo(f"  [{data['arm']}/{data['trial']}] {data['task_id']:<18} {mark}")
+            elif kind == "trial_done":
+                typer.echo(f"== {data['arm']}/trial {data['trial']}: {data['accuracy']:.3f}")
+
+        out_path = _Path(out) if out else None
+        report = run_ablation(
+            tasks,
+            trials=trials,
+            warmup_trials=warmup,
+            suite_name=suite_path.stem,
+            on_event=on_event,
+            checkpoint_path=out_path,
+        )
+        typer.echo("\n" + format_report(report))
+        if out_path is not None:
+            out_path.write_text(
+                _json.dumps(report.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            typer.echo(f"\nWrote {out_path}")
+
     @app.command()
     def doctor() -> None:
         """Preflight check: Python, settings, Ollama, Docker, and optional extras.

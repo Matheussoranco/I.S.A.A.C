@@ -146,6 +146,9 @@ CI runs 100% of tests with no collection errors.
   deprecate by telemetry (scaffolding exists — validate end-to-end).
 - Prove A/B prompt evolution improves the golden-suite score (ablation).
 **Acceptance:** an ablation showing MetaLearner-guided selection >= baseline.
+**Status (1.5.0):** selection wired in and skill promotion gated; ablation run
+and **flat** (+0.059, p = 0.53, n = 3) — acceptance **not met**, feature ships
+off by default. Numbers and post-mortem in §7.
 
 ### WS7 — Product surface & UX
 **Goal:** pleasant to use daily.
@@ -175,7 +178,7 @@ reader can tell stable vs experimental at a glance.
 |---|---|---|---|
 | **0.5.0** | Reliable core | WS2, WS5, WS4 (part 1: path scoping + secrets) | Golden suite runs end-to-end with no infinite loops; clean-machine install; `[dev]`-only CI runs all tests |
 | **0.6.0** | Measured | WS1 (harness + first benchmark number), WS3 (presets + JSON tool-mode) | A real benchmark number in the README; small-model tool-calls reliable |
-| **0.7.0** | Hardened | WS4 (full), WS6 | Security sign-off; positive self-improvement ablation |
+| **0.7.0** | Hardened | WS4 (full), WS6 | Security sign-off; positive self-improvement ablation — **WS6 measured at 1.5.0 and FLAT, bar not met, see §7** |
 | **0.8.0** | Polished | WS7, WS8 | < 10-min onboarding; honest, labelled README |
 | **1.0.0-rc -> 1.0.0** | Freeze & prove | full benchmark battery, external review | API freeze; cited numbers + security statement; all section-1 boxes checked |
 
@@ -220,3 +223,112 @@ agent framework."**
 These five close the most dangerous gaps (CI fragility, minimal-install
 breakage, the host-tool blast radius, runaway loops) and produce the first real
 evidence — the foundation everything else builds on.
+
+---
+
+## 7. Measured outcomes (the version-line ledger)
+
+Per §4, no version line ships a capability claim without a number behind it.
+This section is that ledger.
+
+### 1.5.0 — "Self-improvement, wired and measured (result: flat)"
+
+WS6 asked for two things and set one acceptance bar: *"an ablation showing
+MetaLearner-guided selection >= baseline."* Both mechanisms are now wired in
+and measured. **The ablation is flat. The acceptance bar is not met**, and
+1.5.0 therefore ships the machinery **off by default**.
+
+**Ablation — MetaLearner-guided specialist selection, ON vs OFF**
+
+`golden_v1`, 17 tasks (first 2 of each of the 9 categories, a rule fixed
+before the run), all forced onto the specialist team runner because the
+single-agent runner never consults the selector. Model
+`gpt-oss:120b-cloud` via Ollama; 2 warm-up passes build the history, then 3
+paired trials per arm, each starting from a byte-identical copy of it.
+136 team runs total. Suite hash `20a461d54e41b709`, git rev `b4981a3`.
+
+| arm | mean accuracy | stdev | per-trial |
+|---|---|---|---|
+| ON  | **0.647** | 0.102 | 0.706, 0.706, 0.529 |
+| OFF | **0.588** | 0.256 | 0.765, 0.706, 0.294 |
+
+**delta +0.059 accuracy points, p = 0.53** (two-sided sign-flip permutation,
+paired by task). **Verdict: FLAT.**
+
+The gap is one task out of seventeen. The OFF arm alone spans 0.294→0.765
+across three identical trials — the run-to-run spread is roughly four times
+the effect being claimed. At n=3 this experiment cannot resolve anything
+smaller than about ±0.25, so the honest reading is *no detectable effect*,
+not *a small gain*.
+
+What did **not** go wrong, and is worth recording: the intervention reached
+the decision it was supposed to reach. Dispatch counts moved exactly as
+designed — `analyst` (top-scored, 6/6 in warm-up) went from 4 dispatches OFF
+to 14 ON, `generalist` from 22 to 13. The planner read the ranking and acted
+on it. **The mechanism works; the mechanism does not help.** Those are
+different findings and only the second one matters for shipping.
+
+Why it plausibly cannot help here, stated as hypotheses rather than excuses:
+
+- 4 of 17 tasks scored 0 in **both** arms every trial (`knowledge-001`,
+  `extract-001`, `extract-002`, `write-001`) — they are blocked by a missing
+  Docker daemon and missing Playwright browsers on the test host, not by
+  specialist choice. The intervention cannot reach them.
+- Most golden tasks are single-step and specialist-insensitive: "what is
+  17 × 24" succeeds or fails identically whoever is handed it.
+- Warm-up win-rates ranged only 0.51–0.90, and the spread largely reflects
+  *which tasks a specialist happened to draw*, not competence. Ranking on
+  that is close to ranking on noise.
+
+**Where not to invest:** win-rate-biased specialist selection, on this suite,
+at this scale. It is a correctly-built mechanism pointed at a problem the
+golden suite does not contain.
+
+**Mechanism simulation (a PROXY — read only alongside the above).** With no
+LLM, seeded, against known latent competences (0.9/0.7/0.5/0.3), the scoring
+recovers 94% of the random→oracle headroom when the planner always follows
+the ranking, 50% at half attention, 27% at quarter attention. This says the
+*scoring maths* converges. It says nothing about task accuracy, and the real
+ablation above is the reason that distinction is stated so loudly: a proxy
+metric that looks excellent while the behavioural measurement is flat is
+precisely the trap this project has been burned by before.
+
+**Skill-library promotion gate**
+
+10 concrete task snippets generalised by `gpt-oss:120b-cloud` — the same call
+`skill_abstraction_node` makes — then pushed through the gate:
+
+| outcome | count |
+|---|---|
+| promoted | 8/10 |
+| rejected | 2/10 |
+| — of promotions, evidence `behaviour` (a doctest/self-test ran) | 2 |
+| — of promotions, evidence `import` (loaded, nothing executed) | 6 |
+
+Both rejections were the same defect: the model wrote
+`>>> from word_counter import count_words` against a module name that does
+not exist, so the documented example fails on its first line. Pre-1.5.0 both
+would have entered the library with usage that cannot run.
+
+Stated without flattery: these are *documentation-example* failures, not
+proof the functions are broken, and 6 of 8 promotions cleared only the "it
+imports and exposes a callable" bar. On this sample the gate is a smoke test
+that catches unrunnable examples, not a correctness check. That is why a
+promotion records `evidence="import"` rather than claiming verification —
+the label is the honest ceiling of what was checked.
+
+**Carried forward to 1.6.0**
+
+- WS6's acceptance bar (`ablation >= baseline`) remains **open**. Re-test only
+  with (a) a task set where specialist identity demonstrably changes the
+  outcome, and (b) n large enough to resolve the effect — n=3 was too few and
+  that was a design error, not bad luck.
+- Per-task-type win-rates instead of one global bucket; the current scores mix
+  "coder is good at code" with "coder drew the easy tasks".
+- Strengthen the gate from smoke test to behavioural check: require a
+  generated `_selftest()`, or synthesise example args from `input_schema`.
+- Fix the host environment the eval runs on (Docker, Playwright) so the 4
+  permanently-zero tasks stop capping the measurable range.
+- The team runner honours `max_iterations` but **not** `timeout_seconds`; team
+  runs are wall-clock-unbounded. Noted here rather than silently patched after
+  the fact, because it was true of the code that produced the numbers above.

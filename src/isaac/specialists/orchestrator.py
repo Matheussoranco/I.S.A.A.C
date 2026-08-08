@@ -12,8 +12,18 @@ specialist team.  Given a single high-level *goal* it:
    context, so a *coder* can build on what a *researcher* found.
 3. **Synthesizes** — folds every subtask output into one cohesive final answer
    with a single LLM call (or, for a lone subtask, returns it verbatim).
-4. **Records** the outcome to the :class:`~isaac.meta.learner.MetaLearner` so
-   the team learns which strategies work.
+4. **Records** the outcome to the :class:`~isaac.meta.learner.MetaLearner` — at
+   the orchestration level *and* per specialist — so the team learns which
+   specialists actually deliver.
+
+Since 1.5.0 that recorded history is also **read back**: when
+``ISAAC_META_SPECIALIST_SELECTION`` is on (or ``use_meta_selection=True`` is
+passed), the roster handed to the planner is ordered by each specialist's
+Bayesian-smoothed win-rate and annotated with its track record, and an unknown
+specialist name resolves to the best-scoring member instead of always falling
+through to the generalist.  See :mod:`isaac.meta.specialist_selector`.  The
+toggle exists so the ablation in :mod:`isaac.eval.ablation` can measure whether
+any of that helps.
 
 The orchestrator is deliberately **decoupled** from the concrete roster: the
 specialist factory and the planner are both injectable, the registry is only
@@ -144,6 +154,8 @@ class Orchestrator:
         on_event: EventCallback | None = None,
         specialist_factory: SpecialistFactory | None = None,
         planner: Planner | None = None,
+        use_meta_selection: bool | None = None,
+        selector: Any | None = None,
     ) -> None:
         """Initialise the orchestrator.
 
@@ -156,6 +168,12 @@ class Orchestrator:
             on_event: Optional ``(kind, data)`` progress callback.
             specialist_factory: Optional factory overriding the registry lookup.
             planner: Optional planner overriding the built-in LLM planner.
+            use_meta_selection: Whether to bias specialist selection with
+                MetaLearner win-rates. ``None`` (the default) reads
+                ``ISAAC_META_SPECIALIST_SELECTION``. Explicitly passing
+                ``True``/``False`` is what the ablation harness uses.
+            selector: Optional :class:`~isaac.meta.specialist_selector.SpecialistSelector`
+                override (tests and the ablation inject an isolated one).
         """
         self._llm = manager_llm
         self.max_workers = max(1, int(max_workers))
@@ -163,6 +181,8 @@ class Orchestrator:
         self._on_event = on_event
         self._specialist_factory = specialist_factory or self._default_factory
         self._planner = planner or self._plan
+        self._use_meta_selection = use_meta_selection
+        self._selector_override = selector
 
     # ------------------------------------------------------------------
     # Lazy dependencies
@@ -193,6 +213,26 @@ class Orchestrator:
 
             self._llm = get_llm("strong")
         return self._llm
+
+    @property
+    def meta_selection(self) -> bool:
+        """Whether MetaLearner-guided specialist selection is active."""
+        if self._use_meta_selection is not None:
+            return bool(self._use_meta_selection)
+        try:
+            from isaac.meta.specialist_selector import selection_enabled
+
+            return selection_enabled()
+        except Exception:  # pragma: no cover - defensive
+            return False
+
+    def _selector(self) -> Any:
+        """Return the specialist selector (injected override wins)."""
+        if self._selector_override is not None:
+            return self._selector_override
+        from isaac.meta.specialist_selector import get_selector
+
+        return get_selector()
 
     def _emit(self, kind: str, data: dict[str, Any]) -> None:
         """Invoke the event callback defensively (a bad callback never breaks a run)."""
@@ -227,6 +267,7 @@ class Orchestrator:
             except Exception:  # pragma: no cover - registry import shouldn't fail
                 logger.exception("Failed to list specialist roster")
                 roster = []
+            roster = self._apply_meta_selection(roster)
             plan = self._planner(goal, roster, context)
             self._emit("plan", {"plan": [s.to_dict() for s in plan]})
 
@@ -277,6 +318,27 @@ class Orchestrator:
 
         return list_specialists()
 
+    def _apply_meta_selection(self, roster: list[dict]) -> list[dict]:
+        """Order and annotate *roster* with MetaLearner win-rates.
+
+        A no-op when meta-selection is off, when the roster is empty, or when
+        no history exists (the selector's sort is stable, so an empty history
+        returns the identical ordering). Failures degrade to the raw roster —
+        learning never breaks a run.
+        """
+        if not roster or not self.meta_selection:
+            return roster
+        try:
+            annotated = self._selector().annotate_roster(roster)
+        except Exception:  # pragma: no cover - learning is best-effort
+            logger.debug("Specialist selector failed; using unranked roster", exc_info=True)
+            return roster
+        self._emit(
+            "specialist_ranking",
+            {"order": [str(c.get("name", "")) for c in annotated]},
+        )
+        return annotated
+
     def _plan(self, goal: str, roster: list[dict], context: str) -> list[SubTask]:
         """Built-in LLM planner: decompose *goal* into :class:`SubTask` s.
 
@@ -296,15 +358,19 @@ class Orchestrator:
         if not roster:
             return fallback
 
-        roster_lines = "\n".join(
-            f"- {c.get('name', '?')}: {c.get('domain', '')}".rstrip(": ") for c in roster
-        )
+        roster_lines = "\n".join(self._roster_line(c) for c in roster)
         system = (
             "You are the manager of a team of specialist agents. Decompose the "
             "user's goal into the minimum set of subtasks needed, assigning each "
             "to the most suitable specialist. Express ordering with 'depends_on'. "
             "Respond with STRICT JSON only, no prose, no markdown fences."
         )
+        if self.meta_selection and any("track_record" in c for c in roster):
+            system += (
+                " The roster is ordered by measured past success and each entry "
+                "shows its track record. Domain fit comes first; use the track "
+                "record only to break ties between equally suitable specialists."
+            )
         human = (
             f"Available specialists:\n{roster_lines}\n\n"
             f"Goal:\n{goal}\n\n"
@@ -321,6 +387,15 @@ class Orchestrator:
             return fallback
 
         return plan or fallback
+
+    @staticmethod
+    def _roster_line(card: dict) -> str:
+        """Render one roster card for the planner prompt."""
+        line = f"- {card.get('name', '?')}: {card.get('domain', '')}".rstrip(": ")
+        record = card.get("track_record")
+        if record:
+            line += f" [track record: {record}]"
+        return line
 
     @staticmethod
     def _parse_plan(content: str) -> list[SubTask]:
@@ -467,14 +542,43 @@ class Orchestrator:
         return SubTaskResult(subtask=subtask, result=result)
 
     def _make_specialist(self, name: str) -> Specialist:
-        """Instantiate *name*, falling back to ``generalist`` on ``KeyError``."""
+        """Instantiate *name*, falling back sensibly when it is unknown.
+
+        With meta-selection on, an unresolvable name falls back to the
+        *best-scoring registered* specialist rather than unconditionally to the
+        generalist — the one place where accumulated win-rates decide the
+        routing outright instead of merely advising the planner.
+        """
         try:
             return self._specialist_factory(name, auto_approve=self.auto_approve, on_event=None)
         except KeyError:
-            logger.debug("Unknown specialist %r; falling back to generalist", name)
-            return self._specialist_factory(
-                "generalist", auto_approve=self.auto_approve, on_event=None
-            )
+            fallback = self._fallback_specialist_name()
+            logger.debug("Unknown specialist %r; falling back to %s", name, fallback)
+            try:
+                return self._specialist_factory(
+                    fallback, auto_approve=self.auto_approve, on_event=None
+                )
+            except KeyError:  # pragma: no cover - generalist is always registered
+                return self._specialist_factory(
+                    "generalist", auto_approve=self.auto_approve, on_event=None
+                )
+
+    def _fallback_specialist_name(self) -> str:
+        """Pick the substitute for an unknown specialist name."""
+        if not self.meta_selection:
+            return "generalist"
+        try:
+            from isaac.specialists.registry import specialist_names
+
+            names = specialist_names()
+        except Exception:  # pragma: no cover - registry import shouldn't fail
+            return "generalist"
+        if not names:
+            return "generalist"
+        try:
+            return self._selector().best(names, default="generalist")
+        except Exception:  # pragma: no cover - learning is best-effort
+            return "generalist"
 
     @staticmethod
     def _build_context(
@@ -575,7 +679,19 @@ class Orchestrator:
         success: bool,
         duration_ms: float,
     ) -> None:
-        """Record the orchestration outcome to the MetaLearner (best-effort)."""
+        """Record the outcome to the MetaLearner (best-effort).
+
+        Two rows are written per run:
+
+        * one ``orchestration`` row for the run as a whole (as before), and
+        * one ``specialist`` row **per subtask**, keyed by the specialist that
+          actually ran it.  Those per-specialist rows are the win-rates
+          :class:`~isaac.meta.specialist_selector.SpecialistSelector` reads.
+
+        Recording happens regardless of the ``use_meta_selection`` toggle:
+        collecting evidence is free, and the ablation needs both arms to build
+        the same history so only its *use* differs.
+        """
         try:
             from isaac.meta.learner import get_learner
 
@@ -595,6 +711,18 @@ class Orchestrator:
             )
         except Exception:  # pragma: no cover - learning is best-effort
             logger.debug("MetaLearner record failed", exc_info=True)
+
+        try:
+            selector = self._selector()
+            for r in results:
+                selector.record(
+                    r.result.specialist or r.subtask.specialist,
+                    success=bool(r.result.success),
+                    task_desc=r.subtask.description,
+                    duration_ms=r.result.duration_ms,
+                )
+        except Exception:  # pragma: no cover - learning is best-effort
+            logger.debug("Per-specialist record failed", exc_info=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -404,6 +404,25 @@ with 429 errors, so its clean number is still unmeasured.
 Reproduce locally (no cloud, no key):
 `ISAAC_MODEL_NAME=nemotron-3-nano:4b isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1 --task-timeout 1200 --auto-approve`
 
+### Self-improvement ablation (1.5.0) — measured, and flat
+
+The MetaLearner has recorded outcomes since 0.4.0. 1.5.0 wired those win-rates
+into specialist selection and then measured whether it helps:
+
+| Date | Model | Setup | ON | OFF | Result |
+|---|---|---|---|---|---|
+| 2026-08-08 | `gpt-oss:120b-cloud` (Ollama Cloud, specialist team) | `golden_v1` 17 tasks · hash `20a461d54e41b709` · 2 warm-up passes · 3 paired trials | **0.647** (sd 0.102) | **0.588** (sd 0.256) | **+0.059, p = 0.53 — FLAT** |
+
+The gap is one task in seventeen and the OFF arm alone ranges 0.294→0.765
+across identical trials, so the noise is about four times the effect. The
+mechanism demonstrably *fired* — dispatch to the top-scored specialist went
+4 → 14 — it simply did not improve outcomes. `ISAAC_META_SPECIALIST_SELECTION`
+therefore ships **off by default**: this project does not enable unproven
+behaviour. The full post-mortem, including why this suite probably cannot
+detect such an effect at all, is in
+[`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §7.
+Reproduce: `isaac ablate --trials 3 --warmup 2`
+
 > Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, "SOTA" claims require a
 > *competitive* public-benchmark number against a named comparison system —
 > the measured numbers are cited and nowhere near that bar. The honest

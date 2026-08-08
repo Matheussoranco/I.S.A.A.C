@@ -11,6 +11,17 @@ from isaac.nodes.skill_abstraction import skill_abstraction_node
 from tests.conftest import MockLLM
 
 
+def _configure(mock_settings, skills_dir: Path) -> None:
+    """Give the patched settings singleton real values for every flag the node
+    reads.  A bare ``MagicMock`` attribute is truthy, which since 1.5.0 would
+    silently switch on ``skill_verification_require_sandbox`` and make the
+    promotion gate refuse everything."""
+    mock_settings.skills_dir = skills_dir
+    mock_settings.skill_verification_enabled = True
+    mock_settings.skill_verification_require_sandbox = False
+    mock_settings.skill_verification_timeout = 15
+
+
 class TestSkillAbstractionNode:
     def test_commits_skill_to_library(self, tmp_path: Path) -> None:
         state = make_initial_state()
@@ -27,7 +38,7 @@ class TestSkillAbstractionNode:
             patch("isaac.llm.provider.get_llm", return_value=mock),
             patch("isaac.config.settings.settings") as mock_settings,
         ):
-            mock_settings.skills_dir = tmp_path
+            _configure(mock_settings, tmp_path)
             result = skill_abstraction_node(state)
 
         assert result["skill_candidate"] is None  # cleared
@@ -38,6 +49,31 @@ class TestSkillAbstractionNode:
         # Verify index updated
         index = json.loads((tmp_path / "_index.json").read_text())
         assert "add_two" in index["skills"]
+
+    def test_broken_generalisation_is_not_committed(self, tmp_path: Path) -> None:
+        """The 1.5.0 gate: if the LLM's generalisation does not run, nothing
+        reaches the library — the node must not leave a broken .py behind."""
+        state = make_initial_state()
+        state["skill_candidate"] = SkillCandidate(
+            name="add_two", code="print(2+2)", task_context="add numbers", success_count=1
+        )
+        state["plan"] = [PlanStep(id="s1", description="done", status="done")]
+
+        # A plausible-looking generalisation that references a name which only
+        # existed in the original task's scope — the classic failure mode.
+        mock = MockLLM("```python\ndef add(a, b):\n    return a + b\n\n\nTOTAL = helper()\n```")
+        with (
+            patch("isaac.llm.provider.get_llm", return_value=mock),
+            patch("isaac.config.settings.settings") as mock_settings,
+        ):
+            _configure(mock_settings, tmp_path)
+            result = skill_abstraction_node(state)
+
+        assert result["skill_candidate"] is None  # slot still cleared
+        assert not (tmp_path / "add_two.py").exists()
+        index = json.loads((tmp_path / "_index.json").read_text())
+        assert index["skills"] == {}
+        assert [r["name"] for r in index["rejected"]] == ["add_two"]
 
     def test_no_candidate_skips(self) -> None:
         state = make_initial_state()
@@ -62,7 +98,7 @@ class TestSkillAbstractionNode:
             patch("isaac.llm.provider.get_llm", return_value=mock),
             patch("isaac.config.settings.settings") as mock_settings,
         ):
-            mock_settings.skills_dir = tmp_path
+            _configure(mock_settings, tmp_path)
             result = skill_abstraction_node(state)
 
         assert result["plan"][1].status == "active"
@@ -109,7 +145,7 @@ class TestSkillAbstractionNode:
             patch("isaac.llm.provider.get_llm", return_value=mock),
             patch("isaac.config.settings.settings") as mock_settings,
         ):
-            mock_settings.skills_dir = tmp_path
+            _configure(mock_settings, tmp_path)
             result = skill_abstraction_node(state)
 
         assert result["skill_candidate"] is None
@@ -140,7 +176,7 @@ class TestSkillAbstractionNode:
             patch("isaac.llm.provider.get_llm", return_value=mock),
             patch("isaac.config.settings.settings") as ms,
         ):
-            ms.skills_dir = tmp_path
+            _configure(ms, tmp_path)
             skill_abstraction_node(state)
 
         # The candidate object is mutated in-place before commit
