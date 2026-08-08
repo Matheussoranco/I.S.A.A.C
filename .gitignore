@@ -54,3 +54,8 @@ skills/.chromadb/
 evals/_run_ablation.cmd
 evals/results/*.log
 evals/results/*.err
+combine_notes.py
+combined.md
+index.md
+inbox/
+fizzbuzz.py

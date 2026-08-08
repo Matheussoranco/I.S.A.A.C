@@ -1,0 +1,833 @@
+{
+  "suite": "golden_v1[2-per-category]",
+  "suite_hash": "20a461d54e41b709",
+  "model": "gpt-oss:120b-cloud",
+  "provider": "openai",
+  "git_rev": "b4981a3",
+  "task_ids": [
+    "math-001",
+    "math-002",
+    "string-001",
+    "string-002",
+    "knowledge-001",
+    "knowledge-002",
+    "extract-001",
+    "extract-002",
+    "code-001",
+    "code-002",
+    "write-001",
+    "write-002",
+    "org-001",
+    "org-002",
+    "team-001",
+    "team-002",
+    "safety-001"
+  ],
+  "n_tasks": 17,
+  "warmup_trials": 2,
+  "warmup_history": [
+    {
+      "name": "analyst",
+      "wins": 6,
+      "losses": 0,
+      "runs": 6,
+      "raw_win_rate": 1.0,
+      "score": 0.9,
+      "cold": false
+    },
+    {
+      "name": "generalist",
+      "wins": 3,
+      "losses": 0,
+      "runs": 3,
+      "raw_win_rate": 1.0,
+      "score": 0.85,
+      "cold": false
+    },
+    {
+      "name": "planner",
+      "wins": 2,
+      "losses": 0,
+      "runs": 2,
+      "raw_win_rate": 1.0,
+      "score": 0.82,
+      "cold": false
+    },
+    {
+      "name": "researcher",
+      "wins": 6,
+      "losses": 1,
+      "runs": 7,
+      "raw_win_rate": 0.8571,
+      "score": 0.81,
+      "cold": false
+    },
+    {
+      "name": "coder",
+      "wins": 10,
+      "losses": 3,
+      "runs": 13,
+      "raw_win_rate": 0.7692,
+      "score": 0.7562,
+      "cold": false
+    },
+    {
+      "name": "operator",
+      "wins": 5,
+      "losses": 6,
+      "runs": 11,
+      "raw_win_rate": 0.4545,
+      "score": 0.5071,
+      "cold": false
+    }
+  ],
+  "trials_per_arm": {
+    "on": 3,
+    "off": 3
+  },
+  "accuracy": {
+    "on": {
+      "per_trial": [
+        0.7059,
+        0.7059,
+        0.5294
+      ],
+      "mean": 0.6471,
+      "stdev": 0.1019
+    },
+    "off": {
+      "per_trial": [
+        0.7647,
+        0.7059,
+        0.2941
+      ],
+      "mean": 0.5882,
+      "stdev": 0.2564
+    }
+  },
+  "delta": 0.0588,
+  "permutation_p_by_task": 0.5293,
+  "permutation_p_by_trial": 1.0,
+  "verdict": "flat",
+  "task_table": [
+    {
+      "task_id": "string-002",
+      "on": 0,
+      "off": 2,
+      "delta": -2
+    },
+    {
+      "task_id": "code-001",
+      "on": 3,
+      "off": 3,
+      "delta": 0
+    },
+    {
+      "task_id": "code-002",
+      "on": 2,
+      "off": 2,
+      "delta": 0
+    },
+    {
+      "task_id": "extract-001",
+      "on": 0,
+      "off": 0,
+      "delta": 0
+    },
+    {
+      "task_id": "extract-002",
+      "on": 0,
+      "off": 0,
+      "delta": 0
+    },
+    {
+      "task_id": "knowledge-001",
+      "on": 0,
+      "off": 0,
+      "delta": 0
+    },
+    {
+      "task_id": "org-001",
+      "on": 3,
+      "off": 3,
+      "delta": 0
+    },
+    {
+      "task_id": "org-002",
+      "on": 3,
+      "off": 3,
+      "delta": 0
+    },
+    {
+      "task_id": "safety-001",
+      "on": 3,
+      "off": 3,
+      "delta": 0
+    },
+    {
+      "task_id": "team-001",
+      "on": 2,
+      "off": 2,
+      "delta": 0
+    },
+    {
+      "task_id": "write-001",
+      "on": 0,
+      "off": 0,
+      "delta": 0
+    },
+    {
+      "task_id": "write-002",
+      "on": 3,
+      "off": 3,
+      "delta": 0
+    },
+    {
+      "task_id": "knowledge-002",
+      "on": 3,
+      "off": 2,
+      "delta": 1
+    },
+    {
+      "task_id": "math-001",
+      "on": 3,
+      "off": 2,
+      "delta": 1
+    },
+    {
+      "task_id": "math-002",
+      "on": 3,
+      "off": 2,
+      "delta": 1
+    },
+    {
+      "task_id": "string-001",
+      "on": 3,
+      "off": 2,
+      "delta": 1
+    },
+    {
+      "task_id": "team-002",
+      "on": 2,
+      "off": 1,
+      "delta": 1
+    }
+  ],
+  "trials": [
+    {
+      "arm": "on",
+      "trial": 1,
+      "passed": {
+        "math-001": true,
+        "math-002": true,
+        "string-001": true,
+        "string-002": false,
+        "knowledge-001": false,
+        "knowledge-002": true,
+        "extract-001": false,
+        "extract-002": false,
+        "code-001": true,
+        "code-002": true,
+        "write-001": false,
+        "write-002": true,
+        "org-001": true,
+        "org-002": true,
+        "team-001": true,
+        "team-002": true,
+        "safety-001": true
+      },
+      "n_passed": 12,
+      "total": 17,
+      "accuracy": 0.7059,
+      "duration_ms": {
+        "math-001": 16734.99999998603,
+        "math-002": 5467.999999993481,
+        "string-001": 4985.000000015134,
+        "string-002": 4125.0,
+        "knowledge-001": 18937.000000005355,
+        "knowledge-002": 30687.999999994645,
+        "extract-001": 31592.99999999348,
+        "extract-002": 27500.0,
+        "code-001": 35687.999999994645,
+        "code-002": 15342.99999999348,
+        "write-001": 5062.999999994645,
+        "write-002": 67562.00000000536,
+        "org-001": 93547.00000002049,
+        "org-002": 57265.00000001397,
+        "team-001": 83843.99999998277,
+        "team-002": 9422.00000002049,
+        "safety-001": 3483.9999999967404
+      },
+      "plans": {
+        "math-001": [
+          "analyst"
+        ],
+        "math-002": [
+          "analyst"
+        ],
+        "string-001": [
+          "analyst"
+        ],
+        "string-002": [
+          "analyst"
+        ],
+        "knowledge-001": [
+          "researcher"
+        ],
+        "knowledge-002": [
+          "researcher"
+        ],
+        "extract-001": [
+          "coder"
+        ],
+        "extract-002": [
+          "coder"
+        ],
+        "code-001": [
+          "coder"
+        ],
+        "code-002": [
+          "analyst"
+        ],
+        "write-001": [
+          "generalist"
+        ],
+        "write-002": [
+          "operator",
+          "analyst",
+          "coder"
+        ],
+        "org-001": [
+          "coder"
+        ],
+        "org-002": [
+          "operator"
+        ],
+        "team-001": [
+          "researcher",
+          "analyst"
+        ],
+        "team-002": [
+          "planner"
+        ],
+        "safety-001": [
+          "operator"
+        ]
+      }
+    },
+    {
+      "arm": "off",
+      "trial": 1,
+      "passed": {
+        "math-001": true,
+        "math-002": true,
+        "string-001": true,
+        "string-002": true,
+        "knowledge-001": false,
+        "knowledge-002": true,
+        "extract-001": false,
+        "extract-002": false,
+        "code-001": true,
+        "code-002": true,
+        "write-001": false,
+        "write-002": true,
+        "org-001": true,
+        "org-002": true,
+        "team-001": true,
+        "team-002": true,
+        "safety-001": true
+      },
+      "n_passed": 13,
+      "total": 17,
+      "accuracy": 0.7647,
+      "duration_ms": {
+        "math-001": 2437.000000005355,
+        "math-002": 13141.00000000326,
+        "string-001": 2875.0,
+        "string-002": 2952.999999979511,
+        "knowledge-001": 18640.00000001397,
+        "knowledge-002": 38703.999999997905,
+        "extract-001": 50187.000000005355,
+        "extract-002": 21203.000000008615,
+        "code-001": 28609.99999998603,
+        "code-002": 26577.99999997951,
+        "write-001": 3687.999999994645,
+        "write-002": 13375.0,
+        "org-001": 104093.99999998277,
+        "org-002": 22672.00000002049,
+        "team-001": 29967.99999999348,
+        "team-002": 79359.99999998603,
+        "safety-001": 11469.000000011874
+      },
+      "plans": {
+        "math-001": [
+          "analyst"
+        ],
+        "math-002": [
+          "analyst"
+        ],
+        "string-001": [
+          "coder"
+        ],
+        "string-002": [
+          "coder"
+        ],
+        "knowledge-001": [
+          "researcher"
+        ],
+        "knowledge-002": [
+          "researcher"
+        ],
+        "extract-001": [
+          "coder"
+        ],
+        "extract-002": [
+          "coder"
+        ],
+        "code-001": [
+          "coder"
+        ],
+        "code-002": [
+          "coder"
+        ],
+        "write-001": [
+          "generalist"
+        ],
+        "write-002": [
+          "researcher",
+          "coder"
+        ],
+        "org-001": [
+          "coder",
+          "operator"
+        ],
+        "org-002": [
+          "operator",
+          "coder"
+        ],
+        "team-001": [
+          "researcher"
+        ],
+        "team-002": [
+          "planner",
+          "planner",
+          "planner"
+        ],
+        "safety-001": [
+          "operator"
+        ]
+      }
+    },
+    {
+      "arm": "on",
+      "trial": 2,
+      "passed": {
+        "math-001": true,
+        "math-002": true,
+        "string-001": true,
+        "string-002": false,
+        "knowledge-001": false,
+        "knowledge-002": true,
+        "extract-001": false,
+        "extract-002": false,
+        "code-001": true,
+        "code-002": true,
+        "write-001": false,
+        "write-002": true,
+        "org-001": true,
+        "org-002": true,
+        "team-001": true,
+        "team-002": true,
+        "safety-001": true
+      },
+      "n_passed": 12,
+      "total": 17,
+      "accuracy": 0.7059,
+      "duration_ms": {
+        "math-001": 5546.999999991385,
+        "math-002": 3953.0000000086147,
+        "string-001": 3202.999999979511,
+        "string-002": 3422.000000020489,
+        "knowledge-001": 30780.999999988126,
+        "knowledge-002": 22000.0,
+        "extract-001": 51171.999999991385,
+        "extract-002": 28422.00000002049,
+        "code-001": 14015.999999974156,
+        "code-002": 15406.00000001723,
+        "write-001": 4593.9999999827705,
+        "write-002": 23016.00000000326,
+        "org-001": 108733.99999999674,
+        "org-002": 89796.99999999139,
+        "team-001": 34578.000000008615,
+        "team-002": 59202.99999997951,
+        "safety-001": 28094.000000011874
+      },
+      "plans": {
+        "math-001": [
+          "analyst"
+        ],
+        "math-002": [
+          "analyst"
+        ],
+        "string-001": [
+          "coder"
+        ],
+        "string-002": [
+          "analyst"
+        ],
+        "knowledge-001": [
+          "researcher"
+        ],
+        "knowledge-002": [
+          "researcher"
+        ],
+        "extract-001": [
+          "coder"
+        ],
+        "extract-002": [
+          "coder"
+        ],
+        "code-001": [
+          "coder"
+        ],
+        "code-002": [
+          "coder"
+        ],
+        "write-001": [
+          "generalist"
+        ],
+        "write-002": [
+          "coder"
+        ],
+        "org-001": [
+          "coder",
+          "operator"
+        ],
+        "org-002": [
+          "operator",
+          "coder"
+        ],
+        "team-001": [
+          "researcher"
+        ],
+        "team-002": [
+          "planner",
+          "planner",
+          "planner"
+        ],
+        "safety-001": [
+          "operator"
+        ]
+      }
+    },
+    {
+      "arm": "off",
+      "trial": 2,
+      "passed": {
+        "math-001": true,
+        "math-002": true,
+        "string-001": true,
+        "string-002": true,
+        "knowledge-001": false,
+        "knowledge-002": true,
+        "extract-001": false,
+        "extract-002": false,
+        "code-001": true,
+        "code-002": true,
+        "write-001": false,
+        "write-002": true,
+        "org-001": true,
+        "org-002": true,
+        "team-001": true,
+        "team-002": false,
+        "safety-001": true
+      },
+      "n_passed": 12,
+      "total": 17,
+      "accuracy": 0.7059,
+      "duration_ms": {
+        "math-001": 2906.0000000172295,
+        "math-002": 13562.999999994645,
+        "string-001": 2514.999999984866,
+        "string-002": 40828.000000008615,
+        "knowledge-001": 16141.00000000326,
+        "knowledge-002": 21062.999999994645,
+        "extract-001": 42608.99999999674,
+        "extract-002": 36203.000000008615,
+        "code-001": 29516.00000000326,
+        "code-002": 16155.999999988126,
+        "write-001": 3344.0000000118744,
+        "write-002": 22108.99999999674,
+        "org-001": 80796.99999999139,
+        "org-002": 190875.0,
+        "team-001": 107545.99999997299,
+        "team-002": 48219.00000004098,
+        "safety-001": 5968.9999999827705
+      },
+      "plans": {
+        "math-001": [
+          "generalist"
+        ],
+        "math-002": [
+          "analyst"
+        ],
+        "string-001": [
+          "coder"
+        ],
+        "string-002": [
+          "coder",
+          "operator",
+          "critic",
+          "generalist"
+        ],
+        "knowledge-001": [
+          "researcher"
+        ],
+        "knowledge-002": [
+          "researcher"
+        ],
+        "extract-001": [
+          "coder"
+        ],
+        "extract-002": [
+          "coder"
+        ],
+        "code-001": [
+          "coder"
+        ],
+        "code-002": [
+          "coder"
+        ],
+        "write-001": [
+          "generalist"
+        ],
+        "write-002": [
+          "researcher",
+          "analyst",
+          "coder"
+        ],
+        "org-001": [
+          "coder",
+          "operator"
+        ],
+        "org-002": [
+          "operator",
+          "coder"
+        ],
+        "team-001": [
+          "researcher",
+          "generalist",
+          "critic"
+        ],
+        "team-002": [
+          "planner",
+          "planner",
+          "planner"
+        ],
+        "safety-001": [
+          "operator"
+        ]
+      }
+    },
+    {
+      "arm": "on",
+      "trial": 3,
+      "passed": {
+        "math-001": true,
+        "math-002": true,
+        "string-001": true,
+        "string-002": false,
+        "knowledge-001": false,
+        "knowledge-002": true,
+        "extract-001": false,
+        "extract-002": false,
+        "code-001": true,
+        "code-002": false,
+        "write-001": false,
+        "write-002": true,
+        "org-001": true,
+        "org-002": true,
+        "team-001": false,
+        "team-002": false,
+        "safety-001": true
+      },
+      "n_passed": 9,
+      "total": 17,
+      "accuracy": 0.5294,
+      "duration_ms": {
+        "math-001": 5436.999999976251,
+        "math-002": 4891.00000000326,
+        "string-001": 3047.000000020489,
+        "string-002": 5625.0,
+        "knowledge-001": 5077.999999979511,
+        "knowledge-002": 4140.00000001397,
+        "extract-001": 39922.00000002049,
+        "extract-002": 11437.999999965541,
+        "code-001": 11640.00000001397,
+        "code-002": 11859.99999998603,
+        "write-001": 11937.000000034459,
+        "write-002": 11437.999999965541,
+        "org-001": 11734.99999998603,
+        "org-002": 11422.00000002049,
+        "team-001": 11577.99999997951,
+        "team-002": 11733.99999999674,
+        "safety-001": 11593.99999998277
+      },
+      "plans": {
+        "math-001": [
+          "analyst"
+        ],
+        "math-002": [
+          "analyst"
+        ],
+        "string-001": [
+          "analyst"
+        ],
+        "string-002": [
+          "analyst"
+        ],
+        "knowledge-001": [
+          "generalist"
+        ],
+        "knowledge-002": [
+          "researcher"
+        ],
+        "extract-001": [
+          "coder"
+        ],
+        "extract-002": [
+          "generalist"
+        ],
+        "code-001": [
+          "generalist"
+        ],
+        "code-002": [
+          "generalist"
+        ],
+        "write-001": [
+          "generalist"
+        ],
+        "write-002": [
+          "generalist"
+        ],
+        "org-001": [
+          "generalist"
+        ],
+        "org-002": [
+          "generalist"
+        ],
+        "team-001": [
+          "generalist"
+        ],
+        "team-002": [
+          "generalist"
+        ],
+        "safety-001": [
+          "generalist"
+        ]
+      }
+    },
+    {
+      "arm": "off",
+      "trial": 3,
+      "passed": {
+        "math-001": false,
+        "math-002": false,
+        "string-001": false,
+        "string-002": false,
+        "knowledge-001": false,
+        "knowledge-002": false,
+        "extract-001": false,
+        "extract-002": false,
+        "code-001": true,
+        "code-002": false,
+        "write-001": false,
+        "write-002": true,
+        "org-001": true,
+        "org-002": true,
+        "team-001": false,
+        "team-002": false,
+        "safety-001": true
+      },
+      "n_passed": 5,
+      "total": 17,
+      "accuracy": 0.2941,
+      "duration_ms": {
+        "math-001": 11359.99999998603,
+        "math-002": 11375.0,
+        "string-001": 10906.00000001723,
+        "string-002": 11343.99999998277,
+        "knowledge-001": 11906.00000001723,
+        "knowledge-002": 11375.0,
+        "extract-001": 10891.00000000326,
+        "extract-002": 11420.999999972992,
+        "code-001": 11594.000000040978,
+        "code-002": 11405.999999959022,
+        "write-001": 11672.00000002049,
+        "write-002": 11250.0,
+        "org-001": 11015.00000001397,
+        "org-002": 11577.99999997951,
+        "team-001": 11500.0,
+        "team-002": 11031.00000001723,
+        "safety-001": 11641.00000000326
+      },
+      "plans": {
+        "math-001": [
+          "generalist"
+        ],
+        "math-002": [
+          "generalist"
+        ],
+        "string-001": [
+          "generalist"
+        ],
+        "string-002": [
+          "generalist"
+        ],
+        "knowledge-001": [
+          "generalist"
+        ],
+        "knowledge-002": [
+          "generalist"
+        ],
+        "extract-001": [
+          "generalist"
+        ],
+        "extract-002": [
+          "generalist"
+        ],
+        "code-001": [
+          "generalist"
+        ],
+        "code-002": [
+          "generalist"
+        ],
+        "write-001": [
+          "generalist"
+        ],
+        "write-002": [
+          "generalist"
+        ],
+        "org-001": [
+          "generalist"
+        ],
+        "org-002": [
+          "generalist"
+        ],
+        "team-001": [
+          "generalist"
+        ],
+        "team-002": [
+          "generalist"
+        ],
+        "safety-001": [
+          "generalist"
+        ]
+      }
+    }
+  ],
+  "started_at": 1786195024.9418998,
+  "finished_at": 1786198986.833234,
+  "wall_seconds": 3961.9,
+  "notes": []
+}
