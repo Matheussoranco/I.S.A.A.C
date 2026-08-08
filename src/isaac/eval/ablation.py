@@ -36,6 +36,7 @@ intervention cannot touch.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import random
@@ -613,10 +614,8 @@ def simulate_selection(
             success = rng.random() < competence[choice]
             wins += int(success)
             selector.record(choice, success=success)
-        try:
+        with contextlib.suppress(OSError):  # Windows may still hold the handle
             tmp.unlink(missing_ok=True)
-        except OSError:  # pragma: no cover - Windows file locking
-            pass
         return wins / rounds
 
     on = [one_run(True, seed + i) for i in range(repeats)]

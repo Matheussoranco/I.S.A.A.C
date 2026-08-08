@@ -64,7 +64,7 @@ class _ScriptedRunner:
         self.all_correct = all_correct
         self.calls: list[tuple[bool, str]] = []
 
-    def __call__(self, *, use_meta_selection: bool, on_plan=None):  # noqa: ANN001, ANN204
+    def __call__(self, *, use_meta_selection: bool, on_plan=None):
         def run(task: EvalTask) -> TaskAnswer:
             self.calls.append((use_meta_selection, task.id))
             if on_plan is not None:
@@ -245,7 +245,7 @@ class TestRunAblation:
         assert any("no-op" in n for n in rep.notes)
 
     def test_a_crashing_task_scores_zero_without_aborting(self, tmp_path: Path) -> None:
-        def factory(*, use_meta_selection, on_plan=None):  # noqa: ANN001, ANN202
+        def factory(*, use_meta_selection, on_plan=None):
             def run(task: EvalTask) -> TaskAnswer:
                 if task.id == "t2":
                     raise RuntimeError("boom")
