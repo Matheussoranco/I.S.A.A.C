@@ -38,3 +38,53 @@ def test_browser_schema_enumerates_actions() -> None:
 async def test_aclose_is_safe_before_launch() -> None:
     # Closing a never-launched session must not raise.
     await BrowserTool().aclose()
+
+
+class _Locator:
+    @property
+    def first(self) -> _Locator:
+        return self
+
+    async def bounding_box(self, timeout: int) -> dict[str, float]:
+        assert timeout == 8000
+        return {"x": 100, "y": 50, "width": 80, "height": 30}
+
+
+class _VisualPage:
+    url = "https://example.com/next"
+
+    def locator(self, selector: str) -> _Locator:
+        assert selector == "#continue"
+        return _Locator()
+
+    async def click(self, selector: str, timeout: int) -> None:
+        assert selector == "#continue"
+        assert timeout == 8000
+
+    async def wait_for_timeout(self, timeout: int) -> None:
+        assert timeout == 180
+
+    async def screenshot(self, **kwargs: object) -> bytes:
+        assert kwargs == {"type": "png", "full_page": False}
+        return b"png"
+
+    async def title(self) -> str:
+        return "Example"
+
+
+@pytest.mark.asyncio
+async def test_visual_callback_receives_cursor_and_frame() -> None:
+    events: list[tuple[str, dict]] = []
+    browser = BrowserTool(visual_callback=lambda kind, data: events.append((kind, data)))
+
+    result = await browser._dispatch(_VisualPage(), "click", {"selector": "#continue"})
+
+    assert result.success is True
+    assert [kind for kind, _ in events] == ["browser_cursor", "browser_frame"]
+    cursor = events[0][1]
+    assert cursor["x"] == 140
+    assert cursor["y"] == 65
+    assert cursor["action"] == "click"
+    frame = events[1][1]
+    assert frame["image_base64"] == "cG5n"
+    assert frame["url"] == "https://example.com/next"

@@ -4,7 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | ✅ Yes    |
+| 1.6.x   | ✅ Yes    |
 
 ---
 
@@ -56,4 +56,32 @@ I.S.A.A.C. is designed with multiple defence-in-depth layers. Understanding the 
 
 - The AST import scanner is a defence-in-depth measure, not a sandbox replacement. The Docker container is the primary isolation boundary.
 - Capability tokens are auto-issued for connector invocations in the current release; operator-issued tokens with manual approval are planned for 0.2.0.
+
+## Real desktop control
+
+The native app exposes desktop capabilities as separate tools. Read-only
+capture (`computer_view`) stays local and only updates the interface.
+Interpretation (`computer_describe`) can disclose the current screenshot to the
+configured vision provider and therefore requires approval. Input control
+(`computer_control`) is also approval-gated and accepts only one bounded action
+per call; it cannot execute arbitrary scripts or shell commands. PyAutoGUI's
+top-left-corner failsafe remains enabled as an emergency stop.
+
+Screen captures can contain passwords, notifications, private conversations,
+or other sensitive material. Close or hide sensitive windows before approving
+visual interpretation, and inspect the proposed action shown by the app before
+approving desktop input.
+
+The OpenAI `gpt-5.6-sol` computer mode follows the same boundary for every
+action batch: the model proposes actions, the native app displays the proposal,
+and execution waits for explicit approval of that batch. Approval is never
+promoted into a global or task-wide permission. The model receives the
+post-action screenshot, so anything visible on any captured monitor can be
+disclosed to that provider.
+
+Cloud keys saved through the app are stored through the operating-system
+keyring (Windows Credential Manager). The local FastAPI server binds only to
+loopback, rejects browser WebSocket origins that do not match its own host, and
+never serializes stored credentials in `/api/status`, WebSocket events, SQLite
+conversation history, or the UI.
 - The Computer-Use sandbox (`sandbox_image_ui`) allows outbound browser network access when `ISAAC_UI_SANDBOX_ALLOW_BROWSER_NETWORK=true`; leave this disabled unless required.

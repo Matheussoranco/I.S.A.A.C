@@ -7,6 +7,65 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.0] — 2026-08-29 — Native Windows agent and real computer use
+
+1.6.0 turns the existing agent framework into an installable Windows desktop
+application. The release adds a persistent Codex-style interface, live browser
+and desktop frames, a visible agent cursor, and an OpenAI Responses API
+computer-use loop. This is feature-level parity, not a claim of model-quality
+parity with ChatGPT, Codex, or Hermes; outcomes depend on the selected model.
+
+### Added
+
+- Native `pywebview` Windows shell backed by an ephemeral loopback-only FastAPI
+  server, with chat, persistent SQLite conversations, activity stream,
+  cancellation, browser/desktop preview, and model/provider/reasoning selector.
+- Direct OpenAI computer loop for compatible models: receive batched
+  `computer_call` actions, display them for approval, execute bounded local
+  mouse/keyboard primitives, and return the resulting full-resolution
+  `computer_call_output` screenshot.
+- Real desktop tools split by capability: local-only capture, approval-gated
+  vision interpretation, and approval-gated bounded input control. Multi-monitor
+  coordinates, drag paths, Unicode paste, scrolling, modifiers, and the
+  PyAutoGUI top-left failsafe are supported.
+- Visible browser and desktop cursor events synchronized with real actions;
+  image frames remain outside the model transcript to avoid context inflation.
+- OpenAI and Anthropic credentials stored through the operating-system keyring,
+  with environment variables taking precedence and no secret serialized to the
+  UI, WebSocket stream, status endpoint, or conversation database.
+- Windows build and per-user install scripts. The installer deploys the full
+  one-folder package, creates Start Menu/Desktop shortcuts, and retains the
+  previous installation as a rollback folder.
+
+### Security
+
+- Every actionable mouse/keyboard batch requires explicit approval. Approval is
+  never promoted to a global or task-wide permission.
+- WebSocket connections enforce same-origin browser requests; the native server
+  binds only to `127.0.0.1` on an ephemeral port.
+- Desktop actions are declarative and bounded; the computer harness accepts no
+  arbitrary shell commands or scripts.
+
+### Validation
+
+- 892 tests passed and 1 was skipped on the release worktree.
+- Ruff lint, Ruff formatting, JavaScript syntax, packaged native launch, model
+  settings UI, shortcuts, executable/package hashes, and ZIP contents were
+  verified locally.
+- The OpenAI protocol is covered with deterministic simulated-client tests. No
+  paid live-model computer-use call is claimed by this release.
+
+### Known limitations
+
+- The Windows executable is not code-signed and may trigger a SmartScreen
+  warning on another machine.
+- Computer use depends on pixels and can be affected by display scaling,
+  transient UI state, protected windows, and multi-monitor layouts.
+- The complete package, including `_internal`, is required; `ISAAC.exe` is not
+  a standalone single-file distribution.
+
+---
+
 ## [1.5.0] — 2026-08-08 — Self-improvement, wired and measured (result: flat)
 
 The framework has carried a MetaLearner, a skill curator, and prompt evolution

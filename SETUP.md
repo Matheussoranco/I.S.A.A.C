@@ -1,6 +1,6 @@
 # I.S.A.A.C. — Setup Guide
 
-> **Intelligent System for Autonomous Action and Cognition** v0.3.0
+> **Intelligent System for Autonomous Action and Cognition** v1.6.0
 
 ## Prerequisites
 
@@ -152,6 +152,63 @@ is unreachable or `qwen3.6` has not been pulled.
 
 ## 5. Run I.S.A.A.C.
 
+### Graphical interface
+
+```bash
+pip install -e ".[desktop]"    # once: native window + desktop controls
+isaac desktop                  # native Windows application
+
+isaac ui                       # opens http://127.0.0.1:8765
+isaac ui --no-open             # start without opening a browser tab
+isaac ui --port 9000           # choose another local port
+```
+
+Both commands use the same local interface. `isaac desktop` hosts it in a
+native WebView window, while `isaac ui` opens it in a browser. The interface
+streams agent steps and tool results over a local WebSocket.
+When the `browser` tool is used, it mirrors the Chromium viewport and animates
+the agent cursor at the selector's real coordinates. Risk-level 4–5 actions
+pause and present an approval dialog; API keys remain in the Python process and
+are never sent to the web client.
+
+The real-PC tools are deliberately split by capability:
+
+- `computer_view` takes a local screenshot for the on-screen preview and does
+  not send that image to the model provider.
+- `computer_describe` may send the screenshot to the configured vision model,
+  so it requires approval.
+- `computer_control` performs exactly one bounded mouse/keyboard action and
+  requires approval on every call. Move the pointer to the top-left corner to
+  trigger the PyAutoGUI emergency stop.
+
+To produce a standalone Windows folder containing `ISAAC.exe`:
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+The output is the complete `dist\ISAAC` folder plus a versioned portable ZIP,
+for example `dist\ISAAC-1.6.0-Windows-x64.zip`. Do not distribute `ISAAC.exe`
+by itself: the `_internal` directory is required. To install it for the current
+Windows user, create Start Menu/Desktop shortcuts, and launch it:
+
+```powershell
+.\scripts\install_windows.ps1
+```
+
+The installed application lives at `%LOCALAPPDATA%\Programs\ISAAC`. A model
+and reasoning selector is available by clicking the model chip in the title
+bar. OpenAI and Anthropic keys entered there are stored in Windows Credential
+Manager. They can alternatively be supplied through `OPENAI_API_KEY` and
+`ANTHROPIC_API_KEY`; environment variables take precedence.
+
+With provider `OpenAI`, model `gpt-5.6-sol`, and mode `Computador`, I.S.A.A.C.
+uses the OpenAI Responses API computer loop: it receives `computer_call`
+actions, asks for local approval, performs them, captures the resulting screen,
+and sends it back as `computer_call_output` with original image detail. This is
+the direct computer-use path; local/other providers use I.S.A.A.C.'s generic
+bounded desktop tools instead.
+
 ### Text REPL (Rich UI, default)
 
 ```bash
@@ -195,6 +252,8 @@ isaac serve
 
 | Command                     | Description                                 |
 | --------------------------- | ------------------------------------------- |
+| `isaac desktop`             | Native Windows agent application            |
+| `isaac ui`                  | Graphical chat, activity, and browser view  |
 | `isaac run`                 | Rich text REPL                              |
 | `isaac run --classic`       | Plain `print()` REPL                        |
 | `isaac voice [--hands-free]`| Voice REPL                                  |

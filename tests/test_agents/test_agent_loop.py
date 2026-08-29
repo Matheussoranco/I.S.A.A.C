@@ -218,6 +218,17 @@ class TestAgentLoop:
         result = loop.run("ok")
         assert result.stopped_reason == "final"
 
+    def test_user_can_cancel_before_the_next_iteration(self) -> None:
+        echo = EchoTool()
+        llm = FakeLLM([AIMessage(content="should not be reached")])
+
+        result = AgentLoop([echo], llm=llm, should_stop=lambda: True).run("cancel me")
+
+        assert result.stopped_reason == "cancelled"
+        assert result.success is False
+        assert result.output == "Cancelled by the user."
+        assert llm._i == 0
+
     def test_handles_block_style_content(self) -> None:
         # Anthropic-style content blocks instead of a plain string.
         llm = FakeLLM([AIMessage(content=[{"type": "text", "text": "final via blocks"}])])
@@ -391,6 +402,8 @@ class TestBuildDefaultAgent:
     def test_builds_with_all_tools(self) -> None:
         agent = build_default_agent(llm=FakeLLM([AIMessage(content="x")]))
         assert "browser" in agent._tools
+        assert "computer_view" in agent._tools
+        assert "computer_control" in agent._tools
         assert "web_search" in agent._tools
         assert "code" in agent._tools
 

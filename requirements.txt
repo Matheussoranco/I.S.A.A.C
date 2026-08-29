@@ -2,6 +2,7 @@
 langgraph>=0.2
 langchain-core>=0.3
 langchain-openai>=0.2
+openai>=2.20,<3
 langchain-anthropic>=0.2
 
 # Ollama-first LLM routing
@@ -51,6 +52,15 @@ croniter>=2.0
 # Rich terminal UI
 rich>=13.0
 prompt-toolkit>=3.0
+
+# Local graphical web interface
+fastapi>=0.115
+uvicorn>=0.30
+
+# Native desktop shell + real PC control
+pywebview>=6.2,<7
+pyautogui>=0.9.54
+keyring>=25
 
 # CalDAV calendar integration (optional)
 caldav>=1.3

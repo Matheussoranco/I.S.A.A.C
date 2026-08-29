@@ -1,4 +1,4 @@
-# Known Limitations (1.4.1)
+# Known Limitations (1.6.0)
 
 I.S.A.A.C. 1.0 is a stable, tested, local-first autonomous agent **framework**.
 This file states plainly what that does — and does not — mean. It exists so
@@ -59,6 +59,21 @@ the README's capability claims can be read with the right calibration.
   provenance-tagged as untrusted, and secrets are redacted from tool outputs —
   but adversarial content can still steer the model. Keep high-risk tools
   behind approval (the default).
+- **Feature parity is not model parity.** The native app now implements the
+  same essential computer-use protocol shape as a frontier agent: live
+  screenshots, model-proposed action batches, visible cursor feedback,
+  post-action screenshots, cancellation, persistent chats, and scoped human
+  approvals. This is not a claim that a selected model matches ChatGPT, Codex,
+  or Hermes in reasoning quality, reliability, training, context, or private
+  infrastructure.
+- **Computer use is fallible.** It depends on the current pixels and may be
+  affected by display scaling, transient UI state, virtual desktops, protected
+  windows, or multi-monitor layouts. The OpenAI path requires a compatible
+  model/API account and can incur API charges. Local and other providers use the
+  generic bounded tool loop and may be materially less capable.
+- **No unattended high-risk autonomy.** Mouse/keyboard batches require human
+  approval for each actionable batch. The PyAutoGUI top-left failsafe remains
+  available as an emergency stop.
 - **Self-improvement needs data.** Skill curation and prompt evolution only
   act after enough telemetry accumulates; a fresh install has nothing to
   improve from.

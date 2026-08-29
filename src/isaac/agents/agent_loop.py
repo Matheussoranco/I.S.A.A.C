@@ -155,7 +155,7 @@ class AgentRunResult:
     output: str
     iterations: int
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
-    # "final" | "max_iterations" | "budget_exhausted" | "no_progress" | "error"
+    # "final" | "cancelled" | "max_iterations" | "budget_exhausted" | "no_progress" | "error"
     stopped_reason: str = "final"
     messages: list[Any] = field(default_factory=list)
     health: ToolCallHealth = field(default_factory=ToolCallHealth)
@@ -166,6 +166,7 @@ class AgentRunResult:
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
+StopCallback = Callable[[], bool]
 
 
 class AgentLoop:
@@ -227,6 +228,7 @@ class AgentLoop:
         repair_tool_calls: bool = True,
         reflexion_retries: int = _MAX_REFLEXION_RETRIES,
         constrained_decoding: bool = False,
+        should_stop: StopCallback | None = None,
     ) -> None:
         self._tools: dict[str, IsaacTool] = {t.name: t for t in tools}
         self._llm = llm
@@ -244,6 +246,7 @@ class AgentLoop:
         self.repair_tool_calls = repair_tool_calls
         self.reflexion_retries = max(0, reflexion_retries)
         self.constrained_decoding = constrained_decoding
+        self._should_stop = should_stop
 
     # ------------------------------------------------------------------
     # Internals
@@ -486,6 +489,11 @@ class AgentLoop:
 
         try:
             for i in range(self.max_iterations):
+                if self._should_stop is not None and self._should_stop():
+                    reason = "cancelled"
+                    final_text = "Cancelled by the user."
+                    self._emit("cancelled", message=final_text)
+                    break
                 if self.max_wall_seconds and time.monotonic() - started > self.max_wall_seconds:
                     reason = "budget_exhausted"
                     final_text = (
@@ -609,6 +617,12 @@ class AgentLoop:
 
                 stuck = False
                 for tc in tool_calls:
+                    if self._should_stop is not None and self._should_stop():
+                        reason = "cancelled"
+                        final_text = "Cancelled by the user."
+                        self._emit("cancelled", message=final_text)
+                        stuck = True
+                        break
                     name = tc.get("name", "")
                     args = tc.get("args") or {}
                     call_id = tc.get("id") or name
@@ -630,6 +644,8 @@ class AgentLoop:
                     if repeat_count >= _NO_PROGRESS_LIMIT:
                         stuck = True
                 if stuck:
+                    if reason == "cancelled":
+                        break
                     reason = "no_progress"
                     final_text = (
                         f"Stopped: the model repeated the identical tool call "
@@ -718,6 +734,9 @@ def build_default_agent(
     repair_tool_calls: bool | None = None,
     reflexion_retries: int | None = None,
     constrained_decoding: bool | None = None,
+    browser_event_callback: EventCallback | None = None,
+    desktop_event_callback: EventCallback | None = None,
+    should_stop: StopCallback | None = None,
 ) -> AgentLoop:
     """Construct an :class:`AgentLoop` wired with all registered built-in tools.
 
@@ -735,6 +754,14 @@ def build_default_agent(
 
     registry = register_all_tools()
     tools = registry.list_all()
+    if browser_event_callback is not None:
+        for tool in tools:
+            if tool.name == "browser" and hasattr(tool, "set_visual_callback"):
+                tool.set_visual_callback(browser_event_callback)
+    if desktop_event_callback is not None:
+        for tool in tools:
+            if tool.name.startswith("computer_") and hasattr(tool, "set_visual_callback"):
+                tool.set_visual_callback(desktop_event_callback)
     if only is not None:
         wanted = set(only)
         tools = [t for t in tools if t.name in wanted]
@@ -760,6 +787,7 @@ def build_default_agent(
         repair_tool_calls=repair_tool_calls,
         reflexion_retries=reflexion_retries,
         constrained_decoding=constrained_decoding,
+        should_stop=should_stop,
     )
 
 

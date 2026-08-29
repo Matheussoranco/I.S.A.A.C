@@ -3,6 +3,8 @@
 Commands
 --------
 run         Start the interactive cognitive loop (default).
+ui          Start the local graphical interface.
+desktop     Start the native desktop application.
 serve       Start the Telegram gateway + heartbeat scheduler.
 audit       View / verify the audit log.
 memory      Query the memory layers.
@@ -199,6 +201,56 @@ if typer is not None:
                 f"{health.repaired} repaired, {health.unrecovered} lost"
             )
         raise typer.Exit(0 if result.success else 1)
+
+    @app.command(name="ui")
+    def ui_command(
+        host: str = typer.Option(
+            "127.0.0.1", "--host", help="Interface address (local-only by default)."
+        ),
+        port: int = typer.Option(8765, "--port", min=1024, max=65535),
+        no_open: bool = typer.Option(False, "--no-open", help="Do not open a browser tab."),
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Start the graphical chat, activity, and live-browser interface."""
+        _setup_logging(verbose)
+        try:
+            import uvicorn
+        except ImportError as exc:
+            raise typer.BadParameter(
+                "The UI dependencies are missing. Run: pip install -e ."
+            ) from exc
+
+        if not no_open:
+            import threading
+            import webbrowser
+
+            url_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+            timer = threading.Timer(1.0, lambda: webbrowser.open(f"http://{url_host}:{port}"))
+            timer.daemon = True
+            timer.start()
+
+        typer.echo(f"I.S.A.A.C. UI: http://{host}:{port}")
+        uvicorn.run(
+            "isaac.interfaces.web_app:app",
+            host=host,
+            port=port,
+            log_level="debug" if verbose else "info",
+        )
+
+    @app.command(name="desktop")
+    def desktop_command(
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+    ) -> None:
+        """Start I.S.A.A.C. in a native desktop window."""
+        _setup_logging(verbose)
+        from isaac.interfaces.desktop_app import run_desktop_app
+
+        try:
+            code = run_desktop_app(verbose=verbose)
+        except RuntimeError as exc:
+            typer.echo(f"Could not start the native app: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        raise typer.Exit(code)
 
     @app.command()
     def serve(

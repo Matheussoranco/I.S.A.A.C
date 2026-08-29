@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0a10" />
+    <title>I.S.A.A.C. — Assistente pessoal</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"><span></span></div>
+          <div><strong>I.S.A.A.C.</strong><small>personal intelligence</small></div>
+        </div>
+
+        <button class="new-chat" id="new-chat" type="button">
+          <span>＋</span> Nova conversa
+        </button>
+
+        <div class="sidebar-label">Hoje</div>
+        <nav class="conversation-list" id="conversation-list" aria-label="Conversas"></nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="privacy-card">
+          <span class="privacy-icon">⌾</span>
+          <div><strong>Local por padrão</strong><small>Você aprova ações sensíveis</small></div>
+        </div>
+        <button class="sidebar-action" id="settings-button" type="button">⚙ Configuração</button>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="topbar">
+          <button class="mobile-menu" id="mobile-menu" type="button" aria-label="Abrir menu">☰</button>
+          <div class="agent-title">
+            <span class="presence"></span>
+            <div><strong id="agent-name">I.S.A.A.C.</strong><small id="agent-state">Conectando…</small></div>
+          </div>
+          <button class="model-pill" id="model-button" type="button" title="Escolher modelo">
+            <span id="provider">local</span><b>·</b><span id="model">carregando</span>
+          </button>
+        </header>
+
+        <section class="messages" id="messages" aria-live="polite">
+          <div class="welcome" id="welcome">
+            <div class="welcome-orbit"><span></span></div>
+            <p class="eyebrow">SUA ASSISTENTE PESSOAL</p>
+            <h1>O que vamos fazer hoje?</h1>
+            <p>Posso pesquisar, organizar, criar e usar ferramentas enquanto você acompanha cada passo.</p>
+            <div class="suggestions">
+              <button type="button" data-prompt="Pesquise as principais notícias de tecnologia de hoje e me dê um resumo com fontes.">
+                <span>⌕</span><div><strong>Pesquisar na web</strong><small>Investigue e resuma com fontes</small></div>
+              </button>
+              <button type="button" data-prompt="Ajude-me a planejar as minhas prioridades desta semana.">
+                <span>◇</span><div><strong>Planejar comigo</strong><small>Transforme objetivos em próximos passos</small></div>
+              </button>
+              <button type="button" data-prompt="Analise os arquivos da minha área permitida e sugira uma organização segura, sem mover nada ainda.">
+                <span>▱</span><div><strong>Organizar arquivos</strong><small>Primeiro analise; depois eu aprovo</small></div>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <footer class="composer-wrap">
+          <div class="composer">
+            <textarea id="prompt" rows="1" placeholder="Converse com I.S.A.A.C…" aria-label="Mensagem"></textarea>
+            <div class="composer-actions">
+              <div class="composer-left">
+                <button class="icon-button" type="button" title="Anexos serão adicionados no próximo incremento">＋</button>
+                <button class="mode-button" id="mode-button" type="button" title="Alternar modo">
+                  <span class="spark">✦</span><span id="mode-label">Agente</span>
+                </button>
+              </div>
+              <button class="send-button" id="send" type="button" aria-label="Enviar"><span>↑</span></button>
+              <button class="stop-button hidden" id="stop" type="button" aria-label="Parar"><span></span></button>
+            </div>
+          </div>
+          <small class="composer-note">I.S.A.A.C. pode cometer erros. Ações de maior risco exigem sua aprovação.</small>
+        </footer>
+      </main>
+
+      <aside class="workspace-panel">
+        <div class="workspace-head">
+          <div><span class="live-dot"></span><strong id="workspace-title">Área do agente</strong></div>
+          <button id="collapse-workspace" type="button" title="Recolher painel">›</button>
+        </div>
+
+        <section class="browser-card">
+          <div class="browser-bar">
+            <div class="traffic"><i></i><i></i><i></i></div>
+            <div class="address" id="browser-url">O navegador aparecerá aqui</div>
+            <span class="secure">⌁</span>
+          </div>
+          <div class="browser-viewport" id="browser-viewport">
+            <img id="browser-frame" alt="Visualização ao vivo do navegador controlado pelo agente" />
+            <div class="browser-empty" id="browser-empty">
+              <div class="browser-empty-icon">⌁</div>
+              <strong>Navegador em espera</strong>
+              <span>Quando uma tarefa usar a web, você verá os cliques e a digitação aqui.</span>
+            </div>
+            <div class="agent-cursor" id="agent-cursor" aria-hidden="true">
+              <svg viewBox="0 0 28 34"><path d="M2 2.5v25.3l7.1-6.2 5.2 10 4.2-2.2-5.1-9.7 9.3-.6L2 2.5Z" /></svg>
+              <span>I.S.A.A.C.</span>
+            </div>
+            <div class="click-ripple" id="click-ripple"></div>
+          </div>
+          <div class="browser-status"><span id="browser-title">Visualização segura</span><small id="browser-dimensions">1280 × 720</small></div>
+        </section>
+
+        <section class="activity-card">
+          <div class="activity-title"><strong>Atividade</strong><span id="step-count">0 passos</span></div>
+          <div class="activity-feed" id="activity-feed">
+            <div class="activity-placeholder"><span>✦</span><p>As decisões e ferramentas do agente aparecerão aqui em tempo real.</p></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="modal-backdrop hidden" id="approval-modal" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+      <div class="approval-dialog">
+        <div class="approval-badge">!</div>
+        <p class="eyebrow">CONFIRMAÇÃO NECESSÁRIA</p>
+        <h2 id="approval-title">Permitir esta ação?</h2>
+        <p id="approval-description"></p>
+        <pre id="approval-args"></pre>
+        <div class="approval-actions">
+          <button id="deny" type="button">Recusar</button>
+          <button id="approve" type="button">Permitir este lote</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="approval-dialog settings-dialog">
+        <div class="settings-heading">
+          <div><p class="eyebrow">MOTOR DO AGENTE</p><h2 id="settings-title">Modelo e raciocínio</h2></div>
+          <button class="modal-close" id="settings-close" type="button" aria-label="Fechar">×</button>
+        </div>
+        <label>Perfil sugerido
+          <select id="profile-select"></select>
+        </label>
+        <label>Provedor
+          <select id="provider-select">
+            <option value="ollama">Ollama local</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="openai_compat">OpenAI compatível</option>
+            <option value="llamacpp">llama.cpp</option>
+          </select>
+        </label>
+        <label>Modelo<input id="model-input" maxlength="160" autocomplete="off" /></label>
+        <label>Esforço de raciocínio
+          <select id="reasoning-select">
+            <option value="low">Baixo</option>
+            <option value="medium" selected>Médio</option>
+            <option value="high">Alto</option>
+            <option value="xhigh">Muito alto</option>
+            <option value="max">Máximo</option>
+          </select>
+        </label>
+        <label id="api-key-label">Chave da API — opcional
+          <input id="api-key-input" type="password" autocomplete="off" placeholder="Deixe em branco para manter a atual" />
+        </label>
+        <p class="settings-note" id="provider-note">As credenciais salvas nunca são devolvidas pela API local.</p>
+        <div class="settings-actions">
+          <button id="settings-cancel" type="button">Cancelar</button>
+          <button id="settings-save" type="button">Usar configuração</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

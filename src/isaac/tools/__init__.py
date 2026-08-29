@@ -12,6 +12,7 @@ from isaac.tools.base import ToolRegistry, get_tool_registry
 from isaac.tools.browser import BrowserTool
 from isaac.tools.calendar import CalendarReadTool, CalendarWriteTool
 from isaac.tools.code import CodeTool
+from isaac.tools.desktop import ComputerControlTool, ComputerDescribeTool, ComputerViewTool
 from isaac.tools.email import EmailReadTool, EmailSendTool
 from isaac.tools.file import FileDeleteTool, FileListTool, FileReadTool, FileWriteTool
 from isaac.tools.fileops import (
@@ -43,6 +44,9 @@ def register_all_tools() -> ToolRegistry:
         CalendarReadTool,
         CalendarWriteTool,
         CodeTool,
+        ComputerViewTool,
+        ComputerDescribeTool,
+        ComputerControlTool,
         # Host-reach tools (operate on the real machine; gated by risk/constitution)
         ShellTool,
         SystemInfoTool,
@@ -65,6 +69,9 @@ __all__ = [
     "CalendarReadTool",
     "CalendarWriteTool",
     "CodeTool",
+    "ComputerControlTool",
+    "ComputerDescribeTool",
+    "ComputerViewTool",
     "EmailReadTool",
     "EmailSendTool",
     "FileDeleteTool",

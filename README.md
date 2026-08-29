@@ -3,7 +3,7 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.4.1-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases/tag/v1.4.1)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
@@ -22,6 +22,8 @@ self-curation, and a hardened security stack.
 
 | Capability | What it does |
 |---|---|
+| **Native agent app** | Windows desktop window with a Codex-style chat, persistent conversations, selectable provider/model/reasoning, live task activity, approval/cancel controls, browser or desktop preview, and visible agent cursor. |
+| **Real computer-use loop** | With OpenAI + `gpt-5.6-sol`, the app implements the screenshot/action loop directly through the Responses API. It executes bounded mouse/keyboard batches only after approval and immediately returns the resulting full-resolution screenshot to the model. Other providers retain the generic tool loop. |
 | **Specialist team** | A manager *orchestrator* decomposes a goal and dispatches it to focused local-first mini-agents — coder, file-organizer, researcher, designer, OS-operator, analyst, critic — running independent subtasks in parallel. |
 | **Host reach** | Constitution-gated `shell`, real-filesystem `fs_*` tools (organise your actual files, confined to `allowed_paths`), and read-only `system_info` — so it can do nearly any task on the PC. |
 | **User personas** | Build, store, and activate custom agent identities (`isaac persona new`); the whole team speaks with your chosen voice. |
@@ -217,6 +219,26 @@ Trigger paths:
 - *Optional:* an `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` if you'd rather drive a cloud model
 - *Optional:* faster-whisper + Piper for voice; mss + Pillow for vision
 
+### Ready-to-run Windows application
+
+Build, install and launch the complete one-folder application:
+
+```powershell
+.\scripts\build_windows.ps1
+.\scripts\install_windows.ps1
+```
+
+The installer copies the whole package (including `_internal`) to
+`%LOCALAPPDATA%\Programs\ISAAC`, creates Start Menu and Desktop shortcuts, and
+keeps the previous installed folder during an update. The versioned portable
+ZIP is written to `dist\ISAAC-<version>-Windows-x64.zip`.
+
+In the app, click the model name to choose a local or cloud profile. Cloud API
+keys entered there are saved in Windows Credential Manager and are never
+returned to the web interface or chat history. The `Computador` mode uses
+OpenAI's native computer tool only for the OpenAI profile; every actionable
+batch stays behind an approval card.
+
 ### Setup
 
 ```bash
@@ -259,6 +281,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ```bash
 # Preflight — verify Python, settings, Ollama, Docker, and optional extras
 isaac doctor
+
+# Native Windows app — Codex-style chat, activity, approvals, browser/desktop
+# preview, and a visible agent cursor.
+pip install -e ".[desktop]"
+isaac desktop
+
+# The same interface can also run in a normal browser tab.
+isaac ui
 
 # Autonomous tool-use agent (Claude-Code style) — give it a task and it
 # browses, searches, runs code, and writes files until it's done.

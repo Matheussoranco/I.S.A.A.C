@@ -16,7 +16,9 @@ Requires the optional ``browser`` extra::
 
 from __future__ import annotations
 
+import base64
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 _MAX_TEXT = 8000
 _DEFAULT_TIMEOUT_MS = 20000
+_DEFAULT_VIEWPORT_WIDTH = 1280
+_DEFAULT_VIEWPORT_HEIGHT = 720
+
+BrowserVisualCallback = Callable[[str, dict[str, Any]], None]
 
 
 class BrowserTool(IsaacTool):
@@ -93,11 +99,39 @@ class BrowserTool(IsaacTool):
         "required": ["action"],
     }
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        visual_callback: BrowserVisualCallback | None = None,
+        viewport_width: int = _DEFAULT_VIEWPORT_WIDTH,
+        viewport_height: int = _DEFAULT_VIEWPORT_HEIGHT,
+    ) -> None:
         self._pw: Any = None
         self._browser: Any = None
         self._context: Any = None
         self._page: Any = None
+        self._visual_callback = visual_callback
+        self._viewport_width = max(320, viewport_width)
+        self._viewport_height = max(240, viewport_height)
+        self._cursor_x = self._viewport_width // 2
+        self._cursor_y = self._viewport_height // 2
+
+    def set_visual_callback(self, callback: BrowserVisualCallback | None) -> None:
+        """Attach a UI-only event sink for live browser frames and cursor motion.
+
+        The callback is deliberately separate from :class:`ToolResult`: screenshots
+        are useful to the human observer but would be expensive noise in the LLM
+        transcript.  Callback failures are isolated from browser execution.
+        """
+        self._visual_callback = callback
+
+    def _emit_visual(self, kind: str, **data: Any) -> None:
+        if self._visual_callback is None:
+            return
+        try:
+            self._visual_callback(kind, data)
+        except Exception:  # pragma: no cover - a UI must never break the browser
+            logger.debug("Browser visual callback failed for %s", kind, exc_info=True)
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -118,10 +152,16 @@ class BrowserTool(IsaacTool):
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            )
+            ),
+            viewport={"width": self._viewport_width, "height": self._viewport_height},
         )
         self._page = await self._context.new_page()
         logger.info("BrowserTool: launched persistent Chromium session.")
+        self._emit_visual(
+            "browser_ready",
+            width=self._viewport_width,
+            height=self._viewport_height,
+        )
         return self._page
 
     async def aclose(self) -> None:
@@ -138,6 +178,43 @@ class BrowserTool(IsaacTool):
             except Exception as exc:  # pragma: no cover - best-effort teardown
                 logger.debug("BrowserTool teardown step failed: %s", exc)
         self._pw = self._browser = self._context = self._page = None
+
+    async def _emit_frame(self, page: Any) -> None:
+        """Publish the current viewport as a compact PNG data payload."""
+        try:
+            raw = await page.screenshot(type="png", full_page=False)
+            title = await page.title()
+            self._emit_visual(
+                "browser_frame",
+                image_base64=base64.b64encode(raw).decode("ascii"),
+                mime_type="image/png",
+                url=page.url,
+                title=title,
+                width=self._viewport_width,
+                height=self._viewport_height,
+                cursor={"x": self._cursor_x, "y": self._cursor_y},
+            )
+        except Exception:  # pragma: no cover - live preview is best effort
+            logger.debug("Could not capture browser preview frame", exc_info=True)
+
+    async def _move_cursor_to_selector(self, page: Any, selector: str, action: str) -> None:
+        """Resolve a selector to viewport coordinates and animate the UI cursor."""
+        try:
+            box = await page.locator(selector).first.bounding_box(timeout=8000)
+        except Exception:
+            box = None
+        if box:
+            self._cursor_x = round(box["x"] + box["width"] / 2)
+            self._cursor_y = round(box["y"] + box["height"] / 2)
+        self._emit_visual(
+            "browser_cursor",
+            x=self._cursor_x,
+            y=self._cursor_y,
+            width=self._viewport_width,
+            height=self._viewport_height,
+            action=action,
+            selector=selector,
+        )
 
     # ------------------------------------------------------------------
     # Dispatch
@@ -186,6 +263,7 @@ class BrowserTool(IsaacTool):
                 url = "https://" + url
             await page.goto(url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS)
             title = await page.title()
+            await self._emit_frame(page)
             return ToolResult(
                 success=True,
                 output=f"Loaded '{title}' at {page.url}",
@@ -213,7 +291,10 @@ class BrowserTool(IsaacTool):
             selector = kwargs.get("selector", "")
             if not selector:
                 return ToolResult(success=False, error="No selector provided.")
+            await self._move_cursor_to_selector(page, selector, "click")
             await page.click(selector, timeout=8000)
+            await page.wait_for_timeout(180)
+            await self._emit_frame(page)
             return ToolResult(success=True, output=f"Clicked '{selector}'. Now at {page.url}")
 
         if action == "type":
@@ -221,12 +302,25 @@ class BrowserTool(IsaacTool):
             text = kwargs.get("text", "")
             if not selector:
                 return ToolResult(success=False, error="No selector provided.")
+            await self._move_cursor_to_selector(page, selector, "type")
             await page.fill(selector, text, timeout=8000)
+            await self._emit_frame(page)
             return ToolResult(success=True, output=f"Typed into '{selector}'.")
 
         if action == "press":
             key = kwargs.get("key", "Enter")
+            self._emit_visual(
+                "browser_cursor",
+                x=self._cursor_x,
+                y=self._cursor_y,
+                width=self._viewport_width,
+                height=self._viewport_height,
+                action="press",
+                key=key,
+            )
             await page.keyboard.press(key)
+            await page.wait_for_timeout(180)
+            await self._emit_frame(page)
             return ToolResult(success=True, output=f"Pressed '{key}'. Now at {page.url}")
 
         if action == "eval":
@@ -241,6 +335,7 @@ class BrowserTool(IsaacTool):
             count = len(list(out_dir.glob("shot_*.png")))
             path = out_dir / f"shot_{count:03d}.png"
             await page.screenshot(path=str(path), full_page=False)
+            await self._emit_frame(page)
             return ToolResult(
                 success=True,
                 output=f"Saved screenshot to {path}",
@@ -249,6 +344,7 @@ class BrowserTool(IsaacTool):
 
         if action == "back":
             await page.go_back(timeout=_DEFAULT_TIMEOUT_MS)
+            await self._emit_frame(page)
             return ToolResult(success=True, output=f"Went back. Now at {page.url}")
 
         if action == "current":

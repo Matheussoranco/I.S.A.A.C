@@ -35,6 +35,75 @@ if TYPE_CHECKING:
 ModelTier = Literal["default", "fast", "strong"]
 
 
+def build_llm_for_profile(
+    provider: str,
+    model: str,
+    *,
+    reasoning_effort: str = "medium",
+) -> BaseChatModel:
+    """Build an uncached chat model selected from the native app.
+
+    Secrets and endpoint URLs still come from process settings; the browser is
+    allowed to choose only the non-secret provider/model/effort profile.
+    """
+    from isaac.config.settings import settings
+
+    provider = provider.lower().strip()
+    model = model.strip()
+    if not model:
+        raise ValueError("Model name cannot be empty.")
+
+    if provider == "ollama":
+        return _build_ollama(model, settings.llm.temperature)
+    if provider == "llamacpp":
+        from isaac.llm.providers.llamacpp import build as build_llamacpp
+
+        return build_llamacpp(
+            model=model,
+            base_url=settings.llamacpp_base_url,
+            temperature=settings.llm.temperature,
+        )
+    if provider == "openai_compat":
+        from isaac.llm.providers.openai_compat import build as build_compat
+
+        return build_compat(
+            model=model,
+            base_url=settings.openai_compat_base_url,
+            api_key=settings.openai_compat_api_key,
+            temperature=settings.llm.temperature,
+        )
+    if provider == "openai":
+        from isaac.security.credentials import get_credential
+
+        api_key = get_credential("openai")
+        _require_key(api_key, "openai", "OPENAI_API_KEY")
+        from langchain_openai import ChatOpenAI
+
+        kwargs: dict = {
+            "model": model,
+            "api_key": api_key or None,
+            "reasoning_effort": reasoning_effort,
+            "use_responses_api": True,
+        }
+        if settings.llm.base_url:
+            kwargs["base_url"] = settings.llm.base_url
+        return ChatOpenAI(**kwargs)
+    if provider == "anthropic":
+        from isaac.security.credentials import get_credential
+
+        api_key = get_credential("anthropic")
+        _require_key(api_key, "anthropic", "ANTHROPIC_API_KEY")
+        from langchain_anthropic import ChatAnthropic
+
+        effort = reasoning_effort if reasoning_effort in {"low", "medium", "high", "max"} else None
+        return ChatAnthropic(
+            model_name=model,
+            api_key=api_key or None,  # type: ignore[arg-type]
+            effort=effort,  # type: ignore[arg-type]
+        )
+    raise ValueError(f"Unsupported LLM provider: {provider!r}.")
+
+
 def _ollama_preflight(model: str) -> None:
     """Preflight the Ollama daemon + *model*, unless disabled in settings.
 
