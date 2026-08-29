@@ -69,6 +69,18 @@ def test_index_and_status_do_not_expose_secrets(tmp_path) -> None:
     assert "api_key" not in status.text.lower()
 
 
+def test_agent_ui_uses_masculine_copy(tmp_path) -> None:
+    client = TestClient(_app(tmp_path))
+
+    index = client.get("/")
+    app_js = client.get("/assets/app.js")
+
+    assert "SEU ASSISTENTE PESSOAL" in index.text
+    assert "SUA ASSISTENTE PESSOAL" not in index.text
+    assert "Pronto para ajudar" in app_js.text
+    assert "Pronta para ajudar" not in app_js.text
+
+
 def test_websocket_runs_agent_and_streams_completion(tmp_path) -> None:
     client = TestClient(_app(tmp_path))
 

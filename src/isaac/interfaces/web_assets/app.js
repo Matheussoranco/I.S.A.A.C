@@ -29,7 +29,7 @@ let appStatus = { profiles: [], openai_configured: false, anthropic_configured: 
 function connect() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(`${protocol}://${location.host}/ws`);
-  socket.addEventListener("open", () => setStatus("Pronta para ajudar", true));
+  socket.addEventListener("open", () => setStatus("Pronto para ajudar", true));
   socket.addEventListener("message", (event) => handleEvent(JSON.parse(event.data)));
   socket.addEventListener("close", () => {
     setStatus("Reconectando…", false);
@@ -67,7 +67,7 @@ function handleEvent(event) {
   const data = event.data || {};
   switch (event.type) {
     case "connected":
-      setStatus("Pronta para ajudar", true);
+      setStatus("Pronto para ajudar", true);
       if (data.provider) ui.provider.textContent = data.provider;
       if (data.model) ui.model.textContent = data.model;
       if (data.reasoning_effort) ui.reasoningSelect.value = data.reasoning_effort;
@@ -145,7 +145,7 @@ function setAssistant(text) {
 function finishRun(data) {
   if (assistantText && !assistantText.textContent.trim()) setAssistant(data.output || "(sem resposta)");
   if (assistantMeta) assistantMeta.textContent = `${data.iterations || 0} passos · ${data.tool_calls || 0} ferramentas · ${reasonLabel(data.stopped_reason)}`;
-  running = false; toggleRunning(false); setStatus(data.success ? "Pronta para ajudar" : "Tarefa encerrada", true);
+  running = false; toggleRunning(false); setStatus(data.success ? "Pronto para ajudar" : "Tarefa encerrada", true);
   addActivity(data.success ? "✓" : "■", data.success ? "Tarefa concluída" : "Tarefa encerrada", reasonLabel(data.stopped_reason), data.success ? "success" : "error");
   assistantText = null; assistantMeta = null;
 }
@@ -322,7 +322,7 @@ ui.modeButton.addEventListener("click", toggleMode);
 $("#settings-button").addEventListener("click", openSettings); $("#model-button").addEventListener("click", openSettings);
 $("#settings-close").addEventListener("click", closeSettings); $("#settings-cancel").addEventListener("click", closeSettings);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !ui.settingsModal.hidden) closeSettings();
+  if (event.key === "Escape" && !ui.settings.classList.contains("hidden")) closeSettings();
 });
 $("#settings-save").addEventListener("click", saveSettings);
 ui.profileSelect.addEventListener("change", applyProfile); ui.providerSelect.addEventListener("change", () => { ui.profileSelect.value = "custom"; updateProviderNote(); });
