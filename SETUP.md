@@ -1,6 +1,6 @@
 # I.S.A.A.C. — Setup Guide
 
-> **Intelligent System for Autonomous Action and Cognition** v1.6.0
+> **Intelligent System for Autonomous Action and Cognition** v1.6.1
 
 ## Prerequisites
 
@@ -188,7 +188,7 @@ To produce a standalone Windows folder containing `ISAAC.exe`:
 ```
 
 The output is the complete `dist\ISAAC` folder plus a versioned portable ZIP,
-for example `dist\ISAAC-1.6.0-Windows-x64.zip`. Do not distribute `ISAAC.exe`
+for example `dist\ISAAC-1.6.1-Windows-x64.zip`. Do not distribute `ISAAC.exe`
 by itself: the `_internal` directory is required. To install it for the current
 Windows user, create Start Menu/Desktop shortcuts, and launch it:
 

@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.1] — 2026-08-29 — Masculine UI copy
+
+### Fixed
+
+- Updated the agent-facing Portuguese copy to consistently refer to I.S.A.A.C.
+  in the masculine form.
+- Fixed closing the settings dialog with the Escape key.
+- Added a regression test for the masculine UI wording.
+
 ## [1.6.0] — 2026-08-29 — Native Windows agent and real computer use
 
 1.6.0 turns the existing agent framework into an installable Windows desktop

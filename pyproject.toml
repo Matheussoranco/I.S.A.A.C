@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isaac"
-version = "1.6.0"
+version = "1.6.1"
 description = "Intelligent System for Autonomous Action and Cognition — neuro-symbolic autonomous agent"
 readme = "README.md"
 # CC BY-NC-SA 4.0 — noncommercial use only, and any derivative you share must
