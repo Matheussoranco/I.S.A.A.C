@@ -7,8 +7,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+$ProjectMetadata = Get-Content -LiteralPath (Join-Path $ProjectRoot "pyproject.toml") -Raw
+$VersionMatch = [regex]::Match($ProjectMetadata, '(?m)^version\s*=\s*"([^"]+)"')
+if (-not $VersionMatch.Success) {
+    throw "Project version was not found in pyproject.toml."
+}
 if (-not $Source) {
-    $Source = Join-Path $ProjectRoot "dist\ISAAC"
+    $Source = Join-Path $ProjectRoot "dist\ISAAC-$($VersionMatch.Groups[1].Value)-Windows-x64.exe"
 }
 
 $SourcePath = [IO.Path]::GetFullPath($Source)
@@ -22,8 +27,16 @@ foreach ($Path in @($InstallPath, $StagingPath, $PreviousPath)) {
         throw "Refusing an install path outside $ExpectedRoot"
     }
 }
-if (-not (Test-Path -LiteralPath (Join-Path $SourcePath "ISAAC.exe") -PathType Leaf)) {
-    throw "ISAAC.exe was not found in the package folder: $SourcePath"
+$SourceIsExecutable = Test-Path -LiteralPath $SourcePath -PathType Leaf
+$SourceIsFolder = Test-Path -LiteralPath $SourcePath -PathType Container
+if ($SourceIsExecutable -and [IO.Path]::GetExtension($SourcePath) -ne ".exe") {
+    throw "The standalone package must be an .exe file: $SourcePath"
+}
+if ($SourceIsFolder -and -not (Test-Path -LiteralPath (Join-Path $SourcePath "ISAAC.exe") -PathType Leaf)) {
+    throw "ISAAC.exe was not found in the legacy package folder: $SourcePath"
+}
+if (-not $SourceIsExecutable -and -not $SourceIsFolder) {
+    throw "I.S.A.A.C. package was not found: $SourcePath"
 }
 
 New-Item -ItemType Directory -Path $ExpectedRoot -Force | Out-Null
@@ -31,7 +44,11 @@ if (Test-Path -LiteralPath $StagingPath) {
     Remove-Item -LiteralPath $StagingPath -Recurse -Force
 }
 New-Item -ItemType Directory -Path $StagingPath | Out-Null
-Copy-Item -Path (Join-Path $SourcePath "*") -Destination $StagingPath -Recurse -Force
+if ($SourceIsExecutable) {
+    Copy-Item -LiteralPath $SourcePath -Destination (Join-Path $StagingPath "ISAAC.exe") -Force
+} else {
+    Copy-Item -Path (Join-Path $SourcePath "*") -Destination $StagingPath -Recurse -Force
+}
 
 if (Test-Path -LiteralPath $PreviousPath) {
     Remove-Item -LiteralPath $PreviousPath -Recurse -Force

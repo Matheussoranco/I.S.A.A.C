@@ -1,6 +1,6 @@
 # I.S.A.A.C. — Setup Guide
 
-> **Intelligent System for Autonomous Action and Cognition** v1.6.1
+> **Intelligent System for Autonomous Action and Cognition** v1.6.2
 
 ## Prerequisites
 
@@ -181,16 +181,17 @@ The real-PC tools are deliberately split by capability:
   requires approval on every call. Move the pointer to the top-left corner to
   trigger the PyAutoGUI emergency stop.
 
-To produce a standalone Windows folder containing `ISAAC.exe`:
+To produce a self-contained Windows executable:
 
 ```powershell
 .\scripts\build_windows.ps1
 ```
 
-The output is the complete `dist\ISAAC` folder plus a versioned portable ZIP,
-for example `dist\ISAAC-1.6.1-Windows-x64.zip`. Do not distribute `ISAAC.exe`
-by itself: the `_internal` directory is required. To install it for the current
-Windows user, create Start Menu/Desktop shortcuts, and launch it:
+The output is one versioned executable, for example
+`dist\ISAAC-1.6.2-Windows-x64.exe`. It contains the Python runtime, native DLLs,
+and UI assets, so no adjacent `_internal` directory or system Python install is
+required. To install it for the current Windows user, create Start Menu/Desktop
+shortcuts, and launch it:
 
 ```powershell
 .\scripts\install_windows.ps1
@@ -201,6 +202,12 @@ and reasoning selector is available by clicking the model chip in the title
 bar. OpenAI and Anthropic keys entered there are stored in Windows Credential
 Manager. They can alternatively be supplied through `OPENAI_API_KEY` and
 `ANTHROPIC_API_KEY`; environment variables take precedence.
+
+The packaged desktop application supports 64-bit Windows 10 and Windows 11.
+Microsoft Edge WebView2 Runtime must be available; it is included by default on
+current Windows installations. The first launch can take longer while the
+single-file package expands its private runtime into the user's temporary
+directory.
 
 With provider `OpenAI`, model `gpt-5.6-sol`, and mode `Computador`, I.S.A.A.C.
 uses the OpenAI Responses API computer loop: it receives `computer_call`

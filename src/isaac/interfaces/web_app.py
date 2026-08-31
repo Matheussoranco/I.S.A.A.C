@@ -32,7 +32,7 @@ from isaac.security.credentials import credential_available, set_credential
 
 _ASSETS = Path(__file__).with_name("web_assets")
 _APP_TITLE = "I.S.A.A.C."
-_APP_VERSION = "1.6.1"
+_APP_VERSION = "1.6.2"
 _APPROVAL_TIMEOUT_SECONDS = 120.0
 _MAX_HISTORY_CHARS = 40_000
 

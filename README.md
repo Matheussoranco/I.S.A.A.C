@@ -3,7 +3,7 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-1.6.1-blue)
+![Version](https://img.shields.io/badge/version-1.6.2-blue)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
@@ -221,17 +221,18 @@ Trigger paths:
 
 ### Ready-to-run Windows application
 
-Build, install and launch the complete one-folder application:
+Build, install and launch the standalone Windows application:
 
 ```powershell
 .\scripts\build_windows.ps1
 .\scripts\install_windows.ps1
 ```
 
-The installer copies the whole package (including `_internal`) to
+The build produces a single `dist\ISAAC-<version>-Windows-x64.exe` containing
+the Python runtime, native DLLs, and UI resources. Python does not need to be
+installed on the destination PC. The installer copies that executable to
 `%LOCALAPPDATA%\Programs\ISAAC`, creates Start Menu and Desktop shortcuts, and
-keeps the previous installed folder during an update. The versioned portable
-ZIP is written to `dist\ISAAC-<version>-Windows-x64.zip`.
+keeps the previous installation during an update.
 
 In the app, click the model name to choose a local or cloud profile. Cloud API
 keys entered there are saved in Windows Credential Manager and are never

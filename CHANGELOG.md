@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.2] — 2026-08-31 — Standalone Windows executable
+
+### Fixed
+
+- Replaced the fragile one-folder Windows artifact with a single executable
+  that embeds the Python runtime, native DLLs, and interface resources.
+- Updated the per-user installer to accept the standalone executable directly
+  while retaining compatibility with older one-folder packages.
+- Documented the supported Windows versions, WebView2 requirement, and
+  single-file startup behavior.
+
 ## [1.6.1] — 2026-08-29 — Masculine UI copy
 
 ### Fixed

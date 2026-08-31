@@ -16,6 +16,8 @@ if (-not $VersionMatch.Success) {
     throw "Project version was not found in pyproject.toml."
 }
 $Version = $VersionMatch.Groups[1].Value
+$ExecutableName = "ISAAC-$Version-Windows-x64"
+$ExecutablePath = Join-Path $ProjectRoot "dist\$ExecutableName.exe"
 
 Push-Location $ProjectRoot
 try {
@@ -25,8 +27,9 @@ try {
     & $PythonPath -m PyInstaller `
         --noconfirm `
         --clean `
+        --onefile `
         --windowed `
-        --name "ISAAC" `
+        --name $ExecutableName `
         --specpath "build" `
         --collect-all "isaac" `
         --collect-all "webview" `
@@ -34,17 +37,11 @@ try {
         "src\isaac\interfaces\desktop_entry.py"
     if ($LASTEXITCODE -ne 0) { throw "Windows application build failed." }
 
-    $PackagePath = Join-Path $ProjectRoot "dist\ISAAC-$Version-Windows-x64.zip"
-    if (Test-Path -LiteralPath $PackagePath -PathType Leaf) {
-        Remove-Item -LiteralPath $PackagePath -Force
+    if (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf)) {
+        throw "Standalone executable was not created: $ExecutablePath"
     }
-    Compress-Archive `
-        -LiteralPath (Join-Path $ProjectRoot "dist\ISAAC") `
-        -DestinationPath $PackagePath `
-        -CompressionLevel Optimal
 
-    Write-Host "Built native app: $ProjectRoot\dist\ISAAC\ISAAC.exe"
-    Write-Host "Built portable package: $PackagePath"
+    Write-Host "Built standalone native app: $ExecutablePath"
 }
 finally {
     Pop-Location

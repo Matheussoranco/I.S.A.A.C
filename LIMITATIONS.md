@@ -1,8 +1,14 @@
-# Known Limitations (1.6.1)
+# Known Limitations (1.6.2)
 
 I.S.A.A.C. 1.0 is a stable, tested, local-first autonomous agent **framework**.
 This file states plainly what that does — and does not — mean. It exists so
 the README's capability claims can be read with the right calibration.
+
+The packaged desktop build targets 64-bit Windows 10 and Windows 11 and needs
+Microsoft Edge WebView2 Runtime. It does not claim compatibility with 32-bit
+Windows, Windows 8.1 or older, macOS, or Linux. Endpoint security must permit
+the signed-or-unsigned single-file application to expand its bundled runtime in
+the user's temporary directory.
 
 ## What "stable" means here
 
