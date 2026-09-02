@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any, ClassVar
 
+from isaac.security.path_policy import is_sensitive_path
 from isaac.skills.connectors.base import BaseConnector
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,8 @@ class FileSystemConnector(BaseConnector):
             If the path is outside all allowed directories.
         """
         resolved = Path(path).expanduser().resolve()
+        if is_sensitive_path(resolved):
+            raise PermissionError(f"Path {resolved} is a protected credential location")
         for allowed in self._allowed:
             try:
                 resolved.relative_to(allowed)
@@ -126,6 +129,8 @@ class FileSystemConnector(BaseConnector):
                 return {"error": f"Not a directory: {path}"}
             entries: list[dict[str, Any]] = []
             for entry in sorted(validated.iterdir()):
+                if is_sensitive_path(entry):
+                    continue
                 entries.append(
                     {
                         "name": entry.name,
@@ -149,6 +154,8 @@ class FileSystemConnector(BaseConnector):
 
             matches: list[str] = []
             for f in validated.rglob("*"):
+                if is_sensitive_path(f):
+                    continue
                 if f.is_file() and query.lower() in f.name.lower():
                     matches.append(str(f))
                 if len(matches) >= 50:

@@ -123,9 +123,10 @@ def build_critique() -> CritiqueReport:
         from isaac.memory.long_term import get_long_term_memory
 
         ltm = get_long_term_memory()
-        ltm.store(
+        ltm.remember(
             f"[self-critique] {summary}",
-            metadata={"kind": "self_critique", "action": action},
+            type="event",
+            importance=0.7,
         )
     except Exception:
         pass

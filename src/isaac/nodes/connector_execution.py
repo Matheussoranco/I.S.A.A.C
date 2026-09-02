@@ -15,6 +15,12 @@ from isaac.core.state import IsaacState, PlanStep
 
 logger = logging.getLogger(__name__)
 
+# These connector actions are read-only in this node's fixed argument mapper.
+# Shell is intentionally absent: it needs an operator-issued token.
+_AUTO_AUTHORIZED_CONNECTORS = frozenset(
+    {"web_search", "web_fetch", "github", "filesystem", "obsidian", "calendar", "email"}
+)
+
 # Keywords that hint the plan step needs a connector
 _CONNECTOR_HINTS: dict[str, str] = {
     "search": "web_search",
@@ -75,8 +81,13 @@ def _extract_kwargs_from_description(connector_name: str, description: str) -> d
         kwargs["action"] = "list_repos"
 
     elif connector_name == "filesystem":
-        kwargs["action"] = "list"
-        kwargs["path"] = "."
+        kwargs["action"] = "list_directory"
+        try:
+            from isaac.config.settings import get_settings
+
+            kwargs["path"] = str(get_settings().allowed_paths[0])
+        except Exception:
+            kwargs["path"] = "."
 
     elif connector_name == "obsidian":
         kwargs["action"] = "list"
@@ -125,32 +136,56 @@ def connector_execution_node(state: IsaacState) -> dict[str, Any]:
             logger.debug("ConnectorExecution: '%s' detected but not available.", connector_name)
             continue
 
-        # Capability token enforcement: ensure a valid token exists for this
-        # connector before execution. Auto-issue one if absent (audit-logged).
+        capability_token = ""
         try:
             from isaac.security.capabilities import get_token_store
 
             store = get_token_store()
-            active_tokens = store.list_active()
-            token_ok = any(t.matches(connector_name) for t in active_tokens)
-            if not token_ok:
-                # Auto-issue a short-lived token (will appear in audit log)
-                store.issue(
+            matching = next(
+                (t for t in store.list_active() if t.matches(connector_name, "execute")),
+                None,
+            )
+            if matching is not None:
+                capability_token = matching.token_id
+            elif connector_name in _AUTO_AUTHORIZED_CONNECTORS:
+                token = store.issue(
                     connector_name,
-                    ttl_hours=1,
-                    issued_by="connector_execution_node",
-                    max_uses=10,
+                    action="execute",
+                    ttl_hours=1 / 60,
+                    issued_by="connector_execution:read_only",
+                    max_uses=1,
                 )
-                logger.info(
-                    "ConnectorExecution: auto-issued capability token for '%s'.",
-                    connector_name,
+                capability_token = token.token_id
+            else:
+                results.append(
+                    {
+                        "connector": connector_name,
+                        "step_id": active.id,
+                        "kwargs": {},
+                        "result": {
+                            "error": (
+                                f"Connector '{connector_name}' requires an operator-issued "
+                                "capability token."
+                            )
+                        },
+                    }
                 )
+                continue
         except Exception as cap_exc:
-            logger.warning("ConnectorExecution: capability check skipped: %s", cap_exc)
+            logger.error("ConnectorExecution: capability authorization failed: %s", cap_exc)
+            results.append(
+                {
+                    "connector": connector_name,
+                    "step_id": active.id,
+                    "kwargs": {},
+                    "result": {"error": "Connector authorization failed."},
+                }
+            )
+            continue
 
         kwargs = _extract_kwargs_from_description(connector_name, active.description)
         logger.info("ConnectorExecution: invoking '%s' with %s", connector_name, kwargs)
-        result = run_connector(connector_name, **kwargs)
+        result = run_connector(connector_name, capability_token=capability_token, **kwargs)
         results.append(
             {
                 "connector": connector_name,
@@ -162,5 +197,16 @@ def connector_execution_node(state: IsaacState) -> dict[str, Any]:
 
     if results:
         logger.info("ConnectorExecution: %d connector(s) returned results.", len(results))
+
+        # Put compact, provenance-labelled connector observations into the
+        # WorldModel consumed by Synthesis.  Previously connector_results were
+        # populated but the sequential synthesis prompt never saw them.
+        world_model = state.get("world_model")
+        if world_model is not None:
+            for item in results[-5:]:
+                world_model.observations.append(
+                    f"[UNTRUSTED CONNECTOR {item['connector']}] {str(item['result'])[:1000]}"
+                )
+            return {"connector_results": results, "world_model": world_model}
 
     return {"connector_results": results}

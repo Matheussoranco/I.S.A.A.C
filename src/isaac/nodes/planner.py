@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal, cast
 
 from isaac.core.state import IsaacState, PlanStep, WorldModel
 from isaac.llm.prompts import planner_prompt
@@ -76,11 +76,17 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
         parsed = json.loads(cleaned)
         raw_steps = parsed.get("steps", [])
         for raw in raw_steps:
+            raw_mode: object = raw.get("mode", "code")
+            mode: Literal["code", "ui", "hybrid"]
+            if raw_mode in ("code", "ui", "hybrid"):
+                mode = cast(Literal["code", "ui", "hybrid"], raw_mode)
+            else:
+                mode = "code"
             steps.append(
                 PlanStep(
                     id=raw["id"],
                     description=raw["description"],
-                    mode=raw.get("mode", "code"),
+                    mode=mode,
                     status="pending",
                     depends_on=raw.get("depends_on", []),
                 )
@@ -89,7 +95,7 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
         logger.error("Planner: failed to parse LLM plan: %s", exc)
         # Fallback: single generic step
         task_mode = state.get("task_mode", "code")
-        fallback_mode = "ui" if task_mode == "computer_use" else "code"
+        fallback_mode: Literal["code", "ui"] = "ui" if task_mode == "computer_use" else "code"
         steps = [
             PlanStep(
                 id="s1",
@@ -103,12 +109,13 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     # completed_steps keep their 'done' status; new steps start as 'pending'.
     all_steps = completed_steps + steps
 
-    # Build a Graph-of-Thought DAG and activate all dependency-satisfied steps
-    # simultaneously (fan-out parallelism when multiple steps are independent).
+    # Activate the complete ready frontier only when parallel execution is
+    # enabled.  The sequential path must consume one active step at a time.
     from isaac.nodes.got_planner import PlanDAG
 
     dag = PlanDAG(steps=all_steps)
-    activated = dag.activate_ready()
+    activation_limit = None if settings.parallel_synthesis_enabled else 1
+    activated = dag.activate_ready(limit=activation_limit)
 
     # Expose DAG context string in the state for Synthesis/Reflection to use
     dag_context = dag.to_context_string()

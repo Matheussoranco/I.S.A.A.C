@@ -14,8 +14,8 @@ the user's temporary directory.
 
 - The CLI commands and the public Python API (`AgentLoop`, `Orchestrator`,
   the tool registry, the memory manager) are frozen for the 1.x series.
-- 460+ unit/integration tests pass on Python 3.10–3.12; lint and format are
-  enforced in CI.
+- 900+ unit/integration tests pass on Python 3.10–3.12; lint, format, and the
+  configured mypy check are enforced in CI.
 - The safety boundary (path confinement + credential deny-list, constitutional
   shell gating, risk-gated tool approval, sandboxed code execution) is covered
   by dedicated tests.
@@ -84,4 +84,6 @@ the user's temporary directory.
   act after enough telemetry accumulates; a fresh install has nothing to
   improve from.
 - **Docker is required for sandboxed code.** Without a running Docker engine
-  the `code` tool is unavailable (run `isaac doctor` to check).
+  the `code` tool and learned-skill promotion are unavailable by default (run
+  `isaac doctor` to check). Host verification is an explicit development-only
+  opt-out, not an automatic fallback.

@@ -67,7 +67,7 @@ class TestPlannerNode:
         assert result["plan"][0].status == "active"
         assert result["plan"][1].status == "pending"
 
-    def test_no_deps_all_independent_steps_active(self) -> None:
+    def test_no_deps_only_one_step_active_when_parallel_disabled(self) -> None:
         state = make_initial_state()
         state["hypothesis"] = "simple"
 
@@ -80,10 +80,26 @@ class TestPlannerNode:
         with patch("isaac.llm.provider.get_llm", return_value=mock):
             result = planner_node(state)
 
-        # PlanDAG.activate_ready() fans out: every dependency-free step is
-        # activated in parallel so independent work can run concurrently.
         assert result["plan"][0].status == "active"
-        assert result["plan"][1].status == "active"
+        assert result["plan"][1].status == "pending"
+
+    def test_no_deps_all_steps_active_when_parallel_enabled(self) -> None:
+        state = make_initial_state()
+        state["hypothesis"] = "parallel"
+        mock = MockLLM(
+            '{"steps": ['
+            '  {"id": "a", "description": "alpha", "depends_on": []},'
+            '  {"id": "b", "description": "beta", "depends_on": []}'
+            "]}"
+        )
+
+        with (
+            patch("isaac.llm.provider.get_llm", return_value=mock),
+            patch("isaac.config.settings.settings.parallel_synthesis_enabled", True),
+        ):
+            result = planner_node(state)
+
+        assert [step.status for step in result["plan"]] == ["active", "active"]
 
     # ------------------------------------------------------------------
     # Episodic context injection

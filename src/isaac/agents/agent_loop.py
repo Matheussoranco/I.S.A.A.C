@@ -302,6 +302,36 @@ class AgentLoop:
             logger.error("bind_tools failed (%s); running without tools.", exc)
             return llm
 
+    @staticmethod
+    def _consume_capability(name: str) -> bool:
+        """Consume an operator-issued capability for *name*, if one exists."""
+        try:
+            from isaac.security.capabilities import get_token_store
+
+            return get_token_store().consume_matching(name, "execute") is not None
+        except Exception:
+            logger.exception("Capability store failed while authorizing '%s'", name)
+            return False
+
+    @staticmethod
+    def _grant_capability(name: str, issued_by: str) -> bool:
+        """Create and immediately consume a short-lived, one-use execution grant."""
+        try:
+            from isaac.security.capabilities import get_token_store
+
+            store = get_token_store()
+            token = store.issue(
+                name,
+                action="execute",
+                ttl_hours=1 / 60,
+                issued_by=issued_by,
+                max_uses=1,
+            )
+            return store.check(token.token_id, name, "execute")
+        except Exception:
+            logger.exception("Capability grant failed for '%s'", name)
+            return False
+
     async def _exec_tool(self, name: str, args: dict[str, Any]) -> ToolCallRecord:
         start = time.monotonic()
         tool = self._tools.get(name)
@@ -323,9 +353,15 @@ class AgentLoop:
                 (time.monotonic() - start) * 1000,
             )
 
+        # A pre-issued operator token is itself a scoped approval.  Otherwise
+        # the normal risk policy decides whether a live human must approve.
+        authorized = self._consume_capability(name)
         needs_approval = (
-            tool.requires_approval or tool.risk_level > self.max_risk
-        ) and not self.auto_approve
+            (tool.requires_approval or tool.risk_level > self.max_risk)
+            and not self.auto_approve
+            and not authorized
+        )
+        authorization_actor = "operator_token" if authorized else ""
         if needs_approval and self._approval_callback is not None:
             try:
                 approved = bool(self._approval_callback(name, args, tool.risk_level))
@@ -334,6 +370,7 @@ class AgentLoop:
                 approved = False
             if approved:
                 needs_approval = False
+                authorization_actor = "human_approval"
             else:
                 return ToolCallRecord(
                     name,
@@ -354,6 +391,21 @@ class AgentLoop:
                     "approval; it was not executed. Continue without it or report that approval "
                     "is needed."
                 ),
+                False,
+                (time.monotonic() - start) * 1000,
+            )
+
+        if not authorized:
+            if not authorization_actor:
+                authorization_actor = (
+                    "agent_loop:auto_approve" if self.auto_approve else "agent_loop:risk_policy"
+                )
+            authorized = self._grant_capability(name, authorization_actor)
+        if not authorized:
+            return ToolCallRecord(
+                name,
+                args,
+                f"BLOCKED: capability authorization failed for tool '{name}'.",
                 False,
                 (time.monotonic() - start) * 1000,
             )

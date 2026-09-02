@@ -7,8 +7,7 @@ the state before the Reflection node evaluates them.
 LangGraph integration
 ---------------------
 This node is invoked instead of (or before) the single-threaded Synthesis node
-when ``world_model.resources["_parallel_eligible"]`` is True and there are
-≥2 independent pending steps.
+when parallel synthesis is enabled and there are ≥2 independent active steps.
 
 The node uses ``ParallelSubAgentPool`` (ThreadPoolExecutor) rather than
 LangGraph's Send API to stay compatible with non-async graphs.
@@ -27,11 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 def _get_independent_steps(plan: list[PlanStep]) -> list[PlanStep]:
-    """Return pending steps that have no unfinished dependencies."""
-    done_ids = {s.id for s in plan if s.status == "done"}
-    return [
-        s for s in plan if s.status == "pending" and all(dep in done_ids for dep in s.depends_on)
-    ]
+    """Return the active frontier selected by the planner."""
+    return [s for s in plan if s.status == "active"]
 
 
 def _map_role(mode: str, description: str) -> str:
@@ -80,7 +76,7 @@ def parallel_synthesis_node(state: IsaacState) -> dict[str, Any]:
 
     logger.info("ParallelSynthesis: launching %d sub-agents", len(tasks))
     pool = ParallelSubAgentPool(max_workers=min(len(tasks), 4))
-    results = pool.run_all(tasks)
+    results = pool.run_all(tasks, agentic=True)
 
     # Mark steps as done/failed based on sub-agent results
     updated_plan = list(plan)

@@ -144,9 +144,9 @@ def _try_single_primitive(
         try:
             if all(np.array_equal(fn(pair.input), pair.output) for pair in task.train):
                 # Verify on test pairs
-                predictions = [fn(pair.input) for pair in task.test]
+                predictions: list[Grid | None] = [fn(pair.input) for pair in task.test]
                 correct = all(
-                    np.array_equal(pred, pair.output)
+                    pred is not None and np.array_equal(pred, pair.output)
                     for pred, pair in zip(predictions, task.test, strict=False)
                 )
                 return TaskResult(
@@ -176,9 +176,9 @@ def _try_two_primitive_composition(
             fn = compose(PRIMITIVES[name_a], PRIMITIVES[name_b])
             try:
                 if all(np.array_equal(fn(pair.input), pair.output) for pair in task.train):
-                    predictions = [fn(pair.input) for pair in task.test]
+                    predictions: list[Grid | None] = [fn(pair.input) for pair in task.test]
                     correct = all(
-                        np.array_equal(pred, pair.output)
+                        pred is not None and np.array_equal(pred, pair.output)
                         for pred, pair in zip(predictions, task.test, strict=False)
                     )
                     return TaskResult(

@@ -251,7 +251,7 @@ def _handle_ask(args: dict[str, Any]) -> dict[str, Any]:
     response_text = ""
     for msg in result.get("messages", []):
         if isinstance(msg, AIMessage):
-            response_text = msg.content
+            response_text = msg.content if isinstance(msg.content, str) else str(msg.content)
             break
 
     logs = result.get("execution_logs", [])

@@ -94,7 +94,8 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
             sys.stdout.flush()
 
         for chunk in llm.stream(prompt):
-            token = chunk.content if hasattr(chunk, "content") else str(chunk)
+            raw_token = chunk.content if hasattr(chunk, "content") else str(chunk)
+            token = raw_token if isinstance(raw_token, str) else str(raw_token)
             if token:
                 if ui is not None:
                     ui.stream_token(token)

@@ -74,7 +74,7 @@ def build_multimodal_message(
 
     from isaac.multimodal.vision.vision_lm import _image_to_data_url
 
-    blocks: list[dict[str, Any]] = []
+    blocks: list[str | dict[Any, Any]] = []
     if text:
         blocks.append({"type": "text", "text": text})
     for img in image_paths:

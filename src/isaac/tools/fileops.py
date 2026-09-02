@@ -24,60 +24,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from isaac.security.path_policy import is_sensitive_path
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
 _MAX_READ_CHARS = 50_000
 _MAX_LIST_ENTRIES = 2_000
-
-# Sensitive locations that stay off-limits even *inside* an allowed root.
-# Credentials, key material, and browser profiles are never a legitimate
-# target for file organisation — deny them outright rather than rely on the
-# model's judgement.
-_DENIED_DIR_NAMES = frozenset(
-    {
-        ".ssh",
-        ".aws",
-        ".azure",
-        ".gcloud",
-        ".gnupg",
-        ".kube",
-        ".docker",
-        ".password-store",
-        ".mozilla",
-        ".thunderbird",
-    }
-)
-_DENIED_FILE_NAMES = frozenset(
-    {
-        ".netrc",
-        "_netrc",
-        ".npmrc",
-        ".pypirc",
-        ".git-credentials",
-        "credentials.json",
-        "id_rsa",
-        "id_ecdsa",
-        "id_ed25519",
-        "id_dsa",
-    }
-)
-_DENIED_SUFFIXES = frozenset({".pem", ".key", ".pfx", ".p12", ".kdbx"})
-
-
-def _is_sensitive(path: Path) -> bool:
-    """True when *path* is (or lies inside) a protected credential location."""
-    for part in path.parts[:-1]:
-        if part.lower() in _DENIED_DIR_NAMES:
-            return True
-    name = path.name.lower()
-    return (
-        name in _DENIED_DIR_NAMES
-        or name in _DENIED_FILE_NAMES
-        or name.startswith(".env")
-        or path.suffix.lower() in _DENIED_SUFFIXES
-    )
 
 
 def _allowed_roots() -> list[Path]:
@@ -109,7 +62,7 @@ def _resolve(path_str: str) -> Path | None:
         target = Path(path_str).expanduser().resolve()
     except Exception:
         return None
-    if _is_sensitive(target):
+    if is_sensitive_path(target):
         return None
     for root in _allowed_roots():
         try:
@@ -169,7 +122,7 @@ class FsListTool(IsaacTool):
                 if len(lines) >= _MAX_LIST_ENTRIES:
                     lines.append(f"... truncated at {_MAX_LIST_ENTRIES} entries ...")
                     break
-                if _is_sensitive(child):
+                if is_sensitive_path(child):
                     continue
                 try:
                     st = child.stat()

@@ -10,6 +10,7 @@ Ollama is now the default provider.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -24,10 +25,25 @@ from isaac.core.state import (
     make_initial_state,
 )
 from isaac.llm.providers.ollama import DEFAULT_MODEL
+from isaac.security.capabilities import TokenStore
 
 # ---------------------------------------------------------------------------
 # Offline guarantees
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def isolate_capability_store(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TokenStore]:
+    """Keep authorization state deterministic and out of the user's profile."""
+    from isaac.security import capabilities
+
+    store_root = tmp_path_factory.mktemp("capability-store")
+    store = TokenStore(store_root / "tokens.json")
+    monkeypatch.setattr(capabilities, "_instance", store)
+    yield store
+    monkeypatch.setattr(capabilities, "_instance", None)
 
 
 @pytest.fixture(autouse=True)

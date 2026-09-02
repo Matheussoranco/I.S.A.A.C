@@ -81,9 +81,16 @@ class PlanDAG:
                 ready.append(step)
         return ready
 
-    def activate_ready(self) -> list[PlanStep]:
-        """Mark all ready steps as ``"active"`` and return them."""
+    def activate_ready(self, limit: int | None = None) -> list[PlanStep]:
+        """Mark ready steps as ``"active"`` and return them.
+
+        ``limit`` keeps the sequential executor from activating work it
+        cannot consume in the current graph pass.  ``None`` activates the
+        complete ready frontier for parallel execution.
+        """
         ready = self.ready_steps()
+        if limit is not None:
+            ready = ready[: max(limit, 0)]
         for step in ready:
             step.status = "active"
             if step.id in self._graph:

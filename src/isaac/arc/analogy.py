@@ -140,27 +140,27 @@ def _match_objects(
 
     # Pass 2: same colour, different shape
     unmatched_out = [j for j in range(len(out_objs)) if j not in matched_out]
-    for pair_idx, (io, matched) in enumerate(pairs):
-        if matched is not None or io is None:
+    for pair_idx, (maybe_input, matched_obj) in enumerate(pairs):
+        if matched_obj is not None or maybe_input is None:
             continue
-        isig = in_sigs[in_objs.index(io)]
+        isig = in_sigs[in_objs.index(maybe_input)]
         for j in unmatched_out:
             osig = out_sigs[j]
             if isig.colour == osig.colour:
-                pairs[pair_idx] = (io, out_objs[j])
+                pairs[pair_idx] = (maybe_input, out_objs[j])
                 matched_out.add(j)
                 unmatched_out.remove(j)
                 break
 
     # Pass 3: same shape, different colour
-    for pair_idx, (io, matched) in enumerate(pairs):
-        if matched is not None or io is None:
+    for pair_idx, (maybe_input, matched_obj) in enumerate(pairs):
+        if matched_obj is not None or maybe_input is None:
             continue
-        isig = in_sigs[in_objs.index(io)]
+        isig = in_sigs[in_objs.index(maybe_input)]
         for j in unmatched_out:
             osig = out_sigs[j]
             if objects_same_shape(isig, osig):
-                pairs[pair_idx] = (io, out_objs[j])
+                pairs[pair_idx] = (maybe_input, out_objs[j])
                 matched_out.add(j)
                 unmatched_out.remove(j)
                 break

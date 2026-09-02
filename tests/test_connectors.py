@@ -127,6 +127,22 @@ class TestFileSystemConnector:
         result = c.run(action="read_file", path="/etc/passwd")
         assert "error" in result
 
+    def test_sensitive_credentials_are_blocked_and_hidden(self, tmp_path: Path) -> None:
+        from isaac.skills.connectors.filesystem import FileSystemConnector
+
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "id_rsa").write_text("secret")
+        (tmp_path / ".env").write_text("API_KEY=secret")
+        (tmp_path / "safe.txt").write_text("safe")
+
+        c = FileSystemConnector()
+        c._allowed = [tmp_path]
+        assert "error" in c.run(action="read_file", path=str(ssh_dir / "id_rsa"))
+        assert "error" in c.run(action="read_file", path=str(tmp_path / ".env"))
+        listed = c.run(action="list_directory", path=str(tmp_path))
+        assert [entry["name"] for entry in listed["entries"]] == ["safe.txt"]
+
 
 # ---------------------------------------------------------------------------
 # ShellConnector
@@ -161,6 +177,12 @@ class TestShellConnector:
             result = c.run(command="echo hello")
         assert result.get("exit_code") == 0
         assert "hello" in result.get("stdout", "")
+
+    def test_interpreters_are_not_in_the_default_allowlist(self) -> None:
+        from isaac.skills.connectors.shell import ShellConnector
+
+        result = ShellConnector().run(command="python -c print(1)")
+        assert "allowlist" in result["error"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +266,25 @@ class TestConnectorRegistry:
         reset_registry()
         result = run_connector("nonexistent_connector")
         assert "error" in result
+
+    def test_run_connector_requires_capability(self) -> None:
+        from isaac.skills.connectors.registry import reset_registry, run_connector
+
+        reset_registry()
+        result = run_connector("shell", command="echo hello")
+        assert "valid capability token" in result["error"]
+
+    def test_run_connector_consumes_scoped_capability(self) -> None:
+        from isaac.security.capabilities import get_token_store
+        from isaac.skills.connectors.registry import reset_registry, run_connector
+
+        reset_registry()
+        token = get_token_store().issue("shell", action="execute", max_uses=1)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="hello\n", stderr="", returncode=0)
+            result = run_connector("shell", capability_token=token.token_id, command="echo hello")
+        assert result["exit_code"] == 0
+        assert not get_token_store().check(token.token_id, "shell", "execute")
 
     def test_audit_connector_writes_file(self, tmp_path: Path) -> None:
         from isaac.skills.connectors.registry import audit_connector

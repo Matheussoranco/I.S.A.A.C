@@ -77,9 +77,13 @@ def _transcribe_openai(path: Path, language: str | None) -> str:
 
     client = openai.OpenAI()
     with path.open("rb") as f:
-        extra = {"language": language} if language else {}
-        transcript = client.audio.transcriptions.create(model="whisper-1", file=f, **extra)  # type: ignore[arg-type]
-    return transcript.text
+        if language:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", file=f, language=language
+            )
+        else:
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=f)
+    return transcript if isinstance(transcript, str) else transcript.text
 
 
 # ---------------------------------------------------------------------------

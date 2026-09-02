@@ -47,15 +47,18 @@ def _get_active_step(plan: list[PlanStep]) -> PlanStep | None:
     return None
 
 
-def _parse_reflection_json(content: str, fallback_hypothesis: str) -> dict:
+def _parse_reflection_json(content: str, fallback_hypothesis: str) -> dict[str, Any]:
     """Parse LLM JSON with graceful fallback."""
     try:
         cleaned = content.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.split("\n", 1)[1]
             cleaned = cleaned.rsplit("```", 1)[0]
-        return json.loads(cleaned)
-    except (json.JSONDecodeError, IndexError):
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+        raise ValueError("reflection response must be a JSON object")
+    except (json.JSONDecodeError, IndexError, ValueError):
         logger.error("Reflection: failed to parse LLM JSON — treating as failure.")
         return {
             "success": False,
@@ -112,7 +115,8 @@ def _reflect_ui(
             active_step.status = "done"
         updates["plan"] = plan
 
-        candidate_info = parsed.get("skill_candidate", {})
+        raw_candidate = parsed.get("skill_candidate", {})
+        candidate_info = raw_candidate if isinstance(raw_candidate, dict) else {}
         updates["skill_candidate"] = SkillCandidate(
             name=candidate_info.get("name", "ui_skill"),
             code=state.get("code_buffer", ""),  # JSON-encoded UIAction trace
@@ -126,7 +130,7 @@ def _reflect_ui(
                 task=step_desc,
                 hypothesis=state.get("hypothesis", ""),
                 code=state.get("code_buffer", ""),
-                result_summary=parsed.get("summary", "UI step succeeded."),
+                result_summary=str(parsed.get("summary", "UI step succeeded.")),
                 success=True,
                 node="reflection_ui",
                 iteration=state.get("iteration", 0),
@@ -135,8 +139,8 @@ def _reflect_ui(
         logger.info("Reflection (UI): step SUCCEEDED — UI skill candidate proposed.")
     else:
         attempt = len([e for e in errors if e.node == "reflection"]) + 1
-        corrective = parsed.get("corrective_action", "")
-        message = parsed.get("diagnosis", "Visual diff indicated failure.")
+        corrective = str(parsed.get("corrective_action", ""))
+        message = str(parsed.get("diagnosis", "Visual diff indicated failure."))
         if corrective:
             message = f"{message}  Corrective hint: {corrective}"
         new_error = ErrorEntry(

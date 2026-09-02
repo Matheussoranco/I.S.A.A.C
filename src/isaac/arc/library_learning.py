@@ -235,7 +235,7 @@ class LibraryLearner:
         programs: list[list[dict[str, Any]]],
     ) -> Counter[str]:
         """Count contiguous fragments by *task*-support (not raw frequency)."""
-        per_task_seen: dict[str, set[str]] = {}
+        per_task_seen: dict[str, set[int]] = {}
         for prog in programs:
             seen: set[str] = set()
             for n in range(self.min_len, min(self.max_len, len(prog)) + 1):

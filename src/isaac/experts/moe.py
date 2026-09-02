@@ -39,7 +39,7 @@ class MoEResult:
     answer: str
     primary_expert: str
     confidence: float
-    routing: RoutingResult
+    routing: RoutingResult | None = None
     responses: list[ExpertResponse] = field(default_factory=list)
     elapsed_ms: float = 0.0
     artifacts: dict[str, Any] = field(default_factory=dict)
@@ -131,8 +131,7 @@ class MixtureOfExperts:
         top_k: int,
     ) -> list[ExpertResponse]:
         names = [n for n, _ in routing.selection.candidates[:top_k]]
-        experts = [self._registry.get(n) for n in names]
-        experts = [e for e in experts if e is not None]
+        experts = [expert for n in names if (expert := self._registry.get(n)) is not None]
         if not experts:
             return []
 

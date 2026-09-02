@@ -38,10 +38,6 @@ _DEFAULT_ALLOWED = frozenset(
         "df",
         "du",
         "uptime",
-        "python",
-        "pip",
-        "git",
-        "curl",
     ]
 )
 

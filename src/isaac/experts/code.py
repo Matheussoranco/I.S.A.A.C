@@ -112,23 +112,18 @@ class CodeExpert(Expert):
     def _retrieve_skill(query: str) -> dict[str, Any] | None:
         """Look up a matching skill in the persistent library."""
         try:
-            from isaac.memory.skill_library import get_skill_library
+            from isaac.config.settings import settings
+            from isaac.memory.skill_library import SkillLibrary
 
-            lib = get_skill_library()
+            lib = SkillLibrary(settings.skills_dir)
             results = lib.search(query, top_k=1)
             if results:
-                top = results[0]
-                if isinstance(top, dict):
-                    return top
-                # Could be a dataclass — best-effort dict conversion
-                try:
-                    return {
-                        "name": getattr(top, "name", "skill"),
-                        "code": getattr(top, "code", str(top)),
-                        "score": getattr(top, "score", 0.0),
-                    }
-                except Exception:
-                    return {"name": "skill", "code": str(top)}
+                name = results[0]
+                return {
+                    "name": name,
+                    "code": lib.get_code(name) or "",
+                    "score": 1.0,
+                }
         except Exception as exc:
             logger.debug("Skill retrieval failed: %s", exc)
         return None

@@ -97,7 +97,7 @@ def build_llm_for_profile(
 
         effort = reasoning_effort if reasoning_effort in {"low", "medium", "high", "max"} else None
         return ChatAnthropic(
-            model_name=model,
+            model=model,
             api_key=api_key or None,  # type: ignore[arg-type]
             effort=effort,  # type: ignore[arg-type]
         )

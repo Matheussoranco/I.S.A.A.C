@@ -18,6 +18,13 @@ from isaac.skills.connectors.base import BaseConnector
 logger = logging.getLogger(__name__)
 
 
+def _decode_payload(payload: object) -> str:
+    """Decode IMAP payloads without assuming the email package's broad union."""
+    if isinstance(payload, bytes):
+        return payload.decode("utf-8", errors="replace")
+    return payload if isinstance(payload, str) else ""
+
+
 class EmailConnector(BaseConnector):
     """Read-only IMAP email connector."""
 
@@ -124,12 +131,12 @@ class EmailConnector(BaseConnector):
                     if ct == "text/plain":
                         payload = part.get_payload(decode=True)
                         if payload:
-                            body = payload.decode("utf-8", errors="replace")
+                            body = _decode_payload(payload)
                             break
             else:
                 payload = msg.get_payload(decode=True)
                 if payload:
-                    body = payload.decode("utf-8", errors="replace")
+                    body = _decode_payload(payload)
 
             return {
                 "uid": uid,

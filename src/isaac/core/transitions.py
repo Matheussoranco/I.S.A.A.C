@@ -228,23 +228,24 @@ def after_guard_multimodal(state: IsaacState) -> str:
 
 
 def after_planner(state: IsaacState) -> str:
-    """Route after Planner: use parallel synthesis when ≥2 independent steps exist."""
+    """Route active work to parallel or connector-aware sequential execution."""
+    from isaac.config.settings import settings
+
     plan = state.get("plan", [])
-    done_ids = {s.id for s in plan if s.status == "done"}
-    independent = [
-        s for s in plan if s.status == "pending" and all(dep in done_ids for dep in s.depends_on)
-    ]
+    active = [s for s in plan if s.status == "active"]
 
     wm = state.get("world_model")
-    parallel_eligible = wm.resources.get("_parallel_eligible", False) if wm else False
+    parallel_eligible = wm.resources.get("_parallel_eligible", True) if wm else True
 
-    if parallel_eligible and len(independent) >= 2:
-        logger.info(
-            "Transition: Planner → ParallelSynthesis (%d independent steps).", len(independent)
-        )
+    if (
+        settings.parallel_synthesis_enabled
+        and parallel_eligible
+        and len(active) >= settings.parallel_synthesis_min_steps
+    ):
+        logger.info("Transition: Planner → ParallelSynthesis (%d active steps).", len(active))
         return NODE_PARALLEL_SYNTHESIS
 
-    logger.info("Transition: Planner → Synthesis (sequential).")
+    logger.info("Transition: Planner → Synthesis (sequential connector path).")
     return NODE_SYNTHESIS
 
 

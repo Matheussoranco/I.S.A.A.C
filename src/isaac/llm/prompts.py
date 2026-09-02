@@ -23,7 +23,7 @@ ARC-AGI additions
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -224,7 +224,7 @@ def perception_multimodal_prompt(
         '  "screen_height": 720\n'
         "}"
     )
-    content: list[dict] = [
+    content: list[str | dict[Any, Any]] = [
         {"type": "text", "text": text_block},
         {
             "type": "image_url",
@@ -388,7 +388,7 @@ def synthesis_ui_prompt(
         "Available types: screenshot, click, double_click, right_click, "
         "type, key, scroll, move, drag, wait"
     )
-    content: list[dict] = [
+    content: list[str | dict[Any, Any]] = [
         {"type": "text", "text": text_block},
         {
             "type": "image_url",
@@ -415,7 +415,7 @@ def synthesis_hybrid_prompt(
         "Print a clear summary to stdout on completion.\n"
         "Respond ONLY with a fenced ```python``` code block."
     )
-    content: list[dict] = [
+    content: list[str | dict[Any, Any]] = [
         {"type": "text", "text": text_block},
         {
             "type": "image_url",
@@ -453,7 +453,7 @@ def computer_use_prompt(
         "Be precise with pixel coordinates. "
         "Prefer 'wait' if a page transition is in progress."
     )
-    content: list[dict] = [
+    content: list[str | dict[Any, Any]] = [
         {"type": "text", "text": text_block},
         {
             "type": "image_url",
@@ -495,7 +495,7 @@ def reflection_ui_prompt(
         '  {"success": false, "diagnosis": "...", "revised_hypothesis": "...", '
         '"corrective_action": {<UIAction fields or null>}}'
     )
-    content: list[dict] = [
+    content: list[str | dict[Any, Any]] = [
         {"type": "text", "text": text_block},
         {
             "type": "image_url",
@@ -542,7 +542,7 @@ def skill_abstraction_ui_prompt(
         "  - The function must be self-contained and importable\n"
         "Respond ONLY with a fenced ```python``` code block."
     )
-    content: list[dict] = [
+    content: list[str | dict[Any, Any]] = [
         {"type": "text", "text": text_block},
         {
             "type": "image_url",

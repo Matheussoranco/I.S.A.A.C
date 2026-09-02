@@ -170,10 +170,9 @@ python_version = "3.10"
 warn_unused_configs = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
-# Strict mode is aspirational — the codebase has significant dynamic typing
-# (LangGraph state dicts, LLM responses, runtime tool dispatch). The CI keeps
-# mypy as an informational check; enable strict mode locally once the
-# offending modules are migrated.
+# This configured type-check is a required CI gate. Strict mode remains a
+# separate future migration because provider payloads and graph dispatch are
+# intentionally dynamic at their external boundaries.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

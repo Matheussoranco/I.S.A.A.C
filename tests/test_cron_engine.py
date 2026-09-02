@@ -31,9 +31,21 @@ class TestCronTaskCRUD:
         task = add_task(name="Test Task", schedule="*/5 * * * *", command="echo hello")
         assert task.name == "Test Task"
         assert task.schedule == "*/5 * * * *"
+        assert task.approved is False
         tasks = list_tasks()
         assert len(tasks) == 1
         assert tasks[0]["name"] == "Test Task"
+
+    def test_explicit_unattended_approval_is_persisted(self) -> None:
+        from isaac.background.cron_engine import add_task, load_tasks
+
+        add_task(
+            name="Approved",
+            schedule="*/5 * * * *",
+            command="echo hello",
+            approved=True,
+        )
+        assert load_tasks()[0].approved is True
 
     def test_remove_task(self) -> None:
         from isaac.background.cron_engine import add_task, list_tasks, remove_task
@@ -135,7 +147,6 @@ class TestCronIsDue:
 
         from isaac.background.cron_engine import CronTask, _is_due
 
-        # Just ran, every hour schedule
         now = datetime.now(timezone.utc).isoformat()
         task = CronTask(schedule="0 * * * *", last_run=now)
         try:
@@ -143,3 +154,29 @@ class TestCronIsDue:
             assert not result
         except ImportError:
             pytest.skip("croniter not installed")
+
+
+class TestCronExecutionSafety:
+    def test_unapproved_task_never_reaches_connector(self, tmp_path: Path) -> None:
+        from isaac.background.cron_engine import CronTask, _execute_task
+
+        task = CronTask(name="No grant", command="echo hello", approved=False)
+        with (
+            patch("isaac.background.cron_engine._isaac_home", return_value=tmp_path),
+            patch("isaac.skills.connectors.registry.run_connector") as run,
+        ):
+            status = _execute_task(task)
+        assert status == "approval_required"
+        run.assert_not_called()
+
+    def test_approved_task_still_cannot_override_critical_rule(self, tmp_path: Path) -> None:
+        from isaac.background.cron_engine import CronTask, _execute_task
+
+        task = CronTask(name="Unsafe", command="rm -rf /", approved=True)
+        with (
+            patch("isaac.background.cron_engine._isaac_home", return_value=tmp_path),
+            patch("isaac.skills.connectors.registry.run_connector") as run,
+        ):
+            status = _execute_task(task)
+        assert status == "blocked"
+        run.assert_not_called()

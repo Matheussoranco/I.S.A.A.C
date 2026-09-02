@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -79,6 +80,7 @@ class TokenStore:
         self._path = store_path
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._tokens: dict[str, CapabilityToken] = {}
+        self._lock = threading.RLock()
         self._load()
 
     def _load(self) -> None:
@@ -102,23 +104,24 @@ class TokenStore:
         tool_name: str,
         *,
         action: str = "*",
-        ttl_hours: int = 24,
+        ttl_hours: float = 24,
         issued_by: str = "system",
         max_uses: int = 0,
     ) -> CapabilityToken:
         """Issue a new capability token."""
-        now = datetime.now(timezone.utc)
-        token = CapabilityToken(
-            token_id=secrets.token_hex(16),
-            tool_name=tool_name,
-            action=action,
-            issued_at=now.isoformat(),
-            expires_at=(now + timedelta(hours=ttl_hours)).isoformat(),
-            issued_by=issued_by,
-            max_uses=max_uses,
-        )
-        self._tokens[token.token_id] = token
-        self._save()
+        with self._lock:
+            now = datetime.now(timezone.utc)
+            token = CapabilityToken(
+                token_id=secrets.token_hex(16),
+                tool_name=tool_name,
+                action=action,
+                issued_at=now.isoformat(),
+                expires_at=(now + timedelta(hours=ttl_hours)).isoformat(),
+                issued_by=issued_by,
+                max_uses=max_uses,
+            )
+            self._tokens[token.token_id] = token
+            self._save()
 
         # Audit
         try:
@@ -134,21 +137,25 @@ class TokenStore:
             pass
 
         logger.info(
-            "Issued token %s for tool '%s' (ttl=%dh).", token.token_id[:8], tool_name, ttl_hours
+            "Issued token %s for tool '%s' (ttl=%.2fh).",
+            token.token_id[:8],
+            tool_name,
+            ttl_hours,
         )
         return token
 
     def check(self, token_id: str, tool_name: str, action: str = "*") -> bool:
         """Validate a token for a tool/action.  Increments use_count if valid."""
-        token = self._tokens.get(token_id)
-        if token is None:
-            return False
+        with self._lock:
+            token = self._tokens.get(token_id)
+            if token is None:
+                return False
 
-        if not token.matches(tool_name, action):
-            return False
+            if not token.matches(tool_name, action):
+                return False
 
-        token.use_count += 1
-        self._save()
+            token.use_count += 1
+            self._save()
 
         # Audit
         try:
@@ -169,14 +176,48 @@ class TokenStore:
 
         return True
 
+    def consume_matching(self, tool_name: str, action: str = "*") -> CapabilityToken | None:
+        """Atomically consume and return one matching active token.
+
+        This is the execution-facing API.  Callers do not need to expose opaque
+        token IDs to an LLM; an operator-issued grant can be consumed internally
+        immediately before the action it authorizes.
+        """
+        consumed: CapabilityToken | None = None
+        with self._lock:
+            for token in self._tokens.values():
+                if token.matches(tool_name, action):
+                    token.use_count += 1
+                    self._save()
+                    consumed = token
+                    break
+        if consumed is not None:
+            try:
+                from isaac.security.audit import audit
+
+                audit(
+                    "auth",
+                    "token_used",
+                    details={
+                        "token_id": consumed.token_id,
+                        "tool": tool_name,
+                        "action": action,
+                        "uses": consumed.use_count,
+                    },
+                )
+            except Exception:
+                pass
+        return consumed
+
     def revoke(self, token_id: str, *, revoked_by: str = "system") -> bool:
         """Revoke a token. Returns True if found and revoked."""
-        token = self._tokens.get(token_id)
-        if token is None:
-            return False
+        with self._lock:
+            token = self._tokens.get(token_id)
+            if token is None:
+                return False
 
-        token.revoked = True
-        self._save()
+            token.revoked = True
+            self._save()
 
         try:
             from isaac.security.audit import audit
@@ -189,15 +230,17 @@ class TokenStore:
 
     def list_active(self) -> list[CapabilityToken]:
         """Return all active (non-revoked, non-expired) tokens."""
-        return [t for t in self._tokens.values() if t.is_valid()]
+        with self._lock:
+            return [t for t in self._tokens.values() if t.is_valid()]
 
     def cleanup_expired(self) -> int:
         """Remove expired or revoked tokens. Returns count removed."""
-        to_remove = [tid for tid, t in self._tokens.items() if not t.is_valid()]
-        for tid in to_remove:
-            del self._tokens[tid]
-        if to_remove:
-            self._save()
+        with self._lock:
+            to_remove = [tid for tid, t in self._tokens.items() if not t.is_valid()]
+            for tid in to_remove:
+                del self._tokens[tid]
+            if to_remove:
+                self._save()
         return len(to_remove)
 
 

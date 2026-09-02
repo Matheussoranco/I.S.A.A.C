@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import sqlite3
 import threading
 import time
@@ -42,7 +43,7 @@ class ConversationStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def load(self, conversation_id: str) -> list[dict[str, str]]:
+    def load(self, conversation_id: str) -> builtins.list[dict[str, str]]:
         with self._lock, self._connect() as db:
             exists = db.execute(
                 "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)

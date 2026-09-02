@@ -10,6 +10,7 @@ would prove nothing about whether they are caught.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -22,9 +23,23 @@ from isaac.memory.skill_verification import SkillVerifier
 VERIFY_TIMEOUT = 15
 
 
+@pytest.fixture(autouse=True)
+def host_fallback_for_verifier_unit_tests(monkeypatch: pytest.MonkeyPatch):
+    """Use the explicitly opted-in host fallback only in this isolated unit module."""
+    from isaac.memory import skill_verification
+
+    monkeypatch.setattr(
+        skill_verification,
+        "_verifier",
+        SkillVerifier(timeout=VERIFY_TIMEOUT, require_sandbox=False),
+    )
+
+
 @pytest.fixture()
 def verifier() -> SkillVerifier:
-    return SkillVerifier(timeout=VERIFY_TIMEOUT)
+    # These tests exercise verifier semantics without requiring Docker. The
+    # application default is sandbox-required and is covered separately.
+    return SkillVerifier(timeout=VERIFY_TIMEOUT, require_sandbox=False)
 
 
 def _candidate(name: str, code: str, **kw) -> SkillCandidate:
@@ -32,6 +47,35 @@ def _candidate(name: str, code: str, **kw) -> SkillCandidate:
 
 
 class TestVerifierAccepts:
+    def test_application_default_requires_docker(self) -> None:
+        assert SkillVerifier().require_sandbox is True
+
+    def test_missing_settings_fail_closed_to_docker(self) -> None:
+        verifier = SkillVerifier()
+        with patch.object(verifier, "_settings", return_value=None):
+            assert verifier.require_sandbox is True
+
+    def test_sandbox_path_is_used_when_required(self) -> None:
+        verifier = SkillVerifier(timeout=VERIFY_TIMEOUT, require_sandbox=True)
+        payload = {
+            "checks": [
+                {"name": "import", "status": "passed", "detail": ""},
+                {"name": "doctest", "status": "skipped", "detail": ""},
+                {"name": "selftest", "status": "skipped", "detail": ""},
+                {"name": "example", "status": "skipped", "detail": ""},
+            ],
+            "callables": ["ok"],
+        }
+        stdout = "__ISAAC_SKILL_VERIFY__" + __import__("json").dumps(payload)
+        with (
+            patch("isaac.memory.skill_verification._docker_available", return_value=True),
+            patch.object(verifier, "_execute_in_docker", return_value=(stdout, "", 0)) as run,
+        ):
+            outcome = verifier.verify(_candidate("safe", "def ok():\n    return 1\n"))
+
+        assert outcome.verified
+        run.assert_called_once()
+
     def test_plain_function_verifies_as_import_evidence(self, verifier: SkillVerifier) -> None:
         outcome = verifier.verify(_candidate("adder", "def add(a, b):\n    return a + b\n"))
         assert outcome.verified
@@ -119,7 +163,7 @@ class TestVerifierRejects:
         assert not verifier.verify(_candidate("blank", "   ")).verified
 
     def test_runaway_skill_is_killed_by_the_timeout(self) -> None:
-        outcome = SkillVerifier(timeout=3).verify(
+        outcome = SkillVerifier(timeout=3, require_sandbox=False).verify(
             _candidate("spinner", "def f():\n    return 1\n\n\nwhile True:\n    pass\n")
         )
         assert not outcome.verified

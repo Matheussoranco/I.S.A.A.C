@@ -151,6 +151,24 @@ class TestAgentLoop:
         assert danger.executed is True
         assert result.tool_calls[0].success is True
 
+    def test_operator_capability_authorizes_one_high_risk_call(self) -> None:
+        from isaac.security.capabilities import get_token_store
+
+        danger = DangerTool()
+        token = get_token_store().issue("danger", action="execute", max_uses=1)
+        llm = FakeLLM(
+            [
+                AIMessage(content="", tool_calls=[_tool_call("danger", {})]),
+                AIMessage(content="done"),
+            ]
+        )
+
+        result = AgentLoop([danger], llm=llm).run("do danger")
+
+        assert danger.executed is True
+        assert result.tool_calls[0].success is True
+        assert not get_token_store().check(token.token_id, "danger", "execute")
+
     def test_tool_exception_is_captured(self) -> None:
         llm = FakeLLM(
             [

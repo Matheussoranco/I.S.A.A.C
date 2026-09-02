@@ -20,25 +20,27 @@ from __future__ import annotations
 import functools
 import logging
 import time
-from collections.abc import Callable
-from typing import Any, TypeVar
+from collections.abc import Callable, Mapping
+from typing import Any, ParamSpec, TypeVar
 
 logger = logging.getLogger(__name__)
 
-F = TypeVar("F", bound=Callable[..., Any])
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
-def track_node(node_name: str) -> Callable[[F], F]:
+def track_node(node_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Wrap a node function with timing + success tracking."""
 
-    def decorator(func: F) -> F:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @functools.wraps(func)
-        def wrapper(state: dict[str, Any]) -> Any:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             start = time.monotonic()
             err = ""
             success = True
+            state = args[0] if args and isinstance(args[0], Mapping) else {}
             try:
-                return func(state)
+                return func(*args, **kwargs)
             except Exception as exc:
                 success = False
                 err = f"{type(exc).__name__}: {exc}"
@@ -48,8 +50,8 @@ def track_node(node_name: str) -> Callable[[F], F]:
                     from isaac.improvement.performance import get_tracker
 
                     duration_ms = (time.monotonic() - start) * 1000.0
-                    iteration = int(state.get("iteration", 0)) if isinstance(state, dict) else 0
-                    session_id = str(state.get("session_id", "")) if isinstance(state, dict) else ""
+                    iteration = int(state.get("iteration", 0))
+                    session_id = str(state.get("session_id", ""))
                     get_tracker().record_node(
                         node=node_name,
                         duration_ms=duration_ms,
@@ -61,15 +63,15 @@ def track_node(node_name: str) -> Callable[[F], F]:
                 except Exception:  # never let telemetry break the graph
                     pass
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper
 
     return decorator
 
 
-def track_skill(skill_name: str) -> Callable[[F], F]:
+def track_skill(skill_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Wrap a skill callable with success / duration tracking."""
 
-    def decorator(func: F) -> F:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.monotonic()
@@ -95,6 +97,6 @@ def track_skill(skill_name: str) -> Callable[[F], F]:
                 except Exception:
                     pass
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper
 
     return decorator

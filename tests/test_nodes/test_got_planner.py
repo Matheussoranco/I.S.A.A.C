@@ -50,6 +50,15 @@ class TestPlanDAG:
         assert len(activated) == 1
         assert activated[0].status == "active"
 
+    def test_activate_ready_limit_preserves_remaining_frontier(
+        self, parallel_plan: list[PlanStep]
+    ) -> None:
+        dag = PlanDAG(steps=parallel_plan)
+        activated = dag.activate_ready(limit=1)
+        assert len(activated) == 1
+        assert sum(step.status == "active" for step in parallel_plan) == 1
+        assert sum(step.status == "pending" for step in parallel_plan) == 2
+
     def test_topological_order(self, linear_plan: list[PlanStep]) -> None:
         dag = PlanDAG(steps=linear_plan)
         order = dag.topological_order()

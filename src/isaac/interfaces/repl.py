@@ -18,7 +18,7 @@ import contextlib
 import logging
 import sys
 import time
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -109,7 +109,7 @@ def _handle_slash_command(cmd: str, ui: TerminalUI, state: IsaacState) -> bool:
         try:
             from isaac.config.settings import settings
 
-            model = settings.llm.model
+            model = settings.llm.model_name
         except Exception:
             pass
         tools_count = 0
@@ -240,7 +240,7 @@ def run_repl() -> int:
 
     # -- Build graph & state -----------------------------------------------
     compiled = build_graph()
-    state: dict[str, Any] = dict(make_initial_state())
+    state: IsaacState = make_initial_state()
 
     # -- Background model pre-warm (load weights into VRAM before first query)
     def _prewarm() -> None:
@@ -319,14 +319,17 @@ def run_repl() -> int:
                                 ui.print_phase(phase)
 
                 # Merge result into state
-                state.update(result)
+                state = cast(IsaacState, {**state, **result})
 
                 # -- Render response ----------------------------------------
                 if not is_direct:
                     msgs = result.get("messages", [])
                     for msg in msgs:
                         if isinstance(msg, AIMessage) and msg.content:
-                            ui.print_assistant_response(msg.content)
+                            content = (
+                                msg.content if isinstance(msg.content, str) else str(msg.content)
+                            )
+                            ui.print_assistant_response(content)
                 else:
                     # DirectResponse already streamed — just print final time
                     elapsed = time.monotonic() - ui._start_time if ui._start_time else 0

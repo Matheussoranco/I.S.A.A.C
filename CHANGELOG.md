@@ -7,6 +7,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — 2026-09-02
+
+### Fixed
+
+- Enforced scoped, expiring capability tokens at agent-tool and connector
+  execution boundaries; added atomic one-use consumption and isolated token
+  state in tests.
+- Made cron tasks approval-required by default and routed approved shell work
+  through constitutional review plus a one-use connector grant.
+- Required Docker for generated-skill verification by default and removed the
+  implicit host-execution fallback.
+- Unified credential-path denial across host file tools and the filesystem
+  connector.
+- Repaired sequential/parallel plan activation, made parallel specialists
+  agentic, and connected connector observations to synthesis.
+- Cleared the configured mypy check across all 184 source files and made it a
+  required CI gate.
+
+### Tests
+
+- Added regression coverage for capability consumption, connector denial,
+  cron approval/critical blocking, credential paths, and parallel routing.
+
 ## [1.6.2] — 2026-08-31 — Standalone Windows executable
 
 ### Fixed

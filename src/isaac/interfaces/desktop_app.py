@@ -12,6 +12,7 @@ import socket
 import threading
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from isaac.interfaces.web_app import create_app
 
@@ -27,7 +28,7 @@ class NativeAppServer:
     def __post_init__(self) -> None:
         self.port = self.port or _free_loopback_port(self.host)
         self._thread: threading.Thread | None = None
-        self._server: object | None = None
+        self._server: Any | None = None
 
     @property
     def url(self) -> str:
@@ -44,7 +45,7 @@ class NativeAppServer:
             access_log=self.verbose,
         )
         server = uvicorn.Server(config)
-        server.install_signal_handlers = lambda: None
+        server.install_signal_handlers = lambda: None  # type: ignore[attr-defined]
         self._server = server
         self._thread = threading.Thread(target=server.run, name="isaac-native-api", daemon=True)
         self._thread.start()
@@ -90,6 +91,8 @@ def run_desktop_app(*, verbose: bool = False) -> int:
             background_color="#09090d",
             text_select=True,
         )
+        if window is None:
+            raise RuntimeError("The native UI window could not be created.")
         window.events.closed += server.stop
         webview.start(debug=verbose, private_mode=True)
     finally:

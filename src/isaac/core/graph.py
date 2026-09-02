@@ -7,7 +7,9 @@ Full topology
 -------------
 ::
 
-    START ─► Guard ─► Perception ─► Explorer ─► Planner ─► Synthesis
+    START ─► Guard ─► Perception ─► Explorer ─► Planner
+                                                    ├─ sequential ─► Connectors ─► Synthesis
+                                                    └─ parallel ───► Agentic sub-agents
                                                                │
                           ┌────────────────────────────────────┴────────────────┐
                           │ mode=ui                              │ mode=code/hybrid
@@ -34,7 +36,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, StateGraph
@@ -196,17 +198,18 @@ def build_graph() -> Any:
     # DirectResponse → MetaLearner → END
     graph.add_edge(_DIRECT_RESPONSE, _META_LEARNER)
 
-    # Full pipeline continues: Explorer → Planner → {ParallelSynthesis | Synthesis}
+    # Full pipeline continues: sequential work first gathers connector context;
+    # parallel sub-agents execute their own active frontier and go to reflection.
     graph.add_edge(_EXPLORER, _PLANNER)
     graph.add_conditional_edges(
         _PLANNER,
         after_planner,
         {
             NODE_PARALLEL_SYNTHESIS: _PARALLEL_SYNTHESIS,
-            NODE_SYNTHESIS: _SYNTHESIS,
+            NODE_SYNTHESIS: _CONNECTOR_EXEC,
         },
     )
-    graph.add_edge(_PARALLEL_SYNTHESIS, _CONNECTOR_EXEC)
+    graph.add_edge(_PARALLEL_SYNTHESIS, _REFLECTION)
     graph.add_edge(_CONNECTOR_EXEC, _SYNTHESIS)
 
     # Synthesis → ComputerUse OR Sandbox (based on active step mode)
@@ -377,7 +380,7 @@ def build_and_run() -> int:
                     sys.stdout.flush()
 
                 # Merge result back into state
-                state.update(result)  # type: ignore[arg-type]
+                state = cast(IsaacState, {**state, **result})
 
                 # Print final response
                 msgs = result.get("messages", [])

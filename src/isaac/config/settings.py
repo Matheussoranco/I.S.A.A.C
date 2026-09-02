@@ -311,12 +311,12 @@ class Settings(BaseSettings):
     and refuses to promote it on failure, recording the rejection instead."""
     skill_verification_timeout: int = Field(default=20, ge=1, le=300)
     """Wall-clock budget (seconds) for one skill verification run."""
-    skill_verification_require_sandbox: bool = False
+    skill_verification_require_sandbox: bool = True
     """Refuse to promote any skill when the Docker sandbox is unavailable.
 
-    Off by default so verification still runs (in an isolated subprocess with a
-    timeout) on machines without Docker — which is strictly safer than the
-    pre-1.5.0 behaviour of committing generated code unexecuted."""
+    On by default: generated code is never imported by a host Python process.
+    Set to false only for trusted development fixtures that deliberately test
+    the fallback verifier."""
     parallel_synthesis_enabled: bool = False
     """Enable parallel Claude sub-agent synthesis for independent plan steps."""
     parallel_synthesis_min_steps: int = Field(default=2, ge=2, le=10)

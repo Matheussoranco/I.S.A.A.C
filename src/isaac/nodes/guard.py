@@ -21,6 +21,8 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from isaac.core.state import IsaacState
+
 logger = logging.getLogger(__name__)
 
 # Hardcoded system prompt — cannot be overridden by user input
@@ -254,7 +256,7 @@ class PromptInjectionGuard:
         return result
 
 
-def guard_node(state: dict[str, Any]) -> dict[str, Any]:
+def guard_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: Prompt Injection Guard.
 
     Inserted before Perception.  Analyses the latest user message for

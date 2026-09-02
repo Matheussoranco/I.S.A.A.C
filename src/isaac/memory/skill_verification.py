@@ -35,16 +35,13 @@ which is honest — a skill whose only evidence is "it imports" is recorded as
 
 Where it runs
 -------------
-In a subprocess (``python -I``) with a wall-clock timeout, in a throwaway
-temp directory. Docker's :class:`~isaac.sandbox.executor.CodeExecutor` is not
-used here: its host-side pre-check blocks ``os``/``sys``/``pathlib``, which
-most real skills legitimately import, so it would reject good skills rather
-than bad ones. Set ``ISAAC_SKILL_VERIFICATION_REQUIRE_SANDBOX=true`` to refuse
-promotion outright when Docker is absent.
-
-Note the threat model: this code was *about to be written into the skill
-library and executed later anyway*. Running it once, isolated and time-boxed,
-is strictly safer than promoting it unexecuted.
+By default, in the hardened Docker code-execution container with no network,
+dropped capabilities, a read-only root filesystem and resource limits.  The
+verification harness deliberately bypasses the normal import deny-list because
+reusable skills legitimately import modules such as ``pathlib``; the container
+is the security boundary.  A host ``python -I`` fallback exists only for
+explicitly trusted development tests when
+``ISAAC_SKILL_VERIFICATION_REQUIRE_SANDBOX=false``.
 """
 
 from __future__ import annotations
@@ -119,7 +116,12 @@ if callable(_selftest):
 else:
     _add("selftest", "skipped", "no _selftest() defined")
 
-_example = json.loads(sys.argv[1]) if len(sys.argv) > 1 else None
+_example_raw = os.environ.get("ISAAC_SKILL_EXAMPLE")
+_example = (
+    json.loads(_example_raw)
+    if _example_raw
+    else (json.loads(sys.argv[1]) if len(sys.argv) > 1 else None)
+)
 if isinstance(_example, dict) and _example:
     _target = None
     _preferred = _example.pop("__function__", None)
@@ -225,7 +227,8 @@ class SkillVerifier:
         if self._require_sandbox is not None:
             return bool(self._require_sandbox)
         s = self._settings()
-        return bool(getattr(s, "skill_verification_require_sandbox", False))
+        # Missing/broken configuration must retain the isolation boundary.
+        return bool(getattr(s, "skill_verification_require_sandbox", True))
 
     # ------------------------------------------------------------------
     # Public API
@@ -316,25 +319,31 @@ class SkillVerifier:
     # ------------------------------------------------------------------
 
     def _execute(self, code: str, example: dict | None) -> VerificationOutcome:
-        """Run the harness against *code* in an isolated subprocess."""
+        """Run the harness against *code* in Docker (or an explicit dev fallback)."""
         harness = _HARNESS.replace("{marker}", _RESULT_MARKER)
         with tempfile.TemporaryDirectory(prefix="isaac-skillverify-") as tmp:
             root = Path(tmp)
             (root / "skill_under_test.py").write_text(code, encoding="utf-8")
-            harness_path = root / "_verify_harness.py"
+            # The hardened image's entrypoint executes /input/task.py. Keeping
+            # that contract avoids bypassing its startup boundary.
+            harness_path = root / "task.py"
             harness_path.write_text(harness, encoding="utf-8")
-            argv = [sys.executable, "-I", str(harness_path)]
-            if example:
-                argv.append(json.dumps(example))
             try:
-                proc = subprocess.run(
-                    argv,
-                    cwd=str(root),
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                    check=False,
-                )
+                if self.require_sandbox:
+                    stdout, stderr, returncode = self._execute_in_docker(root, example)
+                else:
+                    argv = [sys.executable, "-I", str(harness_path)]
+                    if example:
+                        argv.append(json.dumps(example))
+                    proc = subprocess.run(
+                        argv,
+                        cwd=str(root),
+                        capture_output=True,
+                        text=True,
+                        timeout=self.timeout,
+                        check=False,
+                    )
+                    stdout, stderr, returncode = proc.stdout, proc.stderr, proc.returncode
             except subprocess.TimeoutExpired:
                 return VerificationOutcome(
                     skill_name="",
@@ -342,22 +351,22 @@ class SkillVerifier:
                     reason=f"verification run exceeded {self.timeout}s",
                     checks=[Check("import", "failed", f"timeout after {self.timeout}s")],
                 )
-            except OSError as exc:  # pragma: no cover - defensive
+            except Exception as exc:  # Docker and process startup both fail closed
                 return VerificationOutcome(
                     skill_name="",
                     verified=False,
-                    reason=f"could not start verification subprocess: {exc}",
-                    checks=[Check("import", "failed", str(exc))],
+                    reason=f"could not start isolated verification: {exc}",
+                    checks=[Check("import", "failed", str(exc)[:400])],
                 )
 
-        payload = _parse_marker(proc.stdout)
+        payload = _parse_marker(stdout)
         if payload is None:
-            detail = (proc.stderr or proc.stdout or "").strip()[-400:]
+            detail = (stderr or stdout or "").strip()[-400:]
             return VerificationOutcome(
                 skill_name="",
                 verified=False,
                 reason="skill failed to import/execute",
-                checks=[Check("import", "failed", detail or f"exit code {proc.returncode}")],
+                checks=[Check("import", "failed", detail or f"exit code {returncode}")],
             )
 
         checks = [
@@ -372,6 +381,35 @@ class SkillVerifier:
             checks=checks,
             callables=[str(x) for x in payload.get("callables", [])],
         )
+
+    def _execute_in_docker(
+        self,
+        root: Path,
+        example: dict | None,
+    ) -> tuple[str, str, int]:
+        """Execute the prepared verification harness in the hardened container."""
+        from isaac.config.settings import get_settings
+        from isaac.sandbox.manager import SandboxManager
+        from isaac.sandbox.security import default_policy
+
+        manager = SandboxManager(get_settings().sandbox.image, default_policy())
+        container = None
+        command = ["python", "-I", "/input/task.py"]
+        environment = {"ISAAC_SKILL_EXAMPLE": json.dumps(example)} if example else None
+        try:
+            container = manager.create_container(
+                command=command,
+                volumes={str(root): {"bind": "/input", "mode": "ro"}},
+                environment=environment,
+            )
+            manager.start(container)
+            returncode = manager.wait(container, timeout=self.timeout)
+            stdout, stderr = manager.logs(container)
+            return stdout, stderr, returncode
+        finally:
+            if container is not None:
+                manager.destroy(container)
+            manager.close()
 
 
 # ---------------------------------------------------------------------------

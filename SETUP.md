@@ -277,13 +277,26 @@ isaac serve
 | `isaac cron …`              | Manage background cron tasks                |
 | `isaac tokens …`            | Manage capability tokens                    |
 
+Scheduled tasks are created inert by default. To authorize a task to run
+without a live prompt, make that choice explicit when adding it:
+
+```bash
+isaac cron add --name "Hourly check" --schedule "0 * * * *" \
+  --command "web_search:query=status" --approve-unattended
+```
+
+Critical constitutional blocks still apply to approved tasks. Generated-skill
+verification also requires a running Docker engine by default; the
+`ISAAC_SKILL_VERIFICATION_REQUIRE_SANDBOX=false` escape hatch is intended only
+for trusted development tests.
+
 ## 7. Running Tests
 
 ```bash
 pytest -v
 ```
 
-## 8. Project Structure (v0.3.0)
+## 8. Project Structure (v1.6.2)
 
 ```
 src/isaac/

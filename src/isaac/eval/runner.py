@@ -113,10 +113,10 @@ def default_runner(auto_approve: bool = False) -> RunnerFn:
         if task.runner == "team":
             from isaac.specialists import Orchestrator
 
-            result = Orchestrator(auto_approve=auto_approve).run(task.prompt)
+            team_result = Orchestrator(auto_approve=auto_approve).run(task.prompt)
             return TaskAnswer(
-                text=result.final_output or "",
-                stopped_reason="final" if result.success else "error",
+                text=team_result.final_output or "",
+                stopped_reason="final" if team_result.success else "error",
             )
 
         from isaac.agents.agent_loop import build_default_agent
@@ -127,8 +127,10 @@ def default_runner(auto_approve: bool = False) -> RunnerFn:
             auto_approve=auto_approve,
             only=task.tools,
         )
-        result = loop.run(task.prompt)
-        return TaskAnswer(text=result.output or "", stopped_reason=result.stopped_reason)
+        agent_result = loop.run(task.prompt)
+        return TaskAnswer(
+            text=agent_result.output or "", stopped_reason=agent_result.stopped_reason
+        )
 
     return run
 

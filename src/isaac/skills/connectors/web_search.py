@@ -80,7 +80,7 @@ class WebSearchConnector(BaseConnector):
 
             soup = BeautifulSoup(resp.text, "html.parser")
             for link in soup.select(".result__a")[:max_results]:
-                href = link.get("href", "")
+                href = str(link.get("href", "") or "")
                 title = link.get_text(strip=True)
                 snippet_el = link.find_next(".result__snippet")
                 snippet = snippet_el.get_text(strip=True) if snippet_el else ""

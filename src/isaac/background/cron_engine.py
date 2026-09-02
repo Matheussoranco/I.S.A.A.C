@@ -42,6 +42,8 @@ class CronTask:
     schedule: str = "0 * * * *"  # cron expression (every hour default)
     command: str = ""  # free-form description or connector call
     enabled: bool = True
+    approved: bool = False
+    """Explicit authorization for unattended connector/host execution."""
     last_run: str = ""  # ISO datetime
     last_status: str = ""  # "ok" | "error" | ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -130,9 +132,16 @@ def add_task(
     command: str,
     *,
     enabled: bool = True,
+    approved: bool = False,
 ) -> CronTask:
     """Create and persist a new cron task.  Returns the created task."""
-    task = CronTask(name=name, schedule=schedule, command=command, enabled=enabled)
+    task = CronTask(
+        name=name,
+        schedule=schedule,
+        command=command,
+        enabled=enabled,
+        approved=approved,
+    )
     tasks = load_tasks()
     tasks.append(task)
     save_tasks(tasks)
@@ -187,6 +196,23 @@ def _execute_task(task: CronTask) -> str:
     """Execute a single cron task.  Returns status string."""
     logger.info("Cron executing: %s (%s)", task.id, task.name)
 
+    if not task.approved:
+        detail = "unattended execution was not explicitly approved when the task was created"
+        _append_log(task.id, "approval_required", detail)
+        return "approval_required"
+
+    def issue_token(connector_name: str) -> str:
+        from isaac.security.capabilities import get_token_store
+
+        token = get_token_store().issue(
+            connector_name,
+            action="execute",
+            ttl_hours=1 / 60,
+            issued_by=f"cron:{task.id}",
+            max_uses=1,
+        )
+        return token.token_id
+
     # Try connector-style execution first
     try:
         from isaac.skills.connectors.registry import run_connector
@@ -205,17 +231,48 @@ def _execute_task(task: CronTask) -> str:
                 else:
                     kwargs.setdefault("query", token)
 
-            result = run_connector(connector_name, **kwargs)
-            _append_log(task.id, "ok", json.dumps(result)[:300])
-            return "ok"
+            if connector_name == "shell":
+                from isaac.security.constitution import review
+
+                command = str(kwargs.get("command", ""))
+                decision = review("shell", command, context={"cron_task": task.id}, use_llm=False)
+                if not decision.allow:
+                    _append_log(task.id, "blocked", decision.reason)
+                    return "blocked"
+
+            result = run_connector(
+                connector_name,
+                capability_token=issue_token(connector_name),
+                **kwargs,
+            )
+            status = "error" if result.get("error") else "ok"
+            _append_log(task.id, status, json.dumps(result)[:300])
+            return status
     except Exception as exc:
         logger.debug("Connector-style cron exec failed: %s", exc)
+        if ":" in task.command and not task.command.startswith("http"):
+            _append_log(task.id, "error", str(exc))
+            return "error"
 
     # Fallback: run as shell command if shell connector is available
     try:
+        from isaac.security.constitution import review
         from isaac.skills.connectors.registry import run_connector
 
-        result = run_connector("shell", command=task.command)
+        decision = review(
+            "shell",
+            task.command,
+            context={"cron_task": task.id},
+            use_llm=False,
+        )
+        if not decision.allow:
+            _append_log(task.id, "blocked", decision.reason)
+            return "blocked"
+        result = run_connector(
+            "shell",
+            capability_token=issue_token("shell"),
+            command=task.command,
+        )
         status = "ok" if result.get("exit_code", 1) == 0 else "error"
         _append_log(task.id, status, json.dumps(result)[:300])
         return status

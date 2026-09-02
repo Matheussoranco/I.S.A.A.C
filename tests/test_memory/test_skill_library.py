@@ -6,6 +6,12 @@ from pathlib import Path
 
 from isaac.core.state import SkillCandidate
 from isaac.memory.skill_library import SkillLibrary
+from isaac.memory.skill_verification import SkillVerifier
+
+
+def _commit_trusted_fixture(lib: SkillLibrary, candidate: SkillCandidate) -> None:
+    """Verify deterministic test fixtures with the explicit host-only fallback."""
+    lib.commit(candidate, verifier=SkillVerifier(require_sandbox=False))
 
 
 class TestSkillLibrary:
@@ -19,7 +25,7 @@ class TestSkillLibrary:
             task_context="ARC rotation task",
             success_count=2,
         )
-        lib.commit(candidate)
+        _commit_trusted_fixture(lib, candidate)
 
         assert lib.size == 1
         assert "rotate_grid" in lib.list_names()
@@ -34,21 +40,23 @@ class TestSkillLibrary:
 
     def test_search(self, tmp_path: Path) -> None:
         lib = SkillLibrary(tmp_path)
-        lib.commit(
+        _commit_trusted_fixture(
+            lib,
             SkillCandidate(
                 name="flip_horizontal",
                 code="def flip(g): return [r[::-1] for r in g]",
                 task_context="ARC flip task",
                 success_count=1,
-            )
+            ),
         )
-        lib.commit(
+        _commit_trusted_fixture(
+            lib,
             SkillCandidate(
                 name="fill_color",
                 code="def fill(g, c): pass",
                 task_context="ARC color fill",
                 success_count=1,
-            )
+            ),
         )
 
         results = lib.search("flip")
@@ -59,8 +67,8 @@ class TestSkillLibrary:
         # ``code="pass"`` used to be enough here; since 1.5.0 the promotion
         # gate rejects a skill that defines nothing reusable, so the fixture
         # is now an actual function.
-        lib1.commit(
-            SkillCandidate(name="my_skill", code="def go():\n    return 1", success_count=1)
+        _commit_trusted_fixture(
+            lib1, SkillCandidate(name="my_skill", code="def go():\n    return 1", success_count=1)
         )
 
         # Re-open from same directory

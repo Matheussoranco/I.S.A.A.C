@@ -207,7 +207,8 @@ Trigger paths:
 - **Cumulative Learning** — persistent Skill Library composes existing
   skills to solve novel tasks, reducing LLM calls over time.
 - **Security-First** — hash-chained audit log, capability tokens, prompt
-  injection guard, I/O sanitization, seccomp sandboxing.
+  injection guard, shared credential-path denial, one-use connector grants,
+  explicit unattended-cron approval, I/O sanitization, seccomp sandboxing.
 
 ## Quick Start
 

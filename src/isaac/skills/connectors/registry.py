@@ -99,7 +99,12 @@ def list_connector_schemas() -> list[dict[str, Any]]:
     return [c.to_schema() for c in get_registry().values()]
 
 
-def run_connector(name: str, **kwargs: Any) -> dict[str, Any]:
+def run_connector(
+    name: str,
+    *,
+    capability_token: str = "",
+    **kwargs: Any,
+) -> dict[str, Any]:
     """Run a connector by name with audit logging.
 
     Returns the connector result dict, or an error dict if the connector
@@ -112,6 +117,19 @@ def run_connector(name: str, **kwargs: Any) -> dict[str, Any]:
     if not connector.is_available():
         missing = [e for e in connector.requires_env if not __import__("os").environ.get(e)]
         return {"error": f"Connector '{name}' unavailable — missing env: {missing}"}
+
+    # Connector calls reach the host outside AgentLoop, so authorization is
+    # consumed here rather than trusting every caller to remember a policy
+    # check.  Unknown/unavailable connectors return their clearer errors first.
+    try:
+        from isaac.security.capabilities import get_token_store
+
+        if not capability_token or not get_token_store().check(capability_token, name, "execute"):
+            audit_connector(name, "denied", "missing or invalid capability token")
+            return {"error": f"Connector '{name}' requires a valid capability token."}
+    except Exception as exc:
+        logger.error("Capability validation failed for connector %s: %s", name, exc)
+        return {"error": f"Connector '{name}' authorization failed."}
 
     audit_connector(name, "invoke", str(kwargs)[:200])
     try:

@@ -37,7 +37,9 @@ I.S.A.A.C. is designed with multiple defence-in-depth layers. Understanding the 
   - 256 MB memory hard limit, 1 CPU, 64 PIDs
   - `nobody` (UID 65534) as the running user
   - Custom seccomp profile (100+ syscall allowlist)
-- The host process **never executes user code directly**
+- Generated and learned Python is verified and executed in Docker by default.
+  The host verifier exists only as an explicit development/test fallback
+  (`ISAAC_SKILL_VERIFICATION_REQUIRE_SANDBOX=false`).
 
 ### Pre-execution Code Scanning
 - AST import scanner in `sandbox/executor.py` blocks 20+ dangerous module imports before Docker execution
@@ -45,17 +47,26 @@ I.S.A.A.C. is designed with multiple defence-in-depth layers. Understanding the 
 
 ### Audit Trail
 - Hash-chained JSONL audit log (`security/audit.py`) records all system events
-- Capability token system (`security/capabilities.py`) gates tool invocations with expiring, revocable tokens
+- Capability tokens (`security/capabilities.py`) are checked and consumed at
+  execution time. Connector calls fail closed without a scoped, unexpired
+  token; high-risk agent tools require human approval, explicit auto-approval,
+  or a pre-issued operator token.
 
 ### Prompt Injection Guard
 - `guard_node` uses regex patterns + LLM analysis to detect and reject prompt injection attempts before any task processing
 
 ---
 
-## Known Limitations (Beta)
+## Known Limitations
 
 - The AST import scanner is a defence-in-depth measure, not a sandbox replacement. The Docker container is the primary isolation boundary.
-- Capability tokens are auto-issued for connector invocations in the current release; operator-issued tokens with manual approval are planned for 0.2.0.
+- Read-only graph connectors receive short-lived, one-use grants internally.
+  Shell connector execution is never auto-authorized by that path.
+- Cron tasks are inert unless created with explicit unattended approval. Even
+  approved tasks remain subject to non-overridable critical constitutional
+  rules and one-use connector tokens.
+- Filesystem tools share a credential deny-list for `.ssh`, cloud credentials,
+  `.env*`, private keys, and equivalent protected paths.
 
 ## Real desktop control
 

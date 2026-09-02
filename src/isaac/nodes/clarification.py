@@ -25,9 +25,12 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
+
+from isaac.core.state import IsaacState
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,7 @@ def _ambiguity_score(query: str) -> float:
     return min(score, 1.0)
 
 
-def _moe_margin(state: dict[str, Any]) -> float:
+def _moe_margin(state: Mapping[str, Any]) -> float:
     """Return the margin between top-1 and top-2 expert scores. Smaller →
     more ambiguous routing."""
     try:
@@ -90,7 +93,7 @@ def _moe_margin(state: dict[str, Any]) -> float:
         return 1.0
 
 
-def needs_clarification(state: dict[str, Any], threshold: float = 0.55) -> bool:
+def needs_clarification(state: Mapping[str, Any], threshold: float = 0.55) -> bool:
     """Return True iff at least one signal indicates clarification is warranted."""
     last_user = ""
     for m in reversed(state.get("messages", [])):
@@ -103,16 +106,10 @@ def needs_clarification(state: dict[str, Any], threshold: float = 0.55) -> bool:
     moe_margin = _moe_margin(state)
 
     score = 0.45 * (1.0 - perception_conf) + 0.35 * ambiguity + 0.20 * (1.0 - moe_margin)
-    state["_clarification_score"] = round(score, 3)
-    state["_clarification_signals"] = {
-        "perception_confidence": perception_conf,
-        "ambiguity": ambiguity,
-        "moe_margin": moe_margin,
-    }
     return score >= threshold
 
 
-def _formulate_question(state: dict[str, Any]) -> str:
+def _formulate_question(state: Mapping[str, Any]) -> str:
     """Compose a focused clarifying question — a single sentence."""
     last_user = ""
     for m in reversed(state.get("messages", [])):
@@ -141,7 +138,7 @@ def _formulate_question(state: dict[str, Any]) -> str:
         return "Could you clarify what you'd like me to focus on?"
 
 
-def clarification_node(state: dict[str, Any]) -> dict[str, Any]:
+def clarification_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node entry point.
 
     Returns *delta* updates only (LangGraph merges into state):

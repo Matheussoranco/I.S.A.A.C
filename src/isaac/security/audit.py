@@ -11,6 +11,8 @@ Categories
 * ``approval``  — approval requests / grants / rejections
 * ``guard``     — prompt injection guard results
 * ``sandbox``   — sandbox creation / destruction / violations
+* ``constitution`` — constitutional action reviews
+* ``security``  — other security policy events
 * ``system``    — startup / shutdown / config changes
 """
 
@@ -27,7 +29,16 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-AuditCategory = Literal["auth", "tool", "approval", "guard", "sandbox", "system"]
+AuditCategory = Literal[
+    "auth",
+    "tool",
+    "approval",
+    "guard",
+    "sandbox",
+    "constitution",
+    "security",
+    "system",
+]
 
 _GENESIS_HASH = "0" * 64
 

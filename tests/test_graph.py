@@ -5,7 +5,12 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from isaac.core.state import ErrorEntry, PlanStep, SkillCandidate, make_initial_state
-from isaac.core.transitions import after_guard, after_reflection, after_skill_abstraction
+from isaac.core.transitions import (
+    after_guard,
+    after_planner,
+    after_reflection,
+    after_skill_abstraction,
+)
 
 
 class TestAfterGuard:
@@ -20,12 +25,32 @@ class TestAfterGuard:
         assert after_guard(state) == "__end__"
 
     def test_missing_guard_blocked_defaults_to_perception(self) -> None:
-        """guard_blocked defaults to False in make_initial_state, so missing
-        the key must still route to Perception (total=False TypedDict)."""
         state = make_initial_state()
-        # Remove the key to simulate a partial state update from an older node
         state.pop("guard_blocked", None)  # type: ignore[misc]
         assert after_guard(state) == "perception"
+
+
+class TestAfterPlanner:
+    def test_parallel_enabled_routes_active_frontier_to_parallel(self) -> None:
+        state = make_initial_state()
+        state["plan"] = [
+            PlanStep(id="s1", description="one", status="active"),
+            PlanStep(id="s2", description="two", status="active"),
+        ]
+        with (
+            patch("isaac.config.settings.settings.parallel_synthesis_enabled", True),
+            patch("isaac.config.settings.settings.parallel_synthesis_min_steps", 2),
+        ):
+            assert after_planner(state) == "parallel_synthesis"
+
+    def test_parallel_disabled_routes_to_sequential(self) -> None:
+        state = make_initial_state()
+        state["plan"] = [
+            PlanStep(id="s1", description="one", status="active"),
+            PlanStep(id="s2", description="two", status="active"),
+        ]
+        with patch("isaac.config.settings.settings.parallel_synthesis_enabled", False):
+            assert after_planner(state) == "synthesis"
 
 
 class TestAfterReflection:

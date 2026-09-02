@@ -79,6 +79,13 @@ class TestTokenStore:
         t = next(t for t in active if t.token_id == token.token_id)
         assert t.use_count == 2
 
+    def test_consume_matching_is_atomic_and_honours_one_use(self, store: TokenStore) -> None:
+        token = store.issue("shell", action="execute", max_uses=1)
+        consumed = store.consume_matching("shell", "execute")
+        assert consumed is not None
+        assert consumed.token_id == token.token_id
+        assert store.consume_matching("shell", "execute") is None
+
     def test_revoke(self, store: TokenStore) -> None:
         token = store.issue("tool")
         assert store.revoke(token.token_id)

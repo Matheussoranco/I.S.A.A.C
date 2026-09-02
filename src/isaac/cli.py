@@ -452,6 +452,11 @@ if typer is not None:
         ),
         command: str = typer.Option("", "--command", "-c", help="Command string (for add)."),
         task_id: str = typer.Option("", "--id", help="Task ID (for remove/pause/resume)."),
+        approve_unattended: bool = typer.Option(
+            False,
+            "--approve-unattended",
+            help="Explicitly authorize this task to execute without a live approval prompt.",
+        ),
     ) -> None:
         """Manage background cron tasks."""
         _setup_logging()
@@ -473,8 +478,9 @@ if typer is not None:
                 return
             for t in tasks:
                 status = "enabled" if t["enabled"] else "PAUSED"
+                approval = "approved" if t.get("approved") else "approval-required"
                 typer.echo(
-                    f"  {t['id']}  [{status}]  {t['schedule']}  "
+                    f"  {t['id']}  [{status}; {approval}]  {t['schedule']}  "
                     f"{t['name'] or t['command'][:40]}  "
                     f"last={t['last_run'] or 'never'}  result={t['last_status'] or '-'}"
                 )
@@ -482,7 +488,12 @@ if typer is not None:
             if not command:
                 typer.echo("Provide --command (-c).")
                 raise typer.Exit(1)
-            task = add_task(name=name or command[:30], schedule=schedule, command=command)
+            task = add_task(
+                name=name or command[:30],
+                schedule=schedule,
+                command=command,
+                approved=approve_unattended,
+            )
             typer.echo(f"Created task: {task.id} ({task.name})")
         elif action == "remove":
             if not task_id:
@@ -719,9 +730,10 @@ if typer is not None:
                     "or add --download."
                 )
                 raise typer.Exit(2)
-            tasks = load_gaia_tasks(
-                suite, level=level, **({"timeout_seconds": task_timeout} if task_timeout else {})
-            )
+            if task_timeout:
+                tasks = load_gaia_tasks(suite, level=level, timeout_seconds=task_timeout)
+            else:
+                tasks = load_gaia_tasks(suite, level=level)
             suite_label = f"gaia-2023-l{level}-validation"
         elif fmt == "arc":
             from isaac.eval.arc import download_arc, load_arc_tasks
@@ -1382,7 +1394,7 @@ if typer is not None:
             return
 
         try:
-            data = settings.model_dump(mode="json")
+            data: object = settings.model_dump(mode="json")
         except AttributeError:  # pydantic v1 fallback
             data = _json.loads(settings.json())
 
