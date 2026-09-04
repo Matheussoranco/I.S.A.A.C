@@ -16,7 +16,7 @@ pydantic>=2.0
 pydantic-settings>=2.0
 
 # Numerical (ARC-AGI grids + audio)
-numpy>=1.26
+numpy>=1.26,<2.3
 
 # Knowledge Graphs & Graph-of-Thought
 networkx>=3.2
@@ -81,4 +81,4 @@ mss>=9.0  # cross-platform screen capture
 pytest>=8.0
 pytest-asyncio>=0.24
 ruff==0.15.2
-mypy>=1.13
+mypy==1.19.1
