@@ -72,7 +72,7 @@ def play_wav(path: str | os.PathLike[str]) -> None:
     if os.name == "nt":
         import winsound  # type: ignore[import-not-found]
 
-        winsound.PlaySound(path, winsound.SND_FILENAME)
+        winsound.PlaySound(path, winsound.SND_FILENAME)  # type: ignore[attr-defined]
         return
 
     raise RuntimeError(

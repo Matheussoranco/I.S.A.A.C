@@ -58,7 +58,10 @@ class DesktopBackend:
 
     def bounds(self) -> tuple[int, int, int, int]:
         if os.name == "nt":
-            user32 = ctypes.windll.user32
+            windll = getattr(ctypes, "windll", None)
+            if windll is None:
+                raise RuntimeError("Windows desktop API is unavailable on this platform.")
+            user32 = windll.user32
             return (
                 int(user32.GetSystemMetrics(76)),
                 int(user32.GetSystemMetrics(77)),
