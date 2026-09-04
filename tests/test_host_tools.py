@@ -12,7 +12,7 @@ import asyncio
 import pytest
 
 from isaac.config.settings import get_settings
-from isaac.tools.fileops import FsListTool, FsMoveTool, FsReadTool, FsWriteTool
+from isaac.tools.fileops import FsCopyTool, FsListTool, FsMoveTool, FsReadTool, FsWriteTool
 from isaac.tools.shell import ShellTool
 from isaac.tools.system import SystemInfoTool
 
@@ -62,6 +62,34 @@ def test_fs_move_refuses_overwrite(allowed_root) -> None:
     res2 = _run(FsMoveTool().execute(src=str(src), dest=str(dest), overwrite=True))
     assert res2.success
     assert dest.read_text(encoding="utf-8") == "one"
+
+
+def test_recursive_move_refuses_protected_descendant(allowed_root) -> None:
+    src = allowed_root / "source"
+    src.mkdir()
+    (src / ".env").write_text("SECRET=1", encoding="utf-8")
+    dest = allowed_root / "dest"
+
+    res = _run(FsMoveTool().execute(src=str(src), dest=str(dest)))
+
+    assert res.success is False
+    assert "protected descendant" in res.error.lower()
+    assert src.exists()
+    assert not dest.exists()
+
+
+def test_recursive_copy_refuses_protected_descendant(allowed_root) -> None:
+    src = allowed_root / "source"
+    src.mkdir()
+    (src / ".ssh").mkdir()
+    (src / ".ssh" / "id_rsa").write_text("PRIVATE", encoding="utf-8")
+    dest = allowed_root / "dest"
+
+    res = _run(FsCopyTool().execute(src=str(src), dest=str(dest)))
+
+    assert res.success is False
+    assert "protected descendant" in res.error.lower()
+    assert not dest.exists()
 
 
 # ── sensitive-path deny list ────────────────────────────────────────────────

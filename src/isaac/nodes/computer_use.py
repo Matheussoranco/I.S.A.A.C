@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import asdict
 from typing import Any
 
 from isaac.core.state import (
@@ -93,6 +94,28 @@ def _dict_to_ui_action(d: dict[str, Any]) -> UIAction:
     )
 
 
+def _approve_ui_action(state: IsaacState, action: UIAction) -> bool:
+    """Ask the graph host to approve a side-effecting UI action.
+
+    The graph has no implicit human-in-the-loop edge for this node.  Requiring
+    an explicit callback therefore fails closed for every caller that has not
+    deliberately installed an approval channel.
+    """
+    if action.type in {"screenshot", "wait"}:
+        return True
+    callback = state.get("ui_approval_callback")
+    if not callable(callback):
+        logger.warning(
+            "ComputerUse: denied '%s' because no approval callback is configured.", action.type
+        )
+        return False
+    try:
+        return bool(callback("computer_use", {"action": asdict(action)}, 4))
+    except Exception:
+        logger.exception("ComputerUse approval callback failed; denying action.")
+        return False
+
+
 def computer_use_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: ComputerUse.
 
@@ -131,6 +154,7 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
     new_results: list[UIActionResult] = []
     step_done = False
     done_summary = ""
+    failure_reason = ""
 
     while current_ui_cycle < max_cycles:
         current_ui_cycle += 1
@@ -169,7 +193,16 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
 
         # Execute the suggested action
         action_dict = decision.get("action", {"type": "screenshot"})
+        if not isinstance(action_dict, dict):
+            failure_reason = "Vision model returned a malformed UI action."
+            break
         action = _dict_to_ui_action(action_dict)
+        if not _approve_ui_action(state, action):
+            failure_reason = (
+                f"UI action '{action.type}' was denied because approval was not granted."
+            )
+            new_results.append(UIActionResult(action=action, success=False, error=failure_reason))
+            break
         result = executor.act(action)
         new_results.append(result)
 
@@ -238,8 +271,11 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
             ErrorEntry(
                 node="computer_use",
                 message=(
-                    f"Max UI cycles ({max_cycles}) reached without completing "
-                    f"step '{active_step.id}': {active_step.description}"
+                    failure_reason
+                    or (
+                        f"Max UI cycles ({max_cycles}) reached without completing "
+                        f"step '{active_step.id}': {active_step.description}"
+                    )
                 ),
                 timestamp=datetime.now(tz=timezone.utc).isoformat(),
                 attempt=1,

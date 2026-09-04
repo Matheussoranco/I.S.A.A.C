@@ -92,6 +92,7 @@ class TestComputerUseNode:
     def test_success_marks_step_done_and_builds_skill_candidate(self) -> None:
         state = make_initial_state()
         state["plan"] = [PlanStep(id="s1", description="open browser", status="active", mode="ui")]
+        state["ui_approval_callback"] = lambda *_args: True
 
         mock_llm = MockLLM('{"done": true, "summary": "Browser opened."}')
         mock_exec = _make_mock_executor()
@@ -116,6 +117,7 @@ class TestComputerUseNode:
     def test_max_cycles_exhaustion_marks_step_failed(self) -> None:
         state = make_initial_state()
         state["plan"] = [PlanStep(id="s1", description="open browser", status="active", mode="ui")]
+        state["ui_approval_callback"] = lambda *_args: True
 
         # LLM always says "not done yet"
         mock_llm = MockLLM(
@@ -183,6 +185,7 @@ class TestComputerUseNode:
         """On success the code_buffer JSON must expose before/after screenshots."""
         state = make_initial_state()
         state["plan"] = [PlanStep(id="s1", description="fill form", status="active", mode="ui")]
+        state["ui_approval_callback"] = lambda *_args: True
 
         mock_exec = _make_mock_executor()
         # First call: not done (so it executes an action)
@@ -215,6 +218,30 @@ class TestComputerUseNode:
         # Both screenshot keys should be present (may be empty string if no results yet)
         assert "screenshot_before" in buf
         assert "screenshot_after" in buf
+
+    def test_side_effecting_action_is_denied_without_approval_callback(self) -> None:
+        state = make_initial_state()
+        state["plan"] = [PlanStep(id="s1", description="click button", status="active", mode="ui")]
+        mock_exec = _make_mock_executor()
+
+        import isaac.nodes.computer_use as cu_mod
+
+        with (
+            patch.object(cu_mod, "_get_ui_executor", return_value=mock_exec),
+            patch(
+                "isaac.llm.provider.get_llm",
+                return_value=MockLLM(
+                    '{"done": false, "action": {"type": "click", "x": 10, "y": 10}}'
+                ),
+            ),
+            patch("isaac.config.settings.settings") as ms,
+        ):
+            ms.graph.max_ui_cycles = 5
+            result = computer_use_node(state)
+
+        assert result["plan"][0].status == "failed"
+        assert "approval" in result["errors"][0].message.lower()
+        mock_exec.act.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,8 @@ Full topology
           ▼ pending         ▼ complete
         Planner             END
 
-AwaitApproval is inserted dynamically when pending_approvals exist.
+Tool-call approvals are enforced by :class:`AgentLoop`; graph-hosted
+computer-use actions require an explicit ``ui_approval_callback`` in state.
 """
 
 from __future__ import annotations
@@ -62,7 +63,6 @@ from isaac.core.transitions import (
     after_synthesis,
 )
 from isaac.memory.context_manager import compress_messages
-from isaac.nodes.approval import await_approval_node
 from isaac.nodes.clarification import clarification_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
 from isaac.nodes.connector_execution import connector_execution_node
@@ -96,7 +96,6 @@ _REFLECTION = "reflection"
 _SKILL_ABSTRACTION = "skill_abstraction"
 _CONNECTOR_EXEC = "connector_execution"
 _DIRECT_RESPONSE = "direct_response"
-_AWAIT_APPROVAL = "await_approval"
 _MULTIMODAL_INPUT = "multimodal_input"
 _PARALLEL_SYNTHESIS = "parallel_synthesis"
 _META_LEARNER = "meta_learner"
@@ -157,7 +156,6 @@ def build_graph() -> Any:
     graph.add_node(_META_LEARNER, track_node(_META_LEARNER)(meta_learner_node))
     graph.add_node(_CONNECTOR_EXEC, track_node(_CONNECTOR_EXEC)(connector_execution_node))
     graph.add_node(_DIRECT_RESPONSE, track_node(_DIRECT_RESPONSE)(direct_response_node))
-    graph.add_node(_AWAIT_APPROVAL, track_node(_AWAIT_APPROVAL)(await_approval_node))
 
     # Entry: Guard → {MultimodalInput | Perception | END}
     graph.set_entry_point(_GUARD)
@@ -322,6 +320,18 @@ def build_and_run() -> int:
     compiled = build_graph()
     state = make_initial_state()
     state["session_id"] = str(uuid.uuid4())
+
+    def _approve_ui_action(_name: str, args: dict[str, Any], risk: int) -> bool:
+        """Provide the CLI's explicit approval channel for computer use."""
+        action = args.get("action", {})
+        action_type = action.get("type", "unknown") if isinstance(action, dict) else "unknown"
+        print(f"\nApproval required: computer action '{action_type}' (risk {risk}/5).")
+        try:
+            return input("Allow this action? [y/N] ").strip().lower() in {"y", "yes"}
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    state["ui_approval_callback"] = _approve_ui_action
 
     print("I.S.A.A.C. — Intelligent System for Autonomous Action and Cognition")
     print("Type your task below.  Press Ctrl+C to exit.\n")

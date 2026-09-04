@@ -96,6 +96,19 @@ class IsaacTool(ABC):
             "parameters": self.parameters,
         }
 
+    def approval_required(self, **kwargs: Any) -> bool:
+        """Return whether this particular invocation needs human approval.
+
+        Most tools have a fixed approval policy.  Tools with a mixed read/write
+        surface can override this method so that the policy is derived from the
+        validated call arguments rather than from coarse class metadata.
+        """
+        return self.requires_approval
+
+    def effective_risk_level(self, **kwargs: Any) -> int:
+        """Return the risk level for this particular invocation."""
+        return self.risk_level
+
     def to_function_schema(self) -> dict[str, Any]:
         """Return an OpenAI/Anthropic-style function schema for native tool calling.
 

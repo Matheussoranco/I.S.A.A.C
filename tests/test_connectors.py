@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # BaseConnector
 # ---------------------------------------------------------------------------
@@ -85,6 +87,30 @@ class TestWebSearchConnector:
             ]
             result = c.run(query="test query")
             assert "results" in result or "error" in result
+
+
+class TestWebFetchConnector:
+    def test_private_and_local_urls_are_blocked(self) -> None:
+        from isaac.skills.connectors.web_fetch import WebFetchConnector
+
+        connector = WebFetchConnector()
+        for url in ("http://127.0.0.1:8080", "http://localhost", "http://169.254.169.254"):
+            with pytest.raises(ValueError, match=r"private|local"):
+                connector._validate_url(url)
+
+    def test_urls_with_embedded_credentials_are_blocked(self) -> None:
+        from isaac.skills.connectors.web_fetch import WebFetchConnector
+
+        with pytest.raises(ValueError, match="credentials"):
+            WebFetchConnector._validate_url("https://user:password@example.com")
+
+    def test_response_size_limit_is_enforced_before_decoding(self) -> None:
+        from isaac.skills.connectors.web_fetch import WebFetchConnector
+
+        response = MagicMock()
+        response.headers = {"content-length": str(WebFetchConnector._MAX_RESPONSE_BYTES + 1)}
+        with pytest.raises(ValueError, match="2 MiB"):
+            WebFetchConnector._read_limited(response)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +257,22 @@ class TestObsidianConnector:
         with patch.dict(os.environ, {"OBSIDIAN_VAULT_PATH": str(tmp_path)}):
             result = c.run(action="read", path="../../etc/passwd")
             assert "error" in result
+
+    def test_sibling_directory_prefix_escape_blocked(self, tmp_path: Path) -> None:
+        from isaac.skills.connectors.obsidian import ObsidianConnector
+
+        vault = tmp_path / "vault"
+        sibling = tmp_path / "vault_backup"
+        vault.mkdir()
+        sibling.mkdir()
+        (sibling / "secret.md").write_text("secret")
+
+        c = ObsidianConnector()
+        with patch.dict(os.environ, {"OBSIDIAN_VAULT_PATH": str(vault)}):
+            result = c.run(action="read", path="../vault_backup/secret.md")
+
+        assert "error" in result
+        assert "escapes" in result["error"]
 
 
 # ---------------------------------------------------------------------------

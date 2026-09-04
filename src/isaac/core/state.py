@@ -268,6 +268,9 @@ class IsaacState(TypedDict, total=False):
     ui_actions: Annotated[list[UIAction], _append_list]
     ui_results: Annotated[list[UIActionResult], _append_list]
     ui_cycle: Annotated[int, _replace]
+    # Callable is intentionally kept out of prompts and is only used by local
+    # graph hosts to approve side-effecting computer-use actions.
+    ui_approval_callback: Annotated[Any, _replace]
     # ── Guard ───────────────────────────────────────────────────────────────
     guard_blocked: Annotated[bool, _replace]
     """Set to True by the Guard node when a prompt-injection attempt is detected."""

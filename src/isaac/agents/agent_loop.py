@@ -356,15 +356,17 @@ class AgentLoop:
         # A pre-issued operator token is itself a scoped approval.  Otherwise
         # the normal risk policy decides whether a live human must approve.
         authorized = self._consume_capability(name)
+        effective_risk = tool.effective_risk_level(**args)
+        approval_required = tool.approval_required(**args)
         needs_approval = (
-            (tool.requires_approval or tool.risk_level > self.max_risk)
+            (approval_required or effective_risk > self.max_risk)
             and not self.auto_approve
             and not authorized
         )
         authorization_actor = "operator_token" if authorized else ""
         if needs_approval and self._approval_callback is not None:
             try:
-                approved = bool(self._approval_callback(name, args, tool.risk_level))
+                approved = bool(self._approval_callback(name, args, effective_risk))
             except Exception:  # pragma: no cover - a broken prompt must fail closed
                 logger.debug("approval_callback raised; denying", exc_info=True)
                 approved = False
@@ -387,7 +389,7 @@ class AgentLoop:
                 name,
                 args,
                 (
-                    f"BLOCKED: tool '{name}' is risk level {tool.risk_level} and requires human "
+                    f"BLOCKED: tool '{name}' is risk level {effective_risk} and requires human "
                     "approval; it was not executed. Continue without it or report that approval "
                     "is needed."
                 ),

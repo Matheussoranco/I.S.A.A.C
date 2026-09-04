@@ -323,14 +323,28 @@ def _handle_code_execute(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _handle_web_search(args: dict[str, Any]) -> dict[str, Any]:
-    from isaac.skills.connectors.web_search import WebSearchConnector
+    from isaac.security.capabilities import get_token_store
+    from isaac.skills.connectors.registry import run_connector
 
     query = args["query"]
     max_results = args.get("max_results", 5)
 
-    # BaseConnector exposes run(**kwargs); there is no .search().
-    connector = WebSearchConnector()
-    payload = connector.run(query=query, max_results=max_results)
+    # MCP is an external entry point, so route through the same capability and
+    # audit boundary used by the agent loop instead of instantiating a
+    # connector directly.
+    token = get_token_store().issue(
+        "web_search",
+        action="execute",
+        ttl_hours=1 / 60,
+        issued_by="mcp:isaac_web_search",
+        max_uses=1,
+    )
+    payload = run_connector(
+        "web_search",
+        capability_token=token.token_id,
+        query=query,
+        max_results=max_results,
+    )
     out: dict[str, Any] = {"query": query, "results": payload.get("results", [])}
     if payload.get("error"):
         out["error"] = payload["error"]

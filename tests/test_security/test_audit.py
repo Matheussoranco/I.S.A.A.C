@@ -48,6 +48,25 @@ class TestAuditEntry:
         )
         assert e1.compute_hash() != e2.compute_hash()
 
+    def test_version_two_hash_binds_actor(self) -> None:
+        e1 = AuditEntry(
+            timestamp="2025-01-01T00:00:00Z",
+            category="system",
+            action="startup",
+            actor="alice",
+            prev_hash=_GENESIS_HASH,
+            hash_version=2,
+        )
+        e2 = AuditEntry(
+            timestamp=e1.timestamp,
+            category=e1.category,
+            action=e1.action,
+            actor="bob",
+            prev_hash=_GENESIS_HASH,
+            hash_version=2,
+        )
+        assert e1.compute_hash() != e2.compute_hash()
+
 
 class TestAuditLog:
     def test_log_creates_file(self, audit_log: AuditLog, audit_dir: Path) -> None:
@@ -58,6 +77,7 @@ class TestAuditLog:
         entry = audit_log.log("tool", "execute", actor="test", details={"tool": "search"})
         assert entry.entry_hash != ""
         assert entry.prev_hash == _GENESIS_HASH
+        assert entry.hash_version == 2
 
     def test_chain_links_entries(self, audit_log: AuditLog) -> None:
         e1 = audit_log.log("system", "startup")

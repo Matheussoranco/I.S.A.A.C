@@ -220,11 +220,17 @@ if typer is not None:
                 "The UI dependencies are missing. Run: pip install -e ."
             ) from exc
 
+        if host.strip().lower() not in {"127.0.0.1", "localhost", "::1"}:
+            raise typer.BadParameter(
+                "The UI is local-only and does not support non-loopback binding "
+                "without an authenticated reverse proxy."
+            )
+
         if not no_open:
             import threading
             import webbrowser
 
-            url_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+            url_host = "127.0.0.1" if host == "localhost" else host
             timer = threading.Timer(1.0, lambda: webbrowser.open(f"http://{url_host}:{port}"))
             timer.daemon = True
             timer.start()

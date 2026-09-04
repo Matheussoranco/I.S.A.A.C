@@ -125,6 +125,24 @@ class BrowserTool(IsaacTool):
         """
         self._visual_callback = callback
 
+    def approval_required(self, **kwargs: Any) -> bool:
+        """Require confirmation for browser actions that can change state.
+
+        Navigation and inspection remain low-friction, while clicks, typing,
+        key presses, and arbitrary JavaScript can submit forms or mutate data.
+        """
+        return str(kwargs.get("action", "")).strip() in {
+            "navigate",
+            "click",
+            "type",
+            "press",
+            "eval",
+            "back",
+        }
+
+    def effective_risk_level(self, **kwargs: Any) -> int:
+        return 4 if self.approval_required(**kwargs) else self.risk_level
+
     def _emit_visual(self, kind: str, **data: Any) -> None:
         if self._visual_callback is None:
             return

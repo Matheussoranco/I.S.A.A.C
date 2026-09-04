@@ -54,11 +54,22 @@ class AuditEntry:
     details: dict[str, Any] = field(default_factory=dict)
     prev_hash: str = ""
     entry_hash: str = ""
+    # Version 1 entries predate actor binding.  Keep them verifiable while
+    # binding actor into every newly-created (version 2) entry.
+    hash_version: int = 1
 
     def compute_hash(self) -> str:
-        """Compute SHA-256 over (prev_hash + timestamp + category + action + details)."""
+        """Compute the versioned SHA-256 integrity hash for this entry."""
         details_json = json.dumps(self.details, sort_keys=True)
-        payload = f"{self.prev_hash}|{self.timestamp}|{self.category}|{self.action}|{details_json}"
+        if self.hash_version >= 2:
+            payload = (
+                f"{self.prev_hash}|{self.timestamp}|{self.category}|{self.action}|"
+                f"{self.actor}|{details_json}"
+            )
+        else:
+            payload = (
+                f"{self.prev_hash}|{self.timestamp}|{self.category}|{self.action}|{details_json}"
+            )
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -129,16 +140,17 @@ class AuditLog:
             action=action,
             actor=actor,
             details=details or {},
+            hash_version=2,
         )
 
         with self._lock:
             entry.prev_hash = self._prev_hash
             entry.entry_hash = entry.compute_hash()
-            self._prev_hash = entry.entry_hash
 
             try:
                 with open(self._log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+                self._prev_hash = entry.entry_hash
             except Exception as exc:
                 logger.error("Failed to write audit entry: %s", exc)
 

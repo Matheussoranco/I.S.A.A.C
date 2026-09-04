@@ -46,6 +46,17 @@ class TestPlannerNode:
 
         assert len(result["plan"]) == 1  # fallback single step
 
+    def test_fallback_on_structurally_invalid_json(self) -> None:
+        state = make_initial_state()
+        state["hypothesis"] = "test"
+
+        mock = MockLLM('{"steps": [{"id": 12, "description": null}]}')
+        with patch("isaac.llm.provider.get_llm", return_value=mock):
+            result = planner_node(state)
+
+        assert len(result["plan"]) == 1
+        assert result["plan"][0].id == "s1"
+
     # ------------------------------------------------------------------
     # Dependency-aware step scheduling
     # ------------------------------------------------------------------

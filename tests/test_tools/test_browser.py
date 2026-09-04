@@ -34,6 +34,15 @@ def test_browser_schema_enumerates_actions() -> None:
         assert expected in actions
 
 
+def test_browser_mutating_actions_require_approval() -> None:
+    browser = BrowserTool()
+
+    assert browser.approval_required(action="extract_text") is False
+    assert browser.approval_required(action="click", selector="#submit") is True
+    assert browser.approval_required(action="eval", script="document.body.innerHTML='x'") is True
+    assert browser.effective_risk_level(action="click") == 4
+
+
 @pytest.mark.asyncio
 async def test_aclose_is_safe_before_launch() -> None:
     # Closing a never-launched session must not raise.

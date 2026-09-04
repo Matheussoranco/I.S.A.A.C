@@ -85,6 +85,25 @@ def _denied(path_str: str) -> ToolResult:
     )
 
 
+def _has_sensitive_descendant(root: Path) -> Path | None:
+    """Return the first protected descendant below *root*, if any.
+
+    Recursive move/copy operations must inspect the complete source tree;
+    checking only the top-level directory would allow a nested ``.env`` or
+    private key to cross the host-filesystem boundary.
+    """
+    if not root.is_dir():
+        return None
+    try:
+        for child in root.rglob("*"):
+            if is_sensitive_path(child):
+                return child
+    except OSError:
+        # An incomplete scan cannot establish that the tree is safe.
+        return root
+    return None
+
+
 class FsListTool(IsaacTool):
     """List a directory on the host (within allowed paths)."""
 
@@ -317,6 +336,13 @@ class FsMoveTool(IsaacTool):
             return _denied(dest_str)
         if not src.exists():
             return ToolResult(success=False, error=f"Source does not exist: {src_str}")
+        if src.is_dir():
+            protected = _has_sensitive_descendant(src)
+            if protected is not None:
+                return ToolResult(
+                    success=False,
+                    error=f"Recursive move refused: protected descendant '{protected}'.",
+                )
         if dest.exists() and not bool(kwargs.get("overwrite", False)):
             return ToolResult(
                 success=False,
@@ -359,6 +385,23 @@ class FsCopyTool(IsaacTool):
             return _denied(dest_str)
         if not src.exists():
             return ToolResult(success=False, error=f"Source does not exist: {src_str}")
+        if src.is_dir():
+            protected = _has_sensitive_descendant(src)
+            if protected is not None:
+                return ToolResult(
+                    success=False,
+                    error=f"Recursive copy refused: protected descendant '{protected}'.",
+                )
+            if dest.exists() and dest.is_dir():
+                existing_protected = _has_sensitive_descendant(dest)
+                if existing_protected is not None:
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            "Recursive copy refused: destination contains a protected "
+                            f"descendant '{existing_protected}'."
+                        ),
+                    )
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             if src.is_dir():

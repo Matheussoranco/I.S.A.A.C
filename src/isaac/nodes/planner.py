@@ -74,8 +74,25 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
             cleaned = cleaned.split("\n", 1)[1]
             cleaned = cleaned.rsplit("```", 1)[0]
         parsed = json.loads(cleaned)
+        if not isinstance(parsed, dict):
+            raise ValueError("planner response must be a JSON object")
         raw_steps = parsed.get("steps", [])
+        if not isinstance(raw_steps, list):
+            raise ValueError("planner 'steps' must be a list")
         for raw in raw_steps:
+            if not isinstance(raw, dict):
+                raise ValueError("planner steps must be objects")
+            step_id = raw.get("id")
+            description = raw.get("description")
+            depends_on = raw.get("depends_on", [])
+            if not isinstance(step_id, str) or not step_id.strip():
+                raise ValueError("planner step id must be a non-empty string")
+            if not isinstance(description, str) or not description.strip():
+                raise ValueError("planner step description must be a non-empty string")
+            if not isinstance(depends_on, list) or not all(
+                isinstance(dependency, str) for dependency in depends_on
+            ):
+                raise ValueError("planner depends_on must be a list of strings")
             raw_mode: object = raw.get("mode", "code")
             mode: Literal["code", "ui", "hybrid"]
             if raw_mode in ("code", "ui", "hybrid"):
@@ -84,14 +101,16 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
                 mode = "code"
             steps.append(
                 PlanStep(
-                    id=raw["id"],
-                    description=raw["description"],
+                    id=step_id,
+                    description=description,
                     mode=mode,
                     status="pending",
-                    depends_on=raw.get("depends_on", []),
+                    depends_on=depends_on,
                 )
             )
-    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+        if not steps:
+            raise ValueError("planner returned no usable steps")
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
         logger.error("Planner: failed to parse LLM plan: %s", exc)
         # Fallback: single generic step
         task_mode = state.get("task_mode", "code")

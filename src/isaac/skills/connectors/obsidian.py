@@ -33,8 +33,10 @@ class ObsidianConnector(BaseConnector):
         """Ensure *target* is within the vault root."""
         resolved = target.resolve()
         vault = self._vault_root()
-        if not str(resolved).startswith(str(vault)):
-            raise PermissionError(f"Path escapes the vault: {resolved}")
+        try:
+            resolved.relative_to(vault)
+        except ValueError:
+            raise PermissionError(f"Path escapes the vault: {resolved}") from None
         return resolved
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
