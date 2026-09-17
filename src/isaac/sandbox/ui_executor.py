@@ -44,9 +44,9 @@ class UIExecutor:
         image: str | None = None,
         display: str = ":99",
     ) -> None:
-        from isaac.config.settings import settings
+        from isaac.config.settings import get_settings
 
-        self._image = image or settings.ui_sandbox.image
+        self._image = image or get_settings().ui_sandbox.image
         self._display = display
         self._policy = ui_policy()
         self._manager = SandboxManager(self._image, self._policy)
@@ -60,9 +60,9 @@ class UIExecutor:
         The entrypoint boots Xvfb + openbox and then idles, waiting for
         ``docker exec`` calls from the host.
         """
-        from isaac.config.settings import settings
+        from isaac.config.settings import get_settings
 
-        cfg = settings.ui_sandbox
+        cfg = get_settings().ui_sandbox
         env = {
             "DISPLAY": self._display,
             "SCREEN_WIDTH": str(cfg.screen_width),
@@ -133,8 +133,9 @@ class UIExecutor:
     def exec_python(self, code: str) -> tuple[int, str, str]:
         """Run a Python script string inside the container (hybrid mode).
 
-        The script is written to ``/tmp/isaac_task.py`` via a heredoc-style
-        echo, then executed with python3.
+        The script is written to a unique ``/tmp/isaac_task_<uuid>.py`` per
+        execution (previously a fixed ``/tmp/isaac_task.py`` which raced
+        concurrent runs), then executed with python3.
 
         Returns
         -------
@@ -144,7 +145,11 @@ class UIExecutor:
         self._require_running()
 
         # Write script to a temp file on the HOST, then copy into container
-        script_path = "/tmp/isaac_task.py"
+        import uuid as _uuid
+
+        task_id = _uuid.uuid4().hex[:12]
+        filename = f"isaac_task_{task_id}.py"
+        script_path = f"/tmp/{filename}"
 
         # Use docker cp via SDK: we put the file in a tar stream
         import io
@@ -153,7 +158,7 @@ class UIExecutor:
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as tf:
             encoded = code.encode()
-            info = tarfile.TarInfo(name="isaac_task.py")
+            info = tarfile.TarInfo(name=filename)
             info.size = len(encoded)
             tf.addfile(info, io.BytesIO(encoded))
         buf.seek(0)
@@ -172,9 +177,9 @@ class UIExecutor:
         ComputerUse node.  This method only fills the ``screenshot_b64`` field
         and basic display metadata.
         """
-        from isaac.config.settings import settings
+        from isaac.config.settings import get_settings
 
-        cfg = settings.ui_sandbox
+        cfg = get_settings().ui_sandbox
         return GUIState(
             screenshot_b64=self.screenshot_b64(),
             screen_width=cfg.screen_width,

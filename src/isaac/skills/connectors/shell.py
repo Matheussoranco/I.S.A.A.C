@@ -7,7 +7,6 @@ Enforces a strict allowlist of commands and blocks shell metacharacters
 from __future__ import annotations
 
 import logging
-import os
 import re
 import subprocess
 import time
@@ -79,6 +78,14 @@ class ShellConnector(BaseConnector):
         command: str = kwargs.get("command", "").strip()
         timeout: int = min(int(kwargs.get("timeout", 10)), 60)
         cwd: str | None = kwargs.get("cwd")
+        pass_secrets: bool = bool(kwargs.get("pass_secrets", False))
+        if not pass_secrets:
+            try:
+                from isaac.config.settings import get_settings
+
+                pass_secrets = bool(get_settings().shell_pass_secrets)
+            except Exception:
+                pass_secrets = False
 
         if not command:
             return {"error": "No command provided"}
@@ -94,6 +101,9 @@ class ShellConnector(BaseConnector):
             return {"error": f"Command '{executable}' not in allowlist: {sorted(allowed)}"}
 
         try:
+            from isaac.tools.shell import build_child_env
+
+            child_env = build_child_env(pass_secrets=pass_secrets)
             start = time.perf_counter()
             result = subprocess.run(
                 parts,
@@ -101,7 +111,7 @@ class ShellConnector(BaseConnector):
                 text=True,
                 timeout=timeout,
                 cwd=cwd,
-                env={**os.environ},
+                env=child_env,
             )
             duration_ms = round((time.perf_counter() - start) * 1000)
             return {

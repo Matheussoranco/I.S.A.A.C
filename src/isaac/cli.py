@@ -906,16 +906,25 @@ if typer is not None:
             typer.echo(f"\nWrote {out_path}")
 
     @app.command()
-    def doctor() -> None:
+    def doctor(
+        strict: bool = typer.Option(
+            False,
+            "--strict",
+            help="Fail on unknown ISAAC_* env vars (typo guard) plus connector env audit.",
+        ),
+    ) -> None:
         """Preflight check: Python, settings, Ollama, Docker, and optional extras.
 
         Exits non-zero only when a *core* requirement is broken; missing
         optional capabilities are reported as warnings with the fix.
+        With ``--strict``, unknown ``ISAAC_*`` variables (probable typos —
+        e.g. ``ISAAC_TIMEOUT`` instead of ``ISAAC_SANDBOX_TIMEOUT_SECONDS``)
+        are reported as failures.
         """
         _setup_logging()
         from isaac.doctor import has_failures, run_checks
 
-        results = run_checks()
+        results = run_checks(strict=strict)
         marks = {"ok": "✓", "warn": "!", "fail": "✗"}
         for r in results:
             typer.echo(f"  [{marks.get(r.status, '?')}] {r.name:18s} {r.detail}")

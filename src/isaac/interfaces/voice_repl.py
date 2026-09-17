@@ -170,12 +170,29 @@ def run_voice_repl(hands_free: bool = False) -> int:
 
             # STT
             t0 = time.monotonic()
+            wav_path: str | None = None
             try:
-                wav_path = save_wav(audio, f"/tmp/isaac_utt_{int(time.time())}.wav")
+                import tempfile
+
+                from isaac.multimodal.voice.audio_io import save_wav as _save_wav
+
+                with tempfile.NamedTemporaryFile(
+                    prefix="isaac_utt_", suffix=".wav", delete=False
+                ) as tmp:
+                    wav_path = tmp.name
+                _save_wav(audio, wav_path)
                 user_text = stt.transcribe(wav_path)
             except Exception as exc:
                 _print(f"STT error: {exc}", color="31")
                 continue
+            finally:
+                if wav_path:
+                    try:
+                        import os as _os
+
+                        _os.unlink(wav_path)
+                    except OSError:
+                        pass
             stt_ms = int((time.monotonic() - t0) * 1000)
 
             user_text = user_text.strip()

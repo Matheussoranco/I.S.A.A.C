@@ -1,7 +1,9 @@
 """GitHubConnector — GitHub REST API v3 integration.
 
-Requires ``GITHUB_TOKEN`` environment variable.  Uses httpx for HTTP
-requests against the GitHub REST API.
+Canonical env var: ``ISAAC_GITHUB_TOKEN`` (see ``.env.example``).
+Legacy ``GITHUB_TOKEN`` remains accepted as a deprecated fallback.
+Values resolve through ``get_settings()`` — never ``os.environ[]`` directly.
+Uses httpx for HTTP requests against the GitHub REST API.
 """
 
 from __future__ import annotations
@@ -22,14 +24,14 @@ class GitHubConnector(BaseConnector):
     name = "github"
     description = (
         "List repos, read files, create/list issues, and search code on GitHub. "
-        "Requires GITHUB_TOKEN."
+        "Requires ISAAC_GITHUB_TOKEN."
     )
-    requires_env: ClassVar[list[str]] = ["GITHUB_TOKEN"]
+    requires_env: ClassVar[list[str]] = ["ISAAC_GITHUB_TOKEN"]
 
     def _headers(self) -> dict[str, str]:
-        import os
+        from isaac.config.settings import get_settings, resolve_env
 
-        token = os.environ.get("GITHUB_TOKEN", "")
+        token = (get_settings().github_token or resolve_env("ISAAC_GITHUB_TOKEN")).strip()
         return {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",

@@ -115,7 +115,14 @@ def run_connector(
     if connector is None:
         return {"error": f"Unknown connector: {name}. Available: {sorted(reg)}"}
     if not connector.is_available():
-        missing = [e for e in connector.requires_env if not __import__("os").environ.get(e)]
+        try:
+            from isaac.config.settings import env_is_set
+
+            missing = [e for e in connector.requires_env if not env_is_set(e)]
+        except Exception:
+            import os as _os
+
+            missing = [e for e in connector.requires_env if not _os.environ.get(e)]
         return {"error": f"Connector '{name}' unavailable — missing env: {missing}"}
 
     # Connector calls reach the host outside AgentLoop, so authorization is

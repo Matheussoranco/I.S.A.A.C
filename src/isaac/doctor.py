@@ -143,7 +143,64 @@ def _check_optional_deps() -> list[CheckResult]:
     return results
 
 
-def run_checks() -> list[CheckResult]:
+def _check_connectors() -> list[CheckResult]:
+    """Document each connector's ``requires_env`` (presence only, never values)."""
+    try:
+        from isaac.skills.connectors.registry import get_registry
+    except Exception as exc:
+        return [CheckResult("connectors", "warn", f"Registry unavailable: {exc}")]
+    try:
+        reg = get_registry()
+    except Exception as exc:
+        return [CheckResult("connectors", "warn", f"Discovery failed: {exc}")]
+    results: list[CheckResult] = []
+    for name in sorted(reg):
+        connector = reg[name]
+        required = list(getattr(connector, "requires_env", []) or [])
+        if not required:
+            results.append(CheckResult(f"connector:{name}", "ok", "no env required"))
+            continue
+        try:
+            from isaac.config.settings import env_is_set
+
+            missing = [v for v in required if not env_is_set(v)]
+        except Exception:
+            missing = [v for v in required if not os.environ.get(v)]
+        if not missing:
+            results.append(
+                CheckResult(f"connector:{name}", "ok", f"env present: {', '.join(required)}")
+            )
+        else:
+            results.append(
+                CheckResult(
+                    f"connector:{name}",
+                    "warn",
+                    f"missing env: {', '.join(missing)} — see .env.example",
+                )
+            )
+    return results
+
+
+def _check_strict_config() -> CheckResult:
+    """Strict mode: unknown ``ISAAC_*`` keys are probable typos (fail)."""
+    try:
+        from isaac.config.settings import find_unknown_env_vars
+
+        unknown = find_unknown_env_vars()
+    except Exception as exc:
+        return CheckResult("config-strict", "warn", f"Strict check failed: {exc}")
+    if unknown:
+        return CheckResult(
+            "config-strict",
+            "fail",
+            f"Unknown env var(s): {', '.join(unknown)}. "
+            f"See .env.example for canonical names "
+            f"(e.g. ISAAC_SANDBOX_TIMEOUT_SECONDS, not TIMEOUT).",
+        )
+    return CheckResult("config-strict", "ok", "No unknown ISAAC_* env vars.")
+
+
+def run_checks(*, strict: bool = False) -> list[CheckResult]:
     """Run every preflight check and return the results (never raises)."""
     results = [
         _check_python(),
@@ -153,6 +210,9 @@ def run_checks() -> list[CheckResult]:
         _check_cloud_keys(),
     ]
     results.extend(_check_optional_deps())
+    results.extend(_check_connectors())
+    if strict:
+        results.append(_check_strict_config())
     return results
 
 

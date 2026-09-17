@@ -7,6 +7,13 @@ Routes tasks to the appropriate LLM based on complexity level:
 
 All routing decisions are logged.  The router health-checks Ollama on first
 use and falls back gracefully if unavailable.
+
+.. deprecated::
+    Prefer :mod:`isaac.llm.multimodal_router` (``get_multimodal_router``),
+    which covers the same complexity tiers plus a modality dimension.
+    This module remains as a backwards-compatible shim: :class:`LLMRouter`
+    and :func:`get_router` keep working, but new code should use the
+    multimodal router.
 """
 
 from __future__ import annotations
@@ -35,6 +42,11 @@ class TaskComplexity(str, Enum):
 
 class LLMRouter:
     """Route tasks to the appropriate LLM based on complexity.
+
+    .. deprecated::
+        Legacy shim over :class:`isaac.llm.multimodal_router.MultimodalRouter`.
+        Preserved for backwards compatibility; new code should call
+        ``get_multimodal_router().route(Modality.TEXT, ...)``.
 
     Ollama-first: always prefers local models for privacy.  Falls back
     to the configured API provider only when Ollama is unavailable or
@@ -211,16 +223,28 @@ _router: LLMRouter | None = None
 
 
 def get_router() -> LLMRouter:
-    """Return the module-level LLM router singleton."""
+    """Return the module-level LLM router singleton.
+
+    .. deprecated:: Use ``get_multimodal_router`` instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "isaac.llm.router.get_router / LLMRouter is deprecated; "
+        "use isaac.llm.multimodal_router.get_multimodal_router instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     global _router
     if _router is None:
-        from isaac.config.settings import settings
+        from isaac.config.settings import get_settings
 
+        _s = get_settings()
         _router = LLMRouter(
-            ollama_base_url=settings.ollama_base_url,
-            light_model=settings.ollama_light_model,
-            heavy_model=settings.ollama_heavy_model,
-            fallback_provider=settings.llm_fallback_provider,
+            ollama_base_url=_s.ollama_base_url,
+            light_model=_s.ollama_light_model,
+            heavy_model=_s.ollama_heavy_model,
+            fallback_provider=_s.llm_fallback_provider,
         )
     return _router
 

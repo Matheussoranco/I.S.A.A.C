@@ -54,9 +54,10 @@ class AuditEntry:
     details: dict[str, Any] = field(default_factory=dict)
     prev_hash: str = ""
     entry_hash: str = ""
-    # Version 1 entries predate actor binding.  Keep them verifiable while
-    # binding actor into every newly-created (version 2) entry.
-    hash_version: int = 1
+    # Version 1 entries predate actor binding (kept verifiable on read).
+    # All newly-created entries default to version 2, which binds actor
+    # into the hash chain.
+    hash_version: int = 2
 
     def compute_hash(self) -> str:
         """Compute the versioned SHA-256 integrity hash for this entry."""

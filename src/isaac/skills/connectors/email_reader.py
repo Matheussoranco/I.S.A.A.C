@@ -1,8 +1,15 @@
 """EmailConnector — Read-only IMAP email access.
 
-Requires ``EMAIL_IMAP_HOST``, ``EMAIL_USER``, and ``EMAIL_PASSWORD``
-environment variables.  Provides **read-only** operations: listing,
-reading, and searching messages.
+Canonical env vars (see ``.env.example``)::
+
+    ISAAC_EMAIL_IMAP_HOST, ISAAC_EMAIL_USER, ISAAC_EMAIL_PASSWORD,
+    ISAAC_EMAIL_IMAP_PORT
+
+Legacy non-prefixed names (``EMAIL_IMAP_HOST``, ``EMAIL_USER``,
+``EMAIL_PASSWORD``, ``EMAIL_IMAP_PORT``) remain accepted as a deprecated
+fallback with a ``DeprecationWarning``.  All values resolve through
+:func:`isaac.config.settings.get_settings` — never ``os.environ[]`` directly.
+Provides **read-only** operations: listing, reading, and searching messages.
 """
 
 from __future__ import annotations
@@ -18,6 +25,16 @@ from isaac.skills.connectors.base import BaseConnector
 logger = logging.getLogger(__name__)
 
 
+def _quote_imap_string(value: str) -> str:
+    """Quote *value* for safe embedding in an IMAP SEARCH string.
+
+    IMAP quoted-strings cannot contain raw ``"`` or ``\\``.  Strip CR/LF
+    (command injection) and escape backslash/quote per RFC 3501.
+    """
+    cleaned = value.replace("\r", " ").replace("\n", " ")
+    return cleaned.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _decode_payload(payload: object) -> str:
     """Decode IMAP payloads without assuming the email package's broad union."""
     if isinstance(payload, bytes):
@@ -31,18 +48,37 @@ class EmailConnector(BaseConnector):
     name = "email"
     description = (
         "Read-only IMAP email access.  List, read, and search messages. "
-        "Requires EMAIL_IMAP_HOST, EMAIL_USER, and EMAIL_PASSWORD."
+        "Requires ISAAC_EMAIL_IMAP_HOST, ISAAC_EMAIL_USER, and "
+        "ISAAC_EMAIL_PASSWORD."
     )
-    requires_env: ClassVar[list[str]] = ["EMAIL_IMAP_HOST", "EMAIL_USER", "EMAIL_PASSWORD"]
+    requires_env: ClassVar[list[str]] = [
+        "ISAAC_EMAIL_IMAP_HOST",
+        "ISAAC_EMAIL_USER",
+        "ISAAC_EMAIL_PASSWORD",
+    ]
+
+    def _credentials(self) -> tuple[str, str, str, int]:
+        """Resolve IMAP credentials via settings (canonical + legacy fallback)."""
+        from isaac.config.settings import get_settings, resolve_env
+
+        s = get_settings()
+        host = (s.email_imap_host or resolve_env("ISAAC_EMAIL_IMAP_HOST")).strip()
+        user = (s.email_user or resolve_env("ISAAC_EMAIL_USER")).strip()
+        password = s.email_password or resolve_env("ISAAC_EMAIL_PASSWORD")
+        port_raw = str(s.email_imap_port or resolve_env("ISAAC_EMAIL_IMAP_PORT", "993"))
+        try:
+            port = int(str(port_raw).strip())
+        except ValueError:
+            port = 993
+        if not host or not user or not password:
+            raise RuntimeError(
+                "Email connector unavailable — missing "
+                "ISAAC_EMAIL_IMAP_HOST / ISAAC_EMAIL_USER / ISAAC_EMAIL_PASSWORD"
+            )
+        return host, user, password, port
 
     def _connect(self) -> imaplib.IMAP4_SSL:
-        import os
-
-        host = os.environ["EMAIL_IMAP_HOST"]
-        user = os.environ["EMAIL_USER"]
-        password = os.environ["EMAIL_PASSWORD"]
-        port = int(os.environ.get("EMAIL_IMAP_PORT", "993"))
-
+        host, user, password, port = self._credentials()
         conn = imaplib.IMAP4_SSL(host, port)
         conn.login(user, password)
         return conn
@@ -159,8 +195,10 @@ class EmailConnector(BaseConnector):
         conn = self._connect()
         try:
             conn.select(folder, readonly=True)
-            # IMAP SEARCH with SUBJECT or TEXT
-            _status, data = conn.search(None, f'(OR SUBJECT "{query}" BODY "{query}")')
+            # IMAP SEARCH with SUBJECT or TEXT — query is RFC 3501 quoted
+            # (no raw quotes/backslashes/CR-LF) to block IMAP injection.
+            safe = _quote_imap_string(str(query))[:500]
+            _status, data = conn.search(None, f'(OR SUBJECT "{safe}" BODY "{safe}")')
             msg_ids = data[0].split()
             recent = msg_ids[-limit:] if msg_ids else []
             recent.reverse()

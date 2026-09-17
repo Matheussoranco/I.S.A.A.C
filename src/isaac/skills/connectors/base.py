@@ -7,7 +7,6 @@ The registry uses ``is_available()`` to decide which connectors to expose.
 from __future__ import annotations
 
 import logging
-import os
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
@@ -32,8 +31,19 @@ class BaseConnector(ABC):
     requires_env: ClassVar[list[str]] = []
 
     def is_available(self) -> bool:
-        """Check whether all required environment variables are set."""
-        return all(os.environ.get(var) for var in self.requires_env)
+        """Check whether all required environment variables are set.
+
+        Supports canonical ``ISAAC_`` names and deprecated legacy fallbacks
+        (see ``isaac.config.settings.env_is_set``).  Never inspects values —
+        presence only, so secrets are never logged or printed.
+        """
+        try:
+            from isaac.config.settings import env_is_set
+        except Exception:
+            import os as _os
+
+            return all(_os.environ.get(var) for var in self.requires_env)
+        return all(env_is_set(var) for var in self.requires_env)
 
     @abstractmethod
     def run(self, **kwargs: Any) -> dict[str, Any]:

@@ -12,6 +12,8 @@ silent fallback.
 
 from __future__ import annotations
 
+import os
+import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -128,13 +130,51 @@ class GraphSettings(BaseSettings):
 
 
 class Settings(BaseSettings):
-    """Top-level settings aggregator."""
+    """Top-level settings aggregator.
+
+    Canonical env names use the ``ISAAC_`` prefix (e.g.
+    ``ISAAC_EMAIL_IMAP_HOST``, ``ISAAC_OBSIDIAN_VAULT_PATH``,
+    ``ISAAC_GITHUB_TOKEN``, ``ISAAC_SHELL_UNRESTRICTED``,
+    ``ISAAC_SANDBOX_TIMEOUT_SECONDS``).
+
+    Legacy non-prefixed names (``EMAIL_IMAP_HOST``, ``OBSIDIAN_VAULT_PATH``,
+    ``GITHUB_TOKEN``, …) remain accepted as a deprecated fallback via a
+    secondary env source — a ``DeprecationWarning`` is emitted when one is
+    used.  See :data:`LEGACY_ENV_FALLBACK` and :func:`warn_on_legacy_env`.
+    """
 
     model_config = SettingsConfigDict(
+        env_prefix="ISAAC_",
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        """Add a legacy non-prefixed env source as lowest-priority fallback.
+
+        Priority: init > ``ISAAC_`` env > ``.env`` (``ISAAC_``) > legacy
+        non-prefixed env > secrets.  Canonical ``ISAAC_`` names always win;
+        legacy names only apply when the canonical one is absent.
+        """
+        from pydantic_settings.sources import EnvSettingsSource
+
+        legacy_env = EnvSettingsSource(settings_cls, env_prefix="")
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            legacy_env,
+            file_secret_settings,
+        )
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
@@ -238,8 +278,15 @@ class Settings(BaseSettings):
     """Number of interactions between automatic memory consolidation runs."""
 
     # ── Connectors ──────────────────────────────────────────────────────
-    allowed_paths: list[str] = Field(default_factory=lambda: [str(Path.home())])
-    """Directories accessible by the FileSystemConnector."""
+    allowed_paths: list[str] = Field(
+        default_factory=lambda: [str(Path.home() / ".isaac" / "workspace")]
+    )
+    """Directories accessible by the FileSystemConnector.
+
+    Defaults to ``~/.isaac/workspace`` (created on first :func:`get_settings`
+    call) instead of the whole home directory — least privilege by default.
+    Override via ``ISAAC_ALLOWED_PATHS`` (JSON list) or constructor arg.
+    """
     shell_allowed_commands: list[str] = Field(default_factory=list)
     """Commands the ShellConnector/ShellTool may execute (empty = use default set)."""
     shell_unrestricted: bool = False
@@ -247,9 +294,24 @@ class Settings(BaseSettings):
     (enabling pipes, redirects, and aliases) instead of the strict allow-list +
     metacharacter block.  Constitutional review still hard-denies critical
     patterns (rm -rf /, fork bombs, disk writes, …) in either mode.  Off by
-    default — opt in only on a trusted machine."""
+    default — opt in only on a trusted machine.
+
+    Confined: unrestricted execution additionally requires an explicit
+    ``shell_allowed_commands`` allow-list plus audit logging (see
+    ``isaac.tools.shell``); without both it is BLOCKED.
+    Canonical env: ``ISAAC_SHELL_UNRESTRICTED``."""
     shell_tool_timeout: int = Field(default=30, ge=1, le=600)
-    """Default timeout (seconds) for the host ShellTool."""
+    """Default timeout (seconds) for the host ShellTool.
+
+    Canonical env: ``ISAAC_SHELL_TOOL_TIMEOUT`` (not ``TIMEOUT``)."""
+    shell_pass_secrets: bool = False
+    """Opt-in to inherit secret env vars (``OPENAI_*``, ``TELEGRAM_*``,
+    ``*TOKEN*``, ``*KEY*``, ``*PASSWORD*``, ``*SECRET*``) in child shells.
+
+    Default False: child processes receive a minimal env (PATH, SYSTEMROOT,
+    TEMP/TMP, HOME, LANG, …) and secrets are stripped.  Set
+    ``ISAAC_SHELL_PASS_SECRETS=true`` only for trusted workflows that
+    genuinely need credentials in the child."""
     connector_audit_log: str = ""
     """Path for connector audit log (default: ~/.isaac/connector_audit.log)."""
 
@@ -333,10 +395,196 @@ class Settings(BaseSettings):
     """Max concurrent sub-agents in ParallelSubAgentPool."""
 
 
-# Module-level singleton — import and use directly.
-settings = Settings()
+# Lazy module-level singleton — use get_settings(); ``settings`` stays as a
+# backwards-compatible alias resolved via PEP 562 __getattr__ so importing
+# this module never constructs Settings (nor emits warnings) as a side effect.
+_settings: Settings | None = None
 
 
 def get_settings() -> Settings:
-    """Return the module-level Settings singleton."""
-    return settings
+    """Return the process-wide Settings singleton (created on first use).
+
+    The workspace directory (``allowed_paths[0]`` when it is the default
+    ``~/.isaac/workspace``) is created here so import has no filesystem
+    side effects.
+    """
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+        try:
+            for p in _settings.allowed_paths:
+                pp = Path(p)
+                # Only auto-create paths under ~/.isaac (the safe default);
+                # never mkdir arbitrary user-supplied roots as a side effect.
+                try:
+                    if pp.resolve().is_relative_to(Path.home() / ".isaac"):
+                        pp.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    # resolve() strictness / py<3.9 compat: fall back to prefix check
+                    if str(pp).startswith(str(Path.home() / ".isaac")):
+                        pp.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+    warn_on_legacy_env()
+    return _settings
+
+
+def __getattr__(name: str):
+    # Compat shim: ``from isaac.config.settings import settings`` keeps working
+    # but resolves lazily through get_settings() instead of at import time.
+    if name == "settings":
+        return get_settings()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# ── Canonical / legacy env-name handling ─────────────────────────────────
+#
+# Canonical names carry the ``ISAAC_`` prefix and are what ``.env.example``
+# documents.  Legacy non-prefixed names are accepted only as a deprecated
+# fallback (see ``Settings.settings_customise_sources``).
+
+#: canonical ``ISAAC_`` name -> deprecated legacy name(s)
+LEGACY_ENV_FALLBACK: dict[str, list[str]] = {
+    "ISAAC_EMAIL_IMAP_HOST": ["EMAIL_IMAP_HOST"],
+    "ISAAC_EMAIL_USER": ["EMAIL_USER"],
+    "ISAAC_EMAIL_PASSWORD": ["EMAIL_PASSWORD"],
+    "ISAAC_EMAIL_IMAP_PORT": ["EMAIL_IMAP_PORT"],
+    "ISAAC_EMAIL_SMTP_HOST": ["EMAIL_SMTP_HOST"],
+    "ISAAC_EMAIL_SMTP_PORT": ["EMAIL_SMTP_PORT"],
+    "ISAAC_EMAIL_SMTP_USER": ["EMAIL_SMTP_USER"],
+    "ISAAC_EMAIL_SMTP_PASSWORD": ["EMAIL_SMTP_PASSWORD"],
+    "ISAAC_OBSIDIAN_VAULT_PATH": ["OBSIDIAN_VAULT_PATH"],
+    "ISAAC_GITHUB_TOKEN": ["GITHUB_TOKEN"],
+    "ISAAC_CALDAV_URL": ["CALDAV_URL"],
+    "ISAAC_CALDAV_USERNAME": ["CALDAV_USERNAME"],
+    "ISAAC_CALDAV_PASSWORD": ["CALDAV_PASSWORD"],
+    "ISAAC_TELEGRAM_BOT_TOKEN": ["TELEGRAM_BOT_TOKEN"],
+    "ISAAC_TELEGRAM_ALLOWED_USERS": ["TELEGRAM_ALLOWED_USERS"],
+    "ISAAC_SHELL_UNRESTRICTED": ["SHELL_UNRESTRICTED"],
+    "ISAAC_SHELL_TOOL_TIMEOUT": ["SHELL_TOOL_TIMEOUT"],
+    "ISAAC_SHELL_PASS_SECRETS": ["SHELL_PASS_SECRETS"],
+    "ISAAC_OPENAI_API_KEY": ["OPENAI_API_KEY"],
+    "ISAAC_ANTHROPIC_API_KEY": ["ANTHROPIC_API_KEY"],
+}
+
+_warned_legacy: set[str] = set()
+
+
+def warn_on_legacy_env() -> None:
+    """Emit a one-time ``DeprecationWarning`` per legacy env var in use."""
+    import logging as _logging
+
+    _log = _logging.getLogger(__name__)
+    for canonical, legacies in LEGACY_ENV_FALLBACK.items():
+        if os.environ.get(canonical):
+            continue
+        for legacy in legacies:
+            if os.environ.get(legacy) and legacy not in _warned_legacy:
+                _warned_legacy.add(legacy)
+                msg = (
+                    f"Env var {legacy} is deprecated; "
+                    f"use {canonical} instead. "
+                    f"Legacy fallback will be removed in a future release."
+                )
+                warnings.warn(msg, DeprecationWarning, stacklevel=3)
+                _log.warning(msg)
+
+
+def resolve_env(canonical: str, default: str = "") -> str:
+    """Return ``canonical`` env value, falling back to legacy name(s).
+
+    Emits a ``DeprecationWarning`` when the legacy name is used.
+    Never logs or prints the value itself (secrets-safe).
+    """
+    val = os.environ.get(canonical, "")
+    if val:
+        return val
+    for legacy in LEGACY_ENV_FALLBACK.get(canonical, []):
+        val = os.environ.get(legacy, "")
+        if val:
+            warn_on_legacy_env()
+            return val
+    return default
+
+
+def env_is_set(canonical: str) -> bool:
+    """Check whether a canonical env var (or its legacy fallback) is set."""
+    if os.environ.get(canonical):
+        return True
+    return any(os.environ.get(leg) for leg in LEGACY_ENV_FALLBACK.get(canonical, []))
+
+
+def known_env_keys() -> set[str]:
+    """Return every recognised env key (canonical + legacy + nested)."""
+    keys: set[str] = set()
+    # Top-level Settings: canonical ISAAC_<FIELD> + legacy bare UPPER.
+    for name in Settings.model_fields:
+        if name in ("llm", "sandbox", "ui_sandbox", "graph"):
+            continue
+        keys.add(f"ISAAC_{name.upper()}")
+        keys.add(name.upper())
+    # Nested models with their own prefixes.
+    for cls, prefix in (
+        (LLMSettings, "ISAAC_"),
+        (SandboxSettings, "ISAAC_SANDBOX_"),
+        (UISandboxSettings, "ISAAC_UI_SANDBOX_"),
+        (GraphSettings, "ISAAC_"),
+    ):
+        for name in cls.model_fields:
+            keys.add(f"{prefix}{name.upper()}")
+    # Non-prefixed secrets documented as canonical in .env.example.
+    keys.update({"OPENAI_API_KEY", "ANTHROPIC_API_KEY"})
+    # Legacy connector names (deprecated but accepted).
+    for legacies in LEGACY_ENV_FALLBACK.values():
+        keys.update(legacies)
+        keys.update(LEGACY_ENV_FALLBACK.keys())
+    return keys
+
+
+def find_unknown_env_vars(env: dict[str, str] | None = None) -> list[str]:
+    """Return sorted ``ISAAC_*`` keys in *env* not recognised by Settings.
+
+    Only ``ISAAC_*`` (plus the documented ``OPENAI_API_KEY`` /
+    ``ANTHROPIC_API_KEY``) are checked — unrelated host variables are ignored.
+    Used by ``isaac doctor --strict`` and the ``.env.example`` CI test.
+    """
+    import re as _re
+
+    source = dict(os.environ) if env is None else dict(env)
+    known = known_env_keys()
+    # Correct nested keys use double prefixes occasionally (e.g.
+    # ISAAC_SANDBOX_TIMEOUT_SECONDS); those are already in known_env_keys.
+    # Anything starting with ISAAC_ that is not known is a probable typo —
+    # e.g. ISAAC_TIMEOUT or ISAAC_SANDBOX_TIMEOUT instead of
+    # ISAAC_SANDBOX_TIMEOUT_SECONDS.
+    unknown = sorted(
+        k
+        for k in source
+        if k not in known
+        and (k.startswith("ISAAC_") or _re.fullmatch(r"(OPENAI|ANTHROPIC)_API_KEY", k))
+    )
+    return unknown
+
+
+def parse_dotenv_example(path: Path | str | None = None) -> dict[str, str]:
+    """Parse ``.env.example`` into ``{KEY: value}`` without importing secrets."""
+    p = Path(path) if path else _PROJECT_ROOT / ".env.example"
+    out: dict[str, str] = {}
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :]
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            out[key] = value.strip()
+    return out
+
+
+def validate_dotenv_example(path: Path | str | None = None) -> list[str]:
+    """Return unknown keys found in ``.env.example`` (empty = valid)."""
+    return [k for k in parse_dotenv_example(path) if k not in known_env_keys()]
