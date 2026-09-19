@@ -27,7 +27,9 @@ redirects the request to a billable cloud API.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal
+from ipaddress import ip_address
+from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -73,10 +75,7 @@ def build_llm_for_profile(
             temperature=settings.llm.temperature,
         )
     if provider == "openai":
-        from isaac.security.credentials import get_credential
-
-        api_key = get_credential("openai")
-        _require_key(api_key, "openai", "OPENAI_API_KEY")
+        api_key = provider_api_key("openai", settings)
         from langchain_openai import ChatOpenAI
 
         kwargs: dict = {
@@ -89,10 +88,7 @@ def build_llm_for_profile(
             kwargs["base_url"] = settings.llm.base_url
         return ChatOpenAI(**kwargs)
     if provider == "anthropic":
-        from isaac.security.credentials import get_credential
-
-        api_key = get_credential("anthropic")
-        _require_key(api_key, "anthropic", "ANTHROPIC_API_KEY")
+        api_key = provider_api_key("anthropic", settings)
         from langchain_anthropic import ChatAnthropic
 
         effort = reasoning_effort if reasoning_effort in {"low", "medium", "high", "max"} else None
@@ -156,26 +152,28 @@ def _capped_llm(max_tokens: int) -> BaseChatModel:
         return _build_ollama(model_name, temperature, max_tokens=max_tokens)
 
     if provider == "openai":
+        api_key = provider_api_key("openai", settings)
         from langchain_openai import ChatOpenAI
 
         kwargs: dict = {
             "model": model_name,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "api_key": settings.openai_api_key or None,
+            "api_key": api_key,
         }
         if cfg.base_url:
             kwargs["base_url"] = cfg.base_url
         return ChatOpenAI(**kwargs)
 
     if provider == "anthropic":
+        api_key = provider_api_key("anthropic", settings)
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
             model=model_name,  # type: ignore[arg-type]
             temperature=temperature,
             max_tokens=max_tokens,
-            api_key=settings.anthropic_api_key or None,  # type: ignore[arg-type]
+            api_key=api_key,
         )
 
     # llamacpp / openai_compat and anything else: reuse the tier builder and
@@ -269,26 +267,26 @@ def get_llm(tier: ModelTier = "default") -> BaseChatModel:
 
     # ── Cloud providers (opt-in) ────────────────────────────────────────
     if provider == "openai":
-        _require_key(settings.openai_api_key, "openai", "OPENAI_API_KEY")
+        api_key = provider_api_key("openai", settings)
         from langchain_openai import ChatOpenAI
 
         kwargs: dict = {
             "model": model_name,
             "temperature": temperature,
-            "api_key": settings.openai_api_key or None,  # type: ignore[arg-type]
+            "api_key": api_key,
         }
         if cfg.base_url:
             kwargs["base_url"] = cfg.base_url
         return ChatOpenAI(**kwargs)
 
     if provider == "anthropic":
-        _require_key(settings.anthropic_api_key, "anthropic", "ANTHROPIC_API_KEY")
+        api_key = provider_api_key("anthropic", settings)
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
             model=model_name,  # type: ignore[arg-type]
             temperature=temperature,
-            api_key=settings.anthropic_api_key or None,  # type: ignore[arg-type]
+            api_key=api_key,
         )
 
     msg = (
@@ -298,22 +296,60 @@ def get_llm(tier: ModelTier = "default") -> BaseChatModel:
     raise ValueError(msg)
 
 
-def _require_key(value: str, provider: str, env_var: str) -> None:
-    """Validate that an explicitly selected cloud provider has its API key.
+def _usable_key(value: str) -> bool:
+    value = value.strip().lower()
+    return bool(value) and value not in {
+        "...",
+        "changeme",
+        "change-me",
+        "your-api-key",
+        "your_api_key",
+        "sk-...",
+        "sk-your-key-here",
+        "your-key-here",
+        "not-needed",
+        "none",
+        "null",
+    }
 
-    Key validation is *conditional*: a default (Ollama) install needs no keys
-    at all, so nothing is checked until a cloud provider is actually chosen.
-    A blank ``base_url`` matters here — an OpenAI-compatible local server
-    reached through ``ISAAC_LLM_PROVIDER=openai`` is accepted keyless.
-    """
-    from isaac.config.settings import settings
 
-    if value:
+def _local_endpoint(base_url: str) -> bool:
+    try:
+        parsed = urlsplit(base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        if parsed.username or parsed.password:
+            return False
+        if parsed.hostname.lower() == "localhost":
+            return True
+        return ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def provider_api_key(provider: str, settings: Any) -> str:
+    from isaac.security.credentials import get_credential
+
+    value = getattr(settings, f"{provider}_api_key", "").strip()
+    if not _usable_key(value):
+        value = get_credential(provider)
+    base_url = settings.llm.base_url if provider == "openai" else ""
+    _require_key(value, provider, f"{provider.upper()}_API_KEY", base_url=base_url)
+    return value.strip() if _usable_key(value) else "not-needed"
+
+
+def _require_key(value: str, provider: str, env_var: str, *, base_url: str | None = None) -> None:
+    if base_url is None:
+        from isaac.config.settings import settings
+
+        base_url = settings.llm.base_url
+    if _usable_key(value):
         return
-    if provider == "openai" and settings.llm.base_url:
-        return  # local OpenAI-compatible endpoint — no key needed
+    if provider == "openai" and _local_endpoint(base_url):
+        return
     raise ValueError(
-        f"ISAAC_LLM_PROVIDER={provider!r} was selected but {env_var} is not set.\n"
+        f"ISAAC_LLM_PROVIDER={provider!r} was selected but {env_var} is not set "
+        "to a usable credential.\n"
         f"Either export {env_var}=... or switch back to the local default:\n"
         "    ISAAC_LLM_PROVIDER=ollama\n"
         "    ollama pull qwen3.6\n"

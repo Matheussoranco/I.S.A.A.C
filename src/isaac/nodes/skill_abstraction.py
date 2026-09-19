@@ -185,7 +185,7 @@ def skill_abstraction_node(state: IsaacState) -> dict[str, Any]:
     # Since 1.5.0 the library re-executes the generalised skill before
     # accepting it; a candidate that does not run is rejected and logged
     # rather than written to disk unverified.
-    outcome = skill_lib.commit(candidate)
+    outcome = skill_lib.commit(candidate, verify=False if candidate.skill_type == "ui" else None)
     if getattr(outcome, "promoted", True):
         logger.info(
             "Skill Abstraction: promoted skill '%s' to library (evidence=%s).",

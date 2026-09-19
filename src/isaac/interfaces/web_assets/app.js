@@ -57,10 +57,14 @@ function setStatus(text, online = true) {
 }
 
 function sendMessage(message = ui.prompt.value.trim()) {
-  if (!message || running || !socket || socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify({ action: "run", message, mode: currentMode, max_iterations: currentMode === "computer" ? 40 : 20 }));
-  ui.prompt.value = "";
-  resizeComposer();
+  if (preparingAttachments || running || !socket || socket.readyState !== WebSocket.OPEN) return;
+  if (!message && pendingAttachments.length) message = "Resuma os arquivos anexados.";
+  if (!message) return;
+  if (pendingAttachments.length && currentMode === "computer") {
+    setStatus("Anexos disponíveis no modo Agente", false); return;
+  }
+  socket.send(JSON.stringify({ action: "run", message, attachments: pendingAttachments.map(({name, data}) => ({name, data})), mode: currentMode, max_iterations: currentMode === "computer" ? 40 : 20 }));
+  running = true; toggleRunning(true);
 }
 
 function handleEvent(event) {
@@ -83,6 +87,8 @@ function handleEvent(event) {
       break;
     case "conversation_list": renderConversations(data.conversations || [], data.active_id); break;
     case "history_loaded": loadHistory(data.messages || [], data.conversation_id); break;
+    case "attachments_accepted":
+      pendingAttachments = []; renderAttachments(); ui.prompt.value = ""; resizeComposer(); break;
     case "run_started":
       running = true; toggleRunning(true); hideWelcome(); appendUser(data.message); appendAssistant();
       addActivity("✦", "Tarefa iniciada", "Preparando contexto e ferramentas");
@@ -146,7 +152,7 @@ function finishRun(data) {
   if (assistantText && !assistantText.textContent.trim()) setAssistant(data.output || "(sem resposta)");
   if (assistantMeta) assistantMeta.textContent = `${data.iterations || 0} passos · ${data.tool_calls || 0} ferramentas · ${reasonLabel(data.stopped_reason)}`;
   running = false; toggleRunning(false); setStatus(data.success ? "Pronto para ajudar" : "Tarefa encerrada", true);
-  addActivity(data.success ? "✓" : "■", data.success ? "Tarefa concluída" : "Tarefa encerrada", reasonLabel(data.stopped_reason), data.success ? "success" : "error");
+  addActivity(data.success ? "✓" : "■", data.success ? "Resultado verificado" : data.completed ? "Resposta concluída · resultado não verificado" : "Tarefa encerrada", reasonLabel(data.stopped_reason), data.success ? "success" : data.completed ? "" : "error");
   assistantText = null; assistantMeta = null;
 }
 
@@ -228,6 +234,7 @@ function resetConversation() {
 }
 
 function loadHistory(messages, conversationId) {
+  if (activeConversation !== conversationId) { pendingAttachments = []; renderAttachments(); }
   activeConversation = conversationId || null;
   [...ui.messages.querySelectorAll(".message")].forEach((node) => node.remove());
   if (!messages.length) { ui.welcome?.classList.remove("hidden"); return; }
@@ -308,8 +315,98 @@ function reasonLabel(reason) { return ({ final: "concluída", cancelled: "cancel
 function escapeHtml(text) { return String(text ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"})[c]); }
 function formatText(text) { return escapeHtml(text).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\n/g, "<br>"); }
 
+let pendingAttachments = [];
+let preparingAttachments = false;
+
+function renderAttachments() {
+  const list = $("#attachment-list");
+  list.replaceChildren();
+  pendingAttachments.forEach((attachment, index) => {
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.textContent = `${attachment.name} ×`;
+    remove.addEventListener("click", () => {
+      if (running || preparingAttachments) return;
+      pendingAttachments.splice(index, 1); renderAttachments();
+    });
+    list.appendChild(remove);
+  });
+}
+
+function setupAttach() {
+  const btn = document.querySelector("#attach-button");
+  const input = document.querySelector("#file-input");
+  if (!btn || !input) return;
+  btn.addEventListener("click", () => { if (!running && !preparingAttachments) input.click(); });
+  input.addEventListener("change", async () => {
+    const files = [...(input.files || [])];
+    if (!files.length || running || preparingAttachments) return;
+    preparingAttachments = true;
+    try {
+      const total = [...pendingAttachments, ...files].reduce((sum, file) => sum + file.size, 0);
+      if (pendingAttachments.length + files.length > 4 || total > 8 * 1024 * 1024 || files.some(file => !file.size || file.size > 5 * 1024 * 1024)) {
+        throw new Error("Limite: 4 arquivos, 5 MiB por arquivo e 8 MiB no total");
+      }
+      const additions = [];
+      for (const file of files) {
+        const dataUrl = await new Promise((res, rej) => {
+          const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
+        });
+        additions.push({name: file.name, size: file.size, data: String(dataUrl).split(",", 2)[1]});
+      }
+      pendingAttachments.push(...additions); renderAttachments();
+      setStatus("Anexos prontos; documentos e áudio exigem parsers instalados", true);
+    } catch (e) {
+      setStatus(e.message || "Falha ao ler arquivo", false);
+    } finally {
+      preparingAttachments = false;
+    }
+    input.value = "";
+    resizeComposer(); ui.prompt.focus();
+  });
+}
+
+function setupVoice() {
+  const mic = document.querySelector("#mic-button");
+  const speak = document.querySelector("#speak-button");
+  if (mic) mic.addEventListener("click", () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setStatus("Ditadado não suportado neste navegador", false); return; }
+    const rec = new SR(); rec.lang = "pt-BR"; rec.interimResults = false;
+    setStatus("Ouvindo… fale agora", true);
+    rec.onresult = (ev) => {
+      const text = ev.results[0][0].transcript;
+      ui.prompt.value = `${ui.prompt.value} ${text}`;
+      resizeComposer(); setStatus("Pronto para ajudar", true);
+    };
+    rec.onerror = () => setStatus("Falha no ditado", false);
+    rec.start();
+  });
+  if (speak) speak.addEventListener("click", async () => {
+    let url;
+    try {
+      const last = [...document.querySelectorAll(".message.assistant")].pop();
+      const text = last?.querySelector(".assistant-text")?.textContent.slice(0, 2000) || "";
+      if (!text) return;
+      speak.disabled = true;
+      const response = await fetch("/api/speak", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})});
+      if (!response.ok) throw new Error((await response.json()).detail || "TTS indisponível");
+      url = URL.createObjectURL(await response.blob());
+      const audio = new Audio(url);
+      await new Promise((resolve, reject) => {
+        audio.onended = resolve; audio.onerror = reject; audio.play().catch(reject);
+      });
+    } catch (error) {
+      setStatus(error.message || "Falha ao reproduzir áudio", false);
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+      speak.disabled = false;
+    }
+  });
+}
+
 ui.send.addEventListener("click", () => sendMessage());
 ui.stop.addEventListener("click", () => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ action: "cancel" })); });
+setupAttach(); setupVoice();
 ui.prompt.addEventListener("input", resizeComposer);
 ui.prompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); } });
 document.querySelectorAll("[data-prompt]").forEach((button) => button.addEventListener("click", () => { ui.prompt.value = button.dataset.prompt; resizeComposer(); ui.prompt.focus(); }));

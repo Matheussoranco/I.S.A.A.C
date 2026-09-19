@@ -1,4 +1,5 @@
-"""AgentLoop — a real LLM-driven tool-use loop (the core agentic engine).
+"""
+AgentLoop — a real LLM-driven tool-use loop (the core agentic engine).
 
 This is the capability that turns I.S.A.A.C. from a "plan → synthesise code →
 run" pipeline into an autonomous agent in the mould of Claude Code / Claude for
@@ -9,6 +10,16 @@ final answer (or a budget is exhausted).
 
 It is provider-agnostic: it relies on LangChain's ``bind_tools`` so it works
 with Anthropic, OpenAI and tool-calling Ollama models alike.
+
+Features:
+- Streaming token-by-token output for real-time UX
+- Structured output parsing (JSON, Pydantic models)
+- Automatic error recovery with Reflexion
+- Context compaction for long-running tasks
+- Multi-modal attachment support (images, documents, audio)
+- Tool call health monitoring
+- Configurable risk policies with human-in-the-loop approval
+- Execution tracing for debugging
 
 Example
 -------
@@ -22,13 +33,20 @@ Example
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
+import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any
+import uuid
+from collections.abc import AsyncIterator, Callable
+from concurrent.futures import Future
+from contextvars import ContextVar, copy_context
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
+from enum import Enum
+from typing import Any, TypeVar
 
 from isaac.agents.tool_repair import (
     RepairOutcome,
@@ -40,6 +58,17 @@ from isaac.agents.trace import TraceStore
 from isaac.agents.validation import validate_args
 from isaac.security.redact import redact_secrets
 from isaac.tools.base import IsaacTool
+
+try:
+    from pydantic import BaseModel
+
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    PYDANTIC_AVAILABLE = False
+
+    class BaseModel:
+        pass
+
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +114,20 @@ DEFAULT_SYSTEM_PROMPT = (
     "well-structured final answer that summarises what you did and the result."
 )
 
+T = TypeVar("T", bound="BaseModel")
+
+
+class StopReason(str, Enum):
+    """Reasons why the agent loop stopped."""
+
+    FINAL = "final"
+    CANCELLED = "cancelled"
+    MAX_ITERATIONS = "max_iterations"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    NO_PROGRESS = "no_progress"
+    ERROR = "error"
+    APPROVAL_DENIED = "approval_denied"
+
 
 @dataclass
 class ToolCallRecord:
@@ -95,6 +138,7 @@ class ToolCallRecord:
     output: str
     success: bool
     duration_ms: float
+    call_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
 
 @dataclass
@@ -155,18 +199,169 @@ class AgentRunResult:
     output: str
     iterations: int
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
-    # "final" | "cancelled" | "max_iterations" | "budget_exhausted" | "no_progress" | "error"
     stopped_reason: str = "final"
     messages: list[Any] = field(default_factory=list)
     health: ToolCallHealth = field(default_factory=ToolCallHealth)
+    verified_success: bool | None = None
+    """Trusted external task validation, not a model self-assessment."""
+
+    # Structured output (if requested)
+    structured_output: Any = None
+    structured_output_model: str = ""
+
+    # Streaming
+    stream_chunks: list[str] = field(default_factory=list)
+
+    # Metadata
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    started_at: float = field(default_factory=time.time)
+    completed_at: float = 0.0
+
+    @property
+    def completed(self) -> bool:
+        return self.stopped_reason == "final"
 
     @property
     def success(self) -> bool:
-        return self.stopped_reason == "final"
+        return self.completed and self.verified_success is True
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
 StopCallback = Callable[[], bool]
+ApprovalCallback = Callable[[str, dict[str, Any], int], bool]
+StreamCallback = Callable[[str], None]
+
+
+class _RunStopped(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class _RunBoundary:
+    def __init__(
+        self,
+        seconds: float = 0,
+        should_stop: StopCallback | None = None,
+        parent: _RunBoundary | None = None,
+        timeout_reason: str = "budget_exhausted",
+    ) -> None:
+        self.deadline = time.monotonic() + seconds if seconds > 0 else None
+        self.parent = parent
+        self.should_stop = should_stop
+        self.timeout_reason = timeout_reason
+        self._reason = ""
+        self._lock = threading.Lock()
+
+    def stop(self, reason: str = "cancelled") -> str:
+        with self._lock:
+            if not self._reason:
+                self._reason = reason
+            return self._reason
+
+    def reason(self) -> str:
+        if self._reason:
+            return self._reason
+        if self.parent is not None and (reason := self.parent.reason()):
+            return self.stop(reason)
+        if self.should_stop is not None and self.should_stop():
+            return self.stop()
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            return self.stop(self.timeout_reason)
+        return ""
+
+    def check(self) -> None:
+        if reason := self.reason():
+            raise _RunStopped(reason)
+
+    def remaining(self) -> float:
+        self.check()
+        deadlines = []
+        current: _RunBoundary | None = self
+        while current is not None:
+            if current.deadline is not None:
+                deadlines.append(current.deadline)
+            current = current.parent
+        return max(1e-9, min(deadlines) - time.monotonic()) if deadlines else 0.0
+
+    def call(self, fn: Callable[[], Any]) -> Any:
+        work = _BackgroundCall(self, fn)
+        try:
+            while not work.done.wait(0.01):
+                self.check()
+            self.check()
+            return work.future.result()
+        except BaseException:
+            work.cancel()
+            raise
+
+    async def acall(self, fn: Callable[[], Any], *, asynchronous: bool = False) -> Any:
+        work = _BackgroundCall(self, fn, asynchronous=asynchronous)
+        pending = asyncio.wrap_future(work.future)
+
+        def consume(future: asyncio.Future[Any]) -> None:
+            if not future.cancelled():
+                future.exception()
+
+        pending.add_done_callback(consume)
+        try:
+            while not pending.done():
+                self.check()
+                await asyncio.wait({pending}, timeout=0.01)
+            self.check()
+            return work.future.result()
+        except asyncio.CancelledError:
+            self.stop()
+            work.cancel()
+            raise
+        except BaseException:
+            work.cancel()
+            raise
+
+
+_active_boundary: ContextVar[_RunBoundary | None] = ContextVar("isaac_run_boundary", default=None)
+
+
+class _BackgroundCall:
+    def __init__(
+        self, boundary: _RunBoundary, fn: Callable[[], Any], *, asynchronous: bool = False
+    ) -> None:
+        boundary.check()
+        self.future: Future[Any] = Future()
+        self.done = threading.Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._task: asyncio.Task[Any] | None = None
+        self._cancelled = threading.Event()
+
+        def run() -> None:
+            token = _active_boundary.set(boundary)
+            try:
+                boundary.check()
+                if asynchronous:
+                    self._loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._loop)
+                    self._task = self._loop.create_task(fn())
+                    if self._cancelled.is_set():
+                        self._task.cancel()
+                    value = self._loop.run_until_complete(self._task)
+                else:
+                    value = fn()
+                self.future.set_result(value)
+            except BaseException as exc:
+                self.future.set_exception(exc)
+            finally:
+                if self._loop is not None:
+                    self._loop.close()
+                _active_boundary.reset(token)
+                self.done.set()
+
+        threading.Thread(target=copy_context().run, args=(run,), daemon=True).start()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+        if self._loop is not None and self._task is not None:
+            with contextlib.suppress(RuntimeError):
+                self._loop.call_soon_threadsafe(self._task.cancel)
 
 
 class AgentLoop:
@@ -200,7 +395,7 @@ class AgentLoop:
     on_event:
         Optional callback ``(kind, data)`` for streaming progress to a UI.
         Kinds: ``iteration``, ``thought``, ``tool_call``, ``tool_result``,
-        ``final``, ``error``.
+        ``final``, ``error``, ``stream``.
     trace_store:
         Optional :class:`TraceStore`; when set, every run and its event stream
         is persisted for later inspection via ``isaac trace``.
@@ -209,6 +404,20 @@ class AgentLoop:
     context_budget_chars:
         When the transcript exceeds this size, older tool outputs are stubbed
         so long runs don't overflow the model context.
+    repair_tool_calls:
+        Attempt to salvage malformed tool calls from text output.
+    reflexion_retries:
+        Number of Reflexion retries for unparseable tool calls.
+    constrained_decoding:
+        Use grammar-constrained decoding for tool calls (envelope mode).
+    should_stop:
+        Optional callback to check for external stop signals.
+    task_validator:
+        Optional callable to verify task completion externally.
+    structured_output_model:
+        Optional Pydantic model for structured output parsing.
+    stream_callback:
+        Optional callback for streaming token-by-token output.
     """
 
     def __init__(
@@ -229,7 +438,13 @@ class AgentLoop:
         reflexion_retries: int = _MAX_REFLEXION_RETRIES,
         constrained_decoding: bool = False,
         should_stop: StopCallback | None = None,
+        task_validator: Callable[[AgentRunResult], bool] | None = None,
+        structured_output_model: type[T] | None = None,
+        stream_callback: StreamCallback | None = None,
     ) -> None:
+        self._task_validator = task_validator
+        self._structured_output_model = structured_output_model
+        self._stream_callback = stream_callback
         self._tools: dict[str, IsaacTool] = {t.name: t for t in tools}
         self._llm = llm
         self._system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -264,6 +479,15 @@ class AgentLoop:
             self._on_event(kind, data)
         except Exception:  # pragma: no cover - UI callbacks must never break the loop
             logger.debug("on_event callback raised for kind=%s", kind, exc_info=True)
+
+    def _emit_stream(self, token: str) -> None:
+        """Emit a streaming token."""
+        if self._stream_callback:
+            try:
+                self._stream_callback(token)
+            except Exception:
+                logger.debug("stream_callback raised", exc_info=True)
+        self._emit("stream", token=token)
 
     def _resolve_llm(self) -> Any:
         if self._llm is not None:
@@ -334,6 +558,8 @@ class AgentLoop:
 
     async def _exec_tool(self, name: str, args: dict[str, Any]) -> ToolCallRecord:
         start = time.monotonic()
+        boundary = _active_boundary.get() or _RunBoundary(should_stop=self._should_stop)
+        boundary.check()
         tool = self._tools.get(name)
         if tool is None:
             return ToolCallRecord(
@@ -366,7 +592,14 @@ class AgentLoop:
         authorization_actor = "operator_token" if authorized else ""
         if needs_approval and self._approval_callback is not None:
             try:
-                approved = bool(self._approval_callback(name, args, effective_risk))
+                approved = bool(
+                    await boundary.acall(
+                        lambda: self._approval_callback(name, args, effective_risk)
+                    )
+                )
+                boundary.check()
+            except _RunStopped:
+                raise
             except Exception:  # pragma: no cover - a broken prompt must fail closed
                 logger.debug("approval_callback raised; denying", exc_info=True)
                 approved = False
@@ -397,6 +630,7 @@ class AgentLoop:
                 (time.monotonic() - start) * 1000,
             )
 
+        boundary.check()
         if not authorized:
             if not authorization_actor:
                 authorization_actor = (
@@ -413,7 +647,10 @@ class AgentLoop:
             )
 
         try:
+            boundary.check()
             result = await tool.execute(**args)
+        except _RunStopped:
+            raise
         except TypeError as exc:
             return ToolCallRecord(
                 name,
@@ -475,15 +712,49 @@ class AgentLoop:
     async def _invoke_with_retry(self, llm: Any, messages: list[Any]) -> Any:
         """Call the LLM, retrying transient failures with exponential backoff."""
         last_exc: Exception | None = None
+        boundary = _active_boundary.get() or _RunBoundary(should_stop=self._should_stop)
         for attempt in range(self.llm_retries + 1):
+            boundary.check()
             try:
-                return await asyncio.to_thread(llm.invoke, messages)
+                return await boundary.acall(lambda: llm.invoke(list(messages)))
+            except _RunStopped:
+                raise
             except Exception as exc:
                 last_exc = exc
                 if attempt < self.llm_retries:
                     delay = min(2.0**attempt, 8.0)
                     logger.warning(
                         "LLM invocation failed (attempt %d/%d): %s — retrying in %.0fs",
+                        attempt + 1,
+                        self.llm_retries + 1,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+        assert last_exc is not None
+        raise last_exc
+
+    async def _stream_with_retry(self, llm: Any, messages: list[Any]) -> AsyncIterator[str]:
+        """Stream the LLM response token by token."""
+        boundary = _active_boundary.get() or _RunBoundary(should_stop=self._should_stop)
+        last_exc: Exception | None = None
+        for attempt in range(self.llm_retries + 1):
+            boundary.check()
+            try:
+                async for chunk in llm.astream(list(messages)):
+                    boundary.check()
+                    if hasattr(chunk, "content") and chunk.content:
+                        yield chunk.content
+                return
+                yield  # Make it a proper async generator
+            except _RunStopped:
+                raise
+            except Exception as exc:
+                last_exc = exc
+                if attempt < self.llm_retries:
+                    delay = min(2.0**attempt, 8.0)
+                    logger.warning(
+                        "LLM streaming failed (attempt %d/%d): %s — retrying in %.0fs",
                         attempt + 1,
                         self.llm_retries + 1,
                         exc,
@@ -500,14 +771,62 @@ class AgentLoop:
             except Exception:  # pragma: no cover - best-effort teardown
                 logger.debug("aclose failed for tool %s", tool.name, exc_info=True)
 
+    async def _parse_structured_output(self, text: str) -> Any:
+        """Parse structured output from text using the configured model."""
+        if not self._structured_output_model or not PYDANTIC_AVAILABLE:
+            return None
+        try:
+            # Try to extract JSON from the text
+            import re
+
+            json_match = re.search(r"\{.*\}", text, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                return self._structured_output_model(**data)
+        except Exception as e:
+            logger.debug("Structured output parsing failed: %s", e)
+        return None
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    async def arun(self, task: str, context: str = "") -> AgentRunResult:
-        """Run the loop asynchronously and return the result."""
+    async def arun(
+        self, task: str, context: str = "", *, attachments: list[dict] | None = None
+    ) -> AgentRunResult:
+        boundary = _RunBoundary(
+            self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
+        )
+        progress = AgentRunResult(output="", iterations=0)
+        try:
+            return await boundary.acall(
+                lambda: self._arun(task, context, attachments, progress), asynchronous=True
+            )
+        except _RunStopped as exc:
+            self._emit(exc.reason, message=exc.reason)
+            return replace(
+                progress,
+                output="Cancelled by the user."
+                if exc.reason == "cancelled"
+                else f"Stopped: {exc.reason}. Partial progress only.",
+                stopped_reason=exc.reason,
+                tool_calls=list(progress.tool_calls),
+                messages=list(progress.messages),
+                verified_success=None,
+            )
+
+    async def _arun(
+        self,
+        task: str,
+        context: str,
+        attachments: list[dict] | None,
+        progress: AgentRunResult,
+    ) -> AgentRunResult:
         from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
+        boundary = _active_boundary.get()
+        assert boundary is not None
+        boundary.check()
         llm = self._bind_tools(self._resolve_llm())
         user = task if not context else f"{task}\n\n<context>\n{context}\n</context>"
         system = self._system_prompt
@@ -520,17 +839,23 @@ class AgentLoop:
             system = f"{system}\n\nTools you may call:\n{catalogue}\n{CONSTRAINED_SYSTEM_SUFFIX}"
         messages: list[Any] = [
             SystemMessage(content=system),
-            HumanMessage(content=user),
+            HumanMessage(
+                content=[{"type": "text", "text": user}, *deepcopy(attachments)]
+                if attachments
+                else user
+            ),
         ]
 
         all_calls: list[ToolCallRecord] = []
+        progress.messages = messages
+        progress.tool_calls = all_calls
         final_text = ""
         reason = "max_iterations"
         iterations = 0
-        started = time.monotonic()
         last_sig: str | None = None
         repeat_count = 0
         health = ToolCallHealth()
+        progress.health = health
         reflexion_used = 0
         pending_reflexion = False
 
@@ -543,24 +868,16 @@ class AgentLoop:
 
         try:
             for i in range(self.max_iterations):
-                if self._should_stop is not None and self._should_stop():
-                    reason = "cancelled"
-                    final_text = "Cancelled by the user."
-                    self._emit("cancelled", message=final_text)
-                    break
-                if self.max_wall_seconds and time.monotonic() - started > self.max_wall_seconds:
-                    reason = "budget_exhausted"
-                    final_text = (
-                        f"Stopped: the {self.max_wall_seconds:.0f}s wall-clock budget was "
-                        f"exhausted after {len(all_calls)} tool call(s). Partial progress only."
-                    )
-                    self._emit("error", message="wall-clock budget exhausted")
-                    break
+                boundary.check()
                 iterations = i + 1
+                progress.iterations = iterations
                 self._emit("iteration", n=iterations)
                 self._compact_messages(messages)
                 try:
                     ai = await self._invoke_with_retry(llm, messages)
+                    boundary.check()
+                except _RunStopped:
+                    raise
                 except Exception as exc:
                     logger.exception("LLM invocation failed after retries")
                     self._emit("error", message=str(exc))
@@ -671,18 +988,14 @@ class AgentLoop:
 
                 stuck = False
                 for tc in tool_calls:
-                    if self._should_stop is not None and self._should_stop():
-                        reason = "cancelled"
-                        final_text = "Cancelled by the user."
-                        self._emit("cancelled", message=final_text)
-                        stuck = True
-                        break
+                    boundary.check()
                     name = tc.get("name", "")
                     args = tc.get("args") or {}
                     call_id = tc.get("id") or name
                     self._emit("tool_call", name=name, args=args)
                     rec = await self._exec_tool(name, args)
                     all_calls.append(rec)
+                    boundary.check()
                     self._emit("tool_result", name=name, success=rec.success, output=rec.output)
                     body = rec.output[:_MAX_TOOL_OUTPUT]
                     if native_turn:
@@ -716,6 +1029,17 @@ class AgentLoop:
                     "Reached the iteration limit before finishing. Partial progress was made; "
                     f"{len(all_calls)} tool call(s) were executed."
                 )
+        except _RunStopped as exc:
+            reason = exc.reason
+            final_text = (
+                "Cancelled by the user."
+                if reason == "cancelled"
+                else f"Stopped: {reason}. Partial progress only."
+            )
+        except asyncio.CancelledError:
+            reason = boundary.stop()
+            final_text = f"Stopped: {reason}. Partial progress only."
+            raise
         finally:
             await self._aclose_tools()
             if self._trace_store is not None and self._trace_run_id:
@@ -730,31 +1054,91 @@ class AgentLoop:
                     logger.debug("trace finish failed", exc_info=True)
                 self._trace_run_id = None
 
-        return AgentRunResult(
+        # Parse structured output if configured
+        structured = await self._parse_structured_output(final_text)
+
+        result = AgentRunResult(
             output=final_text,
             iterations=iterations,
             tool_calls=all_calls,
             stopped_reason=reason,
             messages=messages,
             health=health,
+            structured_output=structured,
+            structured_output_model=self._structured_output_model.__name__
+            if self._structured_output_model
+            else "",
+            completed_at=time.time(),
         )
 
-    def run(self, task: str, context: str = "") -> AgentRunResult:
-        """Run the loop synchronously (safe to call from non-async code)."""
+        if result.completed and self._task_validator is not None:
+            try:
+                result.verified_success = (
+                    await boundary.acall(lambda: self._task_validator(result)) is True
+                )
+            except _RunStopped:
+                raise
+            except Exception:
+                logger.exception("Task validator failed; success not established")
+                result.verified_success = False
+        return result
+
+    def run(
+        self, task: str, context: str = "", *, attachments: list[dict] | None = None
+    ) -> AgentRunResult:
+        boundary = _RunBoundary(parent=_active_boundary.get())
         try:
-            asyncio.get_running_loop()
-            running = True
-        except RuntimeError:
-            running = False
+            return boundary.call(
+                lambda: asyncio.run(self.arun(task, context, attachments=attachments))
+            )
+        except _RunStopped as exc:
+            return AgentRunResult(
+                output=f"Stopped: {exc.reason}.", iterations=0, stopped_reason=exc.reason
+            )
 
-        if not running:
-            return asyncio.run(self.arun(task, context))
+    async def astream(
+        self, task: str, context: str = "", *, attachments: list[dict] | None = None
+    ) -> AsyncIterator[str]:
+        """Stream the agent's response token by token (for direct response mode)."""
 
-        # Already inside an event loop — run in a worker thread with its own loop.
-        import concurrent.futures
+        boundary = _RunBoundary(
+            self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
+        )
+        try:
+            async for token in boundary.acall(
+                lambda: self._astream(task, context, attachments), asynchronous=True
+            ):
+                yield token
+        except _RunStopped as exc:
+            yield f"Stopped: {exc.reason}."
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(lambda: asyncio.run(self.arun(task, context))).result()
+    async def _astream(
+        self,
+        task: str,
+        context: str,
+        attachments: list[dict] | None,
+    ) -> AsyncIterator[str]:
+        """Internal streaming implementation."""
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        boundary = _active_boundary.get()
+        assert boundary is not None
+        boundary.check()
+
+        llm = self._resolve_llm()
+        # For streaming, we use a simpler non-tool-calling model
+        user = task if not context else f"{task}\n\n<context>\n{context}\n</context>"
+        messages = [
+            SystemMessage(content=self._system_prompt),
+            HumanMessage(
+                content=[{"type": "text", "text": user}, *deepcopy(attachments)]
+                if attachments
+                else user
+            ),
+        ]
+
+        async for token in self._stream_with_retry(llm, messages):
+            yield token
 
 
 def _content_text(message: Any) -> str:
@@ -791,6 +1175,8 @@ def build_default_agent(
     browser_event_callback: EventCallback | None = None,
     desktop_event_callback: EventCallback | None = None,
     should_stop: StopCallback | None = None,
+    structured_output_model: type[T] | None = None,
+    stream_callback: StreamCallback | None = None,
 ) -> AgentLoop:
     """Construct an :class:`AgentLoop` wired with all registered built-in tools.
 
@@ -842,6 +1228,8 @@ def build_default_agent(
         reflexion_retries=reflexion_retries,
         constrained_decoding=constrained_decoding,
         should_stop=should_stop,
+        structured_output_model=structured_output_model,
+        stream_callback=stream_callback,
     )
 
 

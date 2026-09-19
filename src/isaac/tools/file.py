@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from isaac.config.settings import get_settings
+from isaac.security.file_mutation import write_text
+from isaac.security.path_policy import is_sensitive_path
+from isaac.security.workspace import current_workspace
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -19,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def _workspace_root() -> Path:
     """Return the workspace root, creating it if necessary."""
-    root = get_settings().isaac_home / "workspace"
+    root = current_workspace() or get_settings().isaac_home / "workspace"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -31,6 +34,8 @@ def _safe_resolve(relative: str) -> Path | None:
     """
     root = _workspace_root()
     target = (root / relative).resolve()
+    if is_sensitive_path(root / relative) or is_sensitive_path(target):
+        return None
     try:
         target.relative_to(root.resolve())
     except ValueError:
@@ -98,10 +103,17 @@ class FileWriteTool(IsaacTool):
                 "type": "string",
                 "description": "Workspace-relative path of the file to write.",
             },
+            "overwrite": {
+                "type": "boolean",
+                "description": "Replace existing content with approval.",
+            },
             "content": {"type": "string", "description": "Full text content to write."},
         },
         "required": ["path", "content"],
     }
+
+    def approval_required(self, **kwargs: Any) -> bool:
+        return bool(kwargs.get("overwrite"))
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str: str = kwargs.get("path", "")
@@ -115,7 +127,7 @@ class FileWriteTool(IsaacTool):
 
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            write_text(target, content, overwrite=bool(kwargs.get("overwrite")))
             return ToolResult(
                 success=True,
                 output=f"Wrote {len(content)} chars to {path_str}",

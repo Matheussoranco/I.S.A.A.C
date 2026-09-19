@@ -26,9 +26,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import tempfile
 import time
+from copy import deepcopy
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
 from isaac.core.state import SkillCandidate
@@ -37,6 +43,38 @@ logger = logging.getLogger(__name__)
 
 #: How many rejection records to keep in the manifest.
 MAX_REJECTION_LOG = 200
+_library_lock = RLock()
+_committing: set[Path] = set()
+
+
+def _locked(function: Any) -> Any:
+    @wraps(function)
+    def wrapped(self: SkillLibrary, *args: Any, **kwargs: Any) -> Any:
+        with _library_lock:
+            self._index = self._load_index()
+            self._rejected = self._load_rejections()
+            return function(self, *args, **kwargs)
+
+    return wrapped
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 @dataclass
@@ -85,8 +123,9 @@ class SkillLibrary:
         self._dir = skills_dir
         self._dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._dir / "_index.json"
-        self._index: dict[str, dict[str, Any]] = self._load_index()
-        self._rejected: list[dict[str, Any]] = self._load_rejections()
+        with _library_lock:
+            self._index: dict[str, dict[str, Any]] = self._load_index()
+            self._rejected: list[dict[str, Any]] = self._load_rejections()
         self._collection: Any | None = None
         self._chroma_client: Any | None = None
 
@@ -151,12 +190,10 @@ class SkillLibrary:
     def _raw_manifest(self) -> dict[str, Any]:
         if not self._index_path.exists():
             return {}
-        try:
-            raw = json.loads(self._index_path.read_text(encoding="utf-8"))
-        except ValueError:  # pragma: no cover - corrupt manifest
-            logger.warning("Skill manifest %s is not valid JSON.", self._index_path)
-            return {}
-        return raw if isinstance(raw, dict) else {}
+        raw = json.loads(self._index_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or not isinstance(raw.get("skills", {}), dict):
+            raise ValueError(f"Invalid skill manifest: {self._index_path}")
+        return raw
 
     def _load_index(self) -> dict[str, dict[str, Any]]:
         return self._raw_manifest().get("skills", {})
@@ -171,14 +208,31 @@ class SkillLibrary:
             "skills": self._index,
             "rejected": self._rejected[-MAX_REJECTION_LOG:],
         }
-        self._index_path.write_text(
+        _atomic_write(
+            self._index_path,
             json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
         )
 
     # -- write --------------------------------------------------------------
 
+    @_locked
     def commit(
+        self,
+        candidate: SkillCandidate,
+        *,
+        verify: bool | None = None,
+        verifier: Any | None = None,
+    ) -> PromotionOutcome:
+        path = self._dir.resolve()
+        if path in _committing:
+            return PromotionOutcome(candidate.name, False, "re-entrant skill commit blocked")
+        _committing.add(path)
+        try:
+            return self._commit(deepcopy(candidate), verify=verify, verifier=verifier)
+        finally:
+            _committing.remove(path)
+
+    def _commit(
         self,
         candidate: SkillCandidate,
         *,
@@ -207,6 +261,8 @@ class SkillLibrary:
         if not name:
             logger.warning("Skill candidate has no name — skipping commit.")
             return PromotionOutcome("", False, "candidate has no name")
+        if not re.fullmatch(r"[a-z0-9_][a-z0-9_-]*", name):
+            return PromotionOutcome(name, False, "invalid skill name")
 
         outcome = self._verify(candidate, name, verify=verify, verifier=verifier)
         if not outcome.promoted:
@@ -215,7 +271,7 @@ class SkillLibrary:
             return outcome
 
         py_path = self._dir / f"{name}.py"
-        py_path.write_text(candidate.code, encoding="utf-8")
+        _atomic_write(py_path, candidate.code)
 
         meta = {
             "name": name,
@@ -226,9 +282,10 @@ class SkillLibrary:
             "skill_type": getattr(candidate, "skill_type", "code"),
             "tags": list(getattr(candidate, "tags", [])),
             "file": str(py_path.name),
-            "verified": outcome.evidence != "none",
+            "verified": outcome.evidence == "behaviour",
             "verification_evidence": outcome.evidence,
             "verification_reason": outcome.reason,
+            "verification": outcome.verification,
             "promoted_at": time.time(),
         }
         self._index[name] = meta
@@ -277,16 +334,30 @@ class SkillLibrary:
                 from isaac.memory.skill_verification import get_verifier
 
                 verifier = get_verifier()
-            result = verifier.verify(candidate)
+            result = verifier.verify(deepcopy(candidate))
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Skill verification crashed for '%s'", name)
             return PromotionOutcome(name, False, f"verifier crashed: {exc}")
 
+        evidence = str(getattr(result, "evidence", "none"))
+        behavioral = any(
+            getattr(check, "name", "") in {"selftest", "doctest", "example"}
+            and getattr(check, "status", "") == "passed"
+            for check in getattr(result, "checks", [])
+        )
+        promoted = (
+            bool(getattr(result, "verified", False)) and evidence == "behaviour" and behavioral
+        )
+        reason = str(getattr(result, "reason", ""))
+        if getattr(result, "verified", False) and not promoted:
+            reason = (
+                "behavioral validation required: verifier supplied no executed behavioral check"
+            )
         return PromotionOutcome(
             skill_name=name,
-            promoted=bool(getattr(result, "verified", False)),
-            reason=str(getattr(result, "reason", "")),
-            evidence=str(getattr(result, "evidence", "none")),
+            promoted=promoted,
+            reason=reason,
+            evidence=evidence,
             verification=result.to_dict() if hasattr(result, "to_dict") else None,
         )
 
@@ -304,6 +375,7 @@ class SkillLibrary:
         )
         self._save_index()
 
+    @_locked
     def promotion_stats(self) -> dict[str, Any]:
         """Return promote/reject counts and the top rejection reasons.
 
@@ -330,16 +402,19 @@ class SkillLibrary:
         }
 
     @property
+    @_locked
     def rejections(self) -> list[dict[str, Any]]:
         """The recorded rejection log (newest last)."""
-        return list(self._rejected)
+        return deepcopy(self._rejected)
 
     # -- read ---------------------------------------------------------------
 
+    @_locked
     def list_names(self) -> list[str]:
         """Return all registered skill names."""
         return list(self._index.keys())
 
+    @_locked
     def get_code(self, name: str) -> str | None:
         """Return the Python source of a skill, or ``None``."""
         entry = self._index.get(name)
@@ -350,10 +425,12 @@ class SkillLibrary:
             return py_path.read_text(encoding="utf-8")
         return None
 
+    @_locked
     def get_metadata(self, name: str) -> dict[str, Any] | None:
         """Return the index entry for a skill."""
-        return self._index.get(name)
+        return deepcopy(self._index.get(name))
 
+    @_locked
     def search(self, query: str, top_k: int = 5) -> list[str]:
         """Search for skills relevant to *query*.
 
@@ -400,5 +477,6 @@ class SkillLibrary:
         return [name for _, name in scored[:top_k]]
 
     @property
+    @_locked
     def size(self) -> int:
         return len(self._index)

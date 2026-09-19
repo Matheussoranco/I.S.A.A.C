@@ -47,6 +47,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from isaac.agents.agent_loop import ApprovalCallback, StopCallback, _active_boundary
+
 logger = logging.getLogger(__name__)
 
 EventCallback = Callable[[str, dict[str, Any]], None]
@@ -65,6 +67,7 @@ class SpecialistResult:
     stopped_reason: str = "final"
     duration_ms: float = 0.0
     error: str = ""
+    verified_success: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +75,7 @@ class SpecialistResult:
             "task": self.task,
             "output": self.output,
             "success": self.success,
+            "verified_success": self.verified_success,
             "iterations": self.iterations,
             "tool_calls": self.tool_calls,
             "stopped_reason": self.stopped_reason,
@@ -122,6 +126,9 @@ class Specialist:
         auto_approve: bool | None = None,
         persona: str | None = None,
         on_event: EventCallback | None = None,
+        max_wall_seconds: float = 600.0,
+        should_stop: StopCallback | None = None,
+        approval_callback: ApprovalCallback | None = None,
     ) -> None:
         self._llm = llm
         # ``tools`` left as the sentinel default means "use the class attribute".
@@ -133,6 +140,9 @@ class Specialist:
         self.auto_approve = auto_approve if auto_approve is not None else self.auto_approve
         self._persona = persona
         self._on_event = on_event
+        self.max_wall_seconds = max(0.0, float(max_wall_seconds))
+        self._should_stop = should_stop
+        self._approval_callback = approval_callback
 
     # ------------------------------------------------------------------
     # Configuration helpers
@@ -187,6 +197,9 @@ class Specialist:
     def _build_loop(self) -> Any:
         from isaac.agents.agent_loop import build_default_agent
 
+        boundary = _active_boundary.get()
+        remaining = boundary.remaining() if boundary is not None else 0.0
+        limits = [limit for limit in (remaining, self.max_wall_seconds) if limit > 0]
         return build_default_agent(
             llm=self._resolve_llm(),
             system_prompt=self.system_prompt(),
@@ -195,6 +208,9 @@ class Specialist:
             auto_approve=self.auto_approve,
             on_event=self._on_event,
             only=self.tool_names,
+            max_wall_seconds=min(limits) if limits else 0.0,
+            should_stop=self._should_stop,
+            approval_callback=self._approval_callback,
         )
 
     def run(self, task: str, context: str = "") -> SpecialistResult:
@@ -208,6 +224,7 @@ class Specialist:
                 task=task,
                 output=result.output,
                 success=result.success,
+                verified_success=result.verified_success,
                 iterations=result.iterations,
                 tool_calls=[{"name": c.name, "success": c.success} for c in result.tool_calls],
                 stopped_reason=result.stopped_reason,
@@ -236,6 +253,7 @@ class Specialist:
                 task=task,
                 output=result.output,
                 success=result.success,
+                verified_success=result.verified_success,
                 iterations=result.iterations,
                 tool_calls=[{"name": c.name, "success": c.success} for c in result.tool_calls],
                 stopped_reason=result.stopped_reason,

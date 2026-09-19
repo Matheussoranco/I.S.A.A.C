@@ -284,7 +284,9 @@ class SecurityPolicy:
             "network_mode": self.network_mode,
             "mem_limit": self.memory_limit,
             "nano_cpus": int(self.cpu_limit * 1e9),
-            "pids_limit": self.pids_limit,
+            "pids_limit": int(self.pids_limit)
+            if str(getattr(self, "pids_limit", "")).isdigit()
+            else 64,
             "user": self.user,
             "cap_drop": self.cap_drop,
             "security_opt": sec_opts,
@@ -314,7 +316,7 @@ def default_policy() -> SecurityPolicy:
         network_mode="none",
         memory_limit=cfg.memory_limit,
         cpu_limit=cfg.cpu_limit,
-        pids_limit=cfg.pids_limit,
+        pids_limit=int(cfg.pids_limit) if str(getattr(cfg, "pids_limit", "")).isdigit() else 64,
         timeout_seconds=cfg.timeout_seconds,
         seccomp_profile_path=seccomp_path,
         tmpfs={"/tmp": "rw,size=128m"},  # allow a writable temp stage for AST operations
@@ -334,7 +336,7 @@ def ui_policy() -> SecurityPolicy:
         network_mode="none" if not cfg.allow_browser_network else "bridge",
         memory_limit=cfg.memory_limit,
         cpu_limit=cfg.cpu_limit,
-        pids_limit=cfg.pids_limit,
+        pids_limit=int(cfg.pids_limit) if str(getattr(cfg, "pids_limit", "")).isdigit() else 64,
         timeout_seconds=cfg.timeout_seconds,
         # UI containers must be writable (Xvfb writes to /tmp/.X11-unix)
         read_only_rootfs=False,

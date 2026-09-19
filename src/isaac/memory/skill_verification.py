@@ -1,49 +1,3 @@
-"""Skill verification gate — a skill must *run* before it is promoted.
-
-Before 1.5.0 the skill library promoted whatever the abstraction node handed
-it: an LLM generalised some code, ``SkillLibrary.commit`` wrote it to disk, and
-the library grew with code nobody had ever executed.  Roadmap WS6 calls for
-"only promote skills that pass a verification run" — this is that gate.
-
-What is checked
----------------
-Every candidate runs through an ordered list of checks; the first hard failure
-stops the pipeline and the skill is **rejected** (recorded, not silently
-dropped):
-
-``syntax``
-    ``ast.parse`` succeeds.
-``callable``
-    At least one module-level ``def``/``async def``/``class`` is defined —
-    a "skill" that is a bare script is not reusable.
-``import``
-    The module executes top-to-bottom without raising. This is the check that
-    catches the common LLM failure mode: a skill referencing a name that only
-    existed in the original task's scope.
-``doctest``
-    If the source carries doctests, they must pass.
-``selftest``
-    If the source defines ``_selftest()``, it must run and not raise (and must
-    not return ``False``).
-``example``
-    If ``input_schema`` carries an ``example`` mapping, the primary function is
-    called with it and must not raise.
-
-The last three are *conditional*: absent, they are reported as ``skipped``,
-which is honest — a skill whose only evidence is "it imports" is recorded as
-``evidence="import"``, not as if it had been behaviourally tested.
-
-Where it runs
--------------
-By default, in the hardened Docker code-execution container with no network,
-dropped capabilities, a read-only root filesystem and resource limits.  The
-verification harness deliberately bypasses the normal import deny-list because
-reusable skills legitimately import modules such as ``pathlib``; the container
-is the security boundary.  A host ``python -I`` fallback exists only for
-explicitly trusted development tests when
-``ISAAC_SKILL_VERIFICATION_REQUIRE_SANDBOX=false``.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -55,6 +9,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -63,7 +18,7 @@ logger = logging.getLogger(__name__)
 _RESULT_MARKER = "__ISAAC_SKILL_VERIFY__"
 
 _HARNESS = """
-import doctest, inspect, json, os, sys, traceback
+import asyncio, doctest, inspect, json, os, sys, traceback
 
 # ``python -I`` implies ``-P`` (3.11+), which keeps the script directory off
 # sys.path — so the skill module would not be importable. Put it back
@@ -71,6 +26,17 @@ import doctest, inspect, json, os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _RESULT = {"checks": [], "ok": True}
+
+
+def _invoke(target, kwargs):
+    value = target(**kwargs)
+    if inspect.isawaitable(value):
+        async def wait():
+            return await value
+        return asyncio.run(wait())
+    if inspect.isgenerator(value) or inspect.isasyncgen(value):
+        raise TypeError("generator execution requires an explicit consuming _selftest")
+    return value
 
 
 def _add(name, status, detail=""):
@@ -106,7 +72,7 @@ except Exception as exc:
 _selftest = getattr(_mod, "_selftest", None)
 if callable(_selftest):
     try:
-        _out = _selftest()
+        _out = _invoke(_selftest, {})
         if _out is False:
             _add("selftest", "failed", "_selftest() returned False")
         else:
@@ -122,18 +88,18 @@ _example = (
     if _example_raw
     else (json.loads(sys.argv[1]) if len(sys.argv) > 1 else None)
 )
-if isinstance(_example, dict) and _example:
+if isinstance(_example, dict):
     _target = None
     _preferred = _example.pop("__function__", None)
-    if _preferred and hasattr(_mod, _preferred):
-        _target = getattr(_mod, _preferred)
+    if _preferred:
+        _target = dict(_public).get(_preferred)
     elif _public:
         _target = _public[0][1]
     if _target is None:
         _add("example", "failed", "no callable to invoke with the example args")
     else:
         try:
-            _target(**_example)
+            _invoke(_target, _example)
             _add("example", "passed", "called %s(**example)" % getattr(_target, "__name__", "?"))
         except TypeError as exc:
             _add("example", "failed", "signature mismatch: %s" % exc)
@@ -268,6 +234,7 @@ class SkillVerifier:
             n.name
             for n in tree.body
             if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+            and not n.name.startswith("_")
         ]
         if not defined:
             checks.append(Check("callable", "failed", "no module-level def/class"))
@@ -278,8 +245,8 @@ class SkillVerifier:
         if skill_type == "ui":
             checks.append(Check("import", "skipped", "UI skill — replay needs a live browser"))
             return done(
-                True,
-                "static verification only (UI skill)",
+                False,
+                "UI skill needs behavioral replay; static checks cannot verify it",
                 checks,
                 evidence="static",
                 callables=defined,
@@ -294,8 +261,12 @@ class SkillVerifier:
             )
 
         # 3. Dynamic: run it -------------------------------------------------
-        example = _example_args(candidate)
-        run = self._execute(code, example)
+        try:
+            example = _example_args(candidate)
+            run = self._execute(code, example)
+        except Exception as exc:
+            checks.append(Check("execution", "failed", str(exc)[:400]))
+            return done(False, f"verification execution failed: {exc}", checks)
         checks.extend(run.checks)
         if not run.verified:
             return done(
@@ -310,9 +281,11 @@ class SkillVerifier:
         reason = (
             "executed; " + ", ".join(f"{c.name} passed" for c in behavioural)
             if behavioural
-            else "imports and exposes a callable (no self-test in source)"
+            else "behavioral validation required: no doctest, _selftest, or example executed"
         )
-        return done(True, reason, checks, evidence=evidence, callables=run.callables or defined)
+        return done(
+            bool(behavioural), reason, checks, evidence=evidence, callables=run.callables or defined
+        )
 
     # ------------------------------------------------------------------
     # Subprocess execution
@@ -333,7 +306,7 @@ class SkillVerifier:
                     stdout, stderr, returncode = self._execute_in_docker(root, example)
                 else:
                     argv = [sys.executable, "-I", str(harness_path)]
-                    if example:
+                    if example is not None:
                         argv.append(json.dumps(example))
                     proc = subprocess.run(
                         argv,
@@ -360,7 +333,7 @@ class SkillVerifier:
                 )
 
         payload = _parse_marker(stdout)
-        if payload is None:
+        if payload is None or returncode != 0:
             detail = (stderr or stdout or "").strip()[-400:]
             return VerificationOutcome(
                 skill_name="",
@@ -369,10 +342,31 @@ class SkillVerifier:
                 checks=[Check("import", "failed", detail or f"exit code {returncode}")],
             )
 
+        raw_checks = payload.get("checks")
+        expected = {"import", "doctest", "selftest", "example"}
+        if (
+            not isinstance(raw_checks, list)
+            or len(raw_checks) != len(expected)
+            or any(
+                not isinstance(c, dict)
+                or c.get("name") not in expected
+                or c.get("status") not in {"passed", "failed", "skipped"}
+                for c in raw_checks
+            )
+            or {c["name"] for c in raw_checks} != expected
+            or not isinstance(payload.get("callables"), list)
+        ):
+            return VerificationOutcome("", False, reason="invalid verification harness verdict")
         checks = [
             Check(str(c.get("name", "?")), str(c.get("status", "failed")), str(c.get("detail", "")))
-            for c in payload.get("checks", [])
+            for c in raw_checks
         ]
+        if payload.get("ok") is not True:
+            checks.append(Check("execution", "failed", "harness did not confirm success"))
+        if not any(c.name == "import" and c.passed for c in checks):
+            checks.append(Check("execution", "failed", "import was not executed"))
+        if not payload["callables"]:
+            checks.append(Check("callable", "failed", "no public callable after import"))
         failed = [c for c in checks if c.status == "failed"]
         return VerificationOutcome(
             skill_name="",
@@ -395,7 +389,7 @@ class SkillVerifier:
         manager = SandboxManager(get_settings().sandbox.image, default_policy())
         container = None
         command = ["python", "-I", "/input/task.py"]
-        environment = {"ISAAC_SKILL_EXAMPLE": json.dumps(example)} if example else None
+        environment = {"ISAAC_SKILL_EXAMPLE": json.dumps(example)} if example is not None else None
         try:
             container = manager.create_container(
                 command=command,
@@ -422,7 +416,8 @@ def _parse_marker(stdout: str) -> dict | None:
     for line in reversed((stdout or "").splitlines()):
         if line.startswith(_RESULT_MARKER):
             try:
-                return json.loads(line[len(_RESULT_MARKER) :])
+                payload = json.loads(line[len(_RESULT_MARKER) :])
+                return payload if isinstance(payload, dict) else None
             except ValueError:  # pragma: no cover - defensive
                 return None
     return None
@@ -442,7 +437,7 @@ def _example_args(candidate: Any) -> dict | None:
     if not isinstance(schema, dict):
         return None
     example = schema.get("example")
-    if not isinstance(example, dict) or not example:
+    if not isinstance(example, dict):
         return None
     payload = dict(example)
     fn = schema.get("function") or schema.get("__function__")
@@ -460,21 +455,27 @@ def _docker_available() -> bool:
     try:
         import docker  # type: ignore[import-not-found]
 
-        docker.from_env().ping()
-        return True
+        client = docker.from_env()
+        try:
+            client.ping()
+            return True
+        finally:
+            client.close()
     except Exception:
         return False
 
 
 _verifier: SkillVerifier | None = None
+_verifier_lock = Lock()
 
 
 def get_verifier() -> SkillVerifier:
     """Return the process-wide :class:`SkillVerifier`."""
     global _verifier
-    if _verifier is None:
-        _verifier = SkillVerifier()
-    return _verifier
+    with _verifier_lock:
+        if _verifier is None:
+            _verifier = SkillVerifier()
+        return _verifier
 
 
 def verification_enabled() -> bool:

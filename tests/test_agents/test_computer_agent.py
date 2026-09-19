@@ -58,7 +58,8 @@ def test_computer_runner_repeats_screenshot_action_loop(monkeypatch) -> None:
 
     result = runner.run("Observe a tela")
 
-    assert result.success is True
+    assert result.completed is True
+    assert result.success is False
     assert result.output == "Concluído."
     assert backend.actions == [{"type": "screenshot"}]
     follow_up = responses.calls[1]

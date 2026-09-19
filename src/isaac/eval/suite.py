@@ -41,6 +41,7 @@ class EvalTask:
     """Binary attachments: {workspace-relative dest: absolute source path}.
     Copied (not inlined) into the workspace before the run — used by dataset
     adapters (e.g. GAIA) whose tasks ship xlsx/pdf/png/mp3 files."""
+    workspace: Path | None = None  # Runtime-only isolated workspace; excluded from suite hash.
     max_iterations: int = 12
     timeout_seconds: float = 300.0
 
@@ -72,6 +73,7 @@ def load_suite(path: str | Path) -> list[EvalTask]:
                 runner=str(obj.get("runner", "agent")),
                 tools=list(obj["tools"]) if obj.get("tools") else None,
                 files={str(k): str(v) for k, v in (obj.get("files") or {}).items()},
+                file_paths={str(k): str(v) for k, v in (obj.get("file_paths") or {}).items()},
                 max_iterations=int(obj.get("max_iterations", 12)),
                 timeout_seconds=float(obj.get("timeout_seconds", 300.0)),
             )

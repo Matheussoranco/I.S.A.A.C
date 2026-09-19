@@ -91,9 +91,9 @@ class PerformanceTracker:
             try:
                 from isaac.config.settings import settings
 
-                db_path = settings.isaac_home / "performance.db"
+                db_path = settings.isaac_home / "performance-v2.db"
             except Exception:
-                db_path = Path.home() / ".isaac" / "performance.db"
+                db_path = Path.home() / ".isaac" / "performance-v2.db"
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
@@ -107,7 +107,7 @@ class PerformanceTracker:
         self,
         node: str,
         duration_ms: float,
-        success: bool,
+        success: bool | None,
         iteration: int = 0,
         session_id: str = "",
         error: str = "",
@@ -121,7 +121,7 @@ class PerformanceTracker:
                     time.time(),
                     node,
                     duration_ms,
-                    int(success),
+                    -1 if success is None else int(success),
                     iteration,
                     session_id,
                     error[:500],
@@ -133,7 +133,7 @@ class PerformanceTracker:
         self,
         skill_name: str,
         duration_ms: float,
-        success: bool,
+        success: bool | None,
         error: str = "",
         task_context: str = "",
     ) -> None:
@@ -146,7 +146,7 @@ class PerformanceTracker:
                     time.time(),
                     skill_name,
                     duration_ms,
-                    int(success),
+                    -1 if success is None else int(success),
                     error[:500],
                     task_context[:500],
                 ),
@@ -157,14 +157,14 @@ class PerformanceTracker:
         self,
         prompt_id: str,
         variant: str,
-        success: bool,
+        success: bool | None,
         score: float = 0.0,
     ) -> None:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO prompt_runs (ts, prompt_id, variant, success, score) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (time.time(), prompt_id, variant, int(success), score),
+                (time.time(), prompt_id, variant, -1 if success is None else int(success), score),
             )
             self._conn.commit()
 
@@ -175,7 +175,7 @@ class PerformanceTracker:
         with self._lock:
             base_query = (
                 "SELECT node, COUNT(*) as runs, "
-                "AVG(success) as sr, AVG(duration_ms) as avg_d "
+                "AVG(CASE WHEN success >= 0 THEN success END) as sr, AVG(duration_ms) as avg_d "
                 "FROM node_runs WHERE ts >= ? "
             )
             params: tuple[Any, ...] = (since_ts,)
@@ -222,7 +222,7 @@ class PerformanceTracker:
             rows = self._conn.execute(
                 "SELECT skill_name, COUNT(*) runs, AVG(success) sr, "
                 "AVG(duration_ms) avg_d, MAX(ts) last_ts "
-                "FROM skill_runs WHERE ts >= ? "
+                "FROM skill_runs WHERE ts >= ? AND success >= 0 "
                 "GROUP BY skill_name ORDER BY runs DESC",
                 (since_ts,),
             ).fetchall()

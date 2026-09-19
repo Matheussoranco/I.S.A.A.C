@@ -8,6 +8,7 @@ wrapper for the LLM-driven code generation → execution loop.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 from isaac.tools.base import IsaacTool, ToolResult
@@ -114,8 +115,10 @@ class CodeTool(IsaacTool):
         """Run generated code in the sandbox."""
         try:
             from isaac.sandbox.executor import CodeExecutor
+            from isaac.sandbox.security import default_policy
 
-            executor = CodeExecutor()
+            policy = replace(default_policy(), timeout_seconds=max(1, min(timeout, 600)))
+            executor = CodeExecutor(policy=policy)
             try:
                 result = executor.execute(code)
             finally:

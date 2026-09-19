@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB = Path.home() / ".isaac" / "meta_learner.db"
+_DEFAULT_DB = Path.home() / ".isaac" / "meta_learner-v2.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS task_outcomes (
@@ -63,6 +64,7 @@ class MetaLearner:
     """SQLite-backed task outcome tracker with adaptive strategy ranking."""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
+        self._lock = threading.RLock()
         self._db = Path(db_path) if db_path else _DEFAULT_DB
         self._db.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db), check_same_thread=False)
@@ -90,29 +92,29 @@ class MetaLearner:
         session_id: str = "",
     ) -> None:
         """Persist a single task outcome."""
-        ts = datetime.utcnow().isoformat()
-        self._conn.execute(
-            """INSERT INTO task_outcomes
-               (ts, task_desc, task_type, strategy, success, error_type, error_msg,
-                iterations, duration_ms, input_tokens, output_tokens, session_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                ts,
-                task_desc[:500],
-                task_type,
-                strategy,
-                int(success),
-                error_type,
-                error_msg[:500],
-                iterations,
-                duration_ms,
-                input_tokens,
-                output_tokens,
-                session_id,
-            ),
-        )
-        self._conn.commit()
-        self._update_scores(task_type, strategy, success, duration_ms)
+        with self._lock, self._conn:
+            ts = datetime.now(timezone.utc).isoformat()
+            self._conn.execute(
+                """INSERT INTO task_outcomes
+                   (ts, task_desc, task_type, strategy, success, error_type, error_msg,
+                    iterations, duration_ms, input_tokens, output_tokens, session_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    ts,
+                    task_desc[:500],
+                    task_type,
+                    strategy,
+                    int(success),
+                    error_type,
+                    error_msg[:500],
+                    iterations,
+                    duration_ms,
+                    input_tokens,
+                    output_tokens,
+                    session_id,
+                ),
+            )
+            self._update_scores(task_type, strategy, success, duration_ms)
 
     def _update_scores(
         self, task_type: str, strategy: str, success: bool, duration_ms: float
@@ -122,7 +124,7 @@ class MetaLearner:
             (task_type, strategy),
         ).fetchone()
 
-        ts = datetime.utcnow().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
         if row is None:
             wins = 1 if success else 0
             losses = 0 if success else 1
@@ -142,7 +144,6 @@ class MetaLearner:
                 "WHERE task_type=? AND strategy=?",
                 (wins, losses, avg_ms, ts, task_type, strategy),
             )
-        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Query
@@ -255,7 +256,7 @@ def _configured_db_path() -> Path | None:
         configured = get_settings().meta_learner_db_path
     except Exception:  # pragma: no cover - defensive
         return None
-    return Path(configured) if configured else None
+    return Path(configured) if configured else get_settings().isaac_home / "meta_learner-v2.db"
 
 
 def get_learner() -> MetaLearner:

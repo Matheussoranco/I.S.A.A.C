@@ -1,128 +1,31 @@
-"""ShellConnector — Execute allow-listed shell commands on the host.
-
-Enforces a strict allowlist of commands and blocks shell metacharacters
-(pipes, redirections, semicolons, etc.) to prevent abuse.
-"""
+"""Read-only host command connector; no interpreters or external processes."""
 
 from __future__ import annotations
 
-import logging
-import re
-import subprocess
-import time
 from typing import Any, ClassVar
 
+from isaac.security.safe_shell import COMMANDS, run_readonly
 from isaac.skills.connectors.base import BaseConnector
 
-logger = logging.getLogger(__name__)
-
-_DANGEROUS_CHARS = re.compile(r"[|;&`$><\n\r]")
-
-_DEFAULT_ALLOWED = frozenset(
-    [
-        "ls",
-        "dir",
-        "cat",
-        "head",
-        "tail",
-        "wc",
-        "find",
-        "grep",
-        "echo",
-        "date",
-        "whoami",
-        "hostname",
-        "pwd",
-        "uname",
-        "df",
-        "du",
-        "uptime",
-    ]
-)
+_DEFAULT_ALLOWED = COMMANDS
 
 
 class ShellConnector(BaseConnector):
-    """Run allow-listed shell commands on the host."""
-
     name = "shell"
-    description = (
-        "Execute allow-listed shell commands with timeout protection. "
-        "Blocks pipes, redirections, and dangerous metacharacters."
-    )
+    description = "Bounded read-only commands within allowed paths; no host code execution."
     requires_env: ClassVar[list[str]] = []
 
-    def _allowed_commands(self) -> frozenset[str]:
-        """Return the set of allowed commands."""
-        try:
-            from isaac.config.settings import get_settings
-
-            cmds = get_settings().shell_allowed_commands
-            if cmds:
-                return frozenset(cmds)
-        except Exception:
-            pass
-        return _DEFAULT_ALLOWED
-
     def run(self, **kwargs: Any) -> dict[str, Any]:
-        """Execute a shell command.
-
-        Parameters
-        ----------
-        command : str
-            The command string to execute.
-        timeout : int
-            Timeout in seconds (default 10, max 60).
-        cwd : str | None
-            Working directory for the command.
-        """
-        command: str = kwargs.get("command", "").strip()
-        timeout: int = min(int(kwargs.get("timeout", 10)), 60)
-        cwd: str | None = kwargs.get("cwd")
-        pass_secrets: bool = bool(kwargs.get("pass_secrets", False))
-        if not pass_secrets:
-            try:
-                from isaac.config.settings import get_settings
-
-                pass_secrets = bool(get_settings().shell_pass_secrets)
-            except Exception:
-                pass_secrets = False
-
-        if not command:
-            return {"error": "No command provided"}
-
-        # --- safety checks ---
-        if _DANGEROUS_CHARS.search(command):
-            return {"error": "Command contains blocked metacharacters (|;&`$><)"}
-
-        parts = command.split()
-        executable = parts[0].lower()
-        allowed = self._allowed_commands()
-        if executable not in allowed:
-            return {"error": f"Command '{executable}' not in allowlist: {sorted(allowed)}"}
+        from isaac.config.settings import get_settings
 
         try:
-            from isaac.tools.shell import build_child_env
-
-            child_env = build_child_env(pass_secrets=pass_secrets)
-            start = time.perf_counter()
-            result = subprocess.run(
-                parts,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=cwd,
-                env=child_env,
-            )
-            duration_ms = round((time.perf_counter() - start) * 1000)
-            return {
-                "command": command,
-                "stdout": result.stdout[:10_000],
-                "stderr": result.stderr[:5_000],
-                "exit_code": result.returncode,
-                "duration_ms": duration_ms,
-            }
-        except subprocess.TimeoutExpired:
-            return {"command": command, "error": f"Timeout after {timeout}s"}
+            settings = get_settings()
+            if settings.shell_unrestricted or kwargs.get("pass_secrets"):
+                raise ValueError("Unrestricted host shell is disabled; use the Docker code tool")
+            configured = settings.shell_allowed_commands
+            allowed = frozenset(c.lower() for c in configured) if configured else COMMANDS
+            command = str(kwargs.get("command", ""))
+            stdout = run_readonly(command, kwargs.get("cwd"), allowed)
+            return {"command": command, "stdout": stdout, "stderr": "", "exit_code": 0}
         except Exception as exc:
-            logger.error("shell run failed: %s", exc)
-            return {"command": command, "error": str(exc)}
+            return {"error": str(exc)}

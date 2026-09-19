@@ -64,10 +64,14 @@
 
         <footer class="composer-wrap">
           <div class="composer">
+            <div id="attachment-list" aria-live="polite"></div>
             <textarea id="prompt" rows="1" placeholder="Converse com I.S.A.A.C…" aria-label="Mensagem"></textarea>
             <div class="composer-actions">
               <div class="composer-left">
-                <button class="icon-button" type="button" title="Anexos serão adicionados no próximo incremento">＋</button>
+                <button class="icon-button" id="attach-button" type="button" title="Anexar texto, imagem, documento ou áudio (até 5 MiB; parsers opcionais)">＋</button>
+                <input type="file" id="file-input" class="hidden" multiple />
+                <button class="icon-button" id="mic-button" type="button" title="Ditar (voz → texto)">🎙</button>
+                <button class="icon-button" id="speak-button" type="button" title="Ouvir última resposta">🔊</button>
                 <button class="mode-button" id="mode-button" type="button" title="Alternar modo">
                   <span class="spark">✦</span><span id="mode-label">Agente</span>
                 </button>

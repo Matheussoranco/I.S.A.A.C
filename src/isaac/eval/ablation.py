@@ -36,7 +36,6 @@ intervention cannot touch.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import random
@@ -48,7 +47,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from isaac.eval.checkers import score_answer
 from isaac.eval.runner import TaskAnswer
 from isaac.eval.suite import EvalTask, suite_hash
 
@@ -312,12 +310,15 @@ def team_runner(
 
     def run(task: EvalTask) -> TaskAnswer:
         orch = Orchestrator(auto_approve=auto_approve, use_meta_selection=use_meta_selection)
-        result = orch.run(task.prompt)
+        result = orch.run(
+            task.prompt,
+            context=f"Task workspace: {task.workspace}. Use this directory for all files.",
+        )
         if on_plan is not None:
             on_plan(task.id, [s.specialist for s in result.plan])
         return TaskAnswer(
             text=result.final_output or "",
-            stopped_reason="final" if result.success else "error",
+            stopped_reason="final" if result.completed else "error",
         )
 
     return run
@@ -340,7 +341,7 @@ def _run_once(
     runner_factory: RunnerFactory | None = None,
 ) -> TrialResult:
     """Run the whole task set once and score it."""
-    from isaac.eval.runner import _seed_files
+    from isaac.eval.runner import execute_task
 
     out = TrialResult(arm=arm, trial=trial)
     factory = runner_factory or team_runner
@@ -351,16 +352,8 @@ def _run_once(
 
     for i, task in enumerate(tasks, 1):
         emit("task_start", arm=arm, trial=trial, n=i, total=len(tasks), task_id=task.id)
-        _seed_files(task, workspace)
-        t0 = time.monotonic()
-        try:
-            answer = runner(task)
-        except Exception as exc:  # a crashing task scores 0, never aborts the arm
-            logger.exception("Ablation %s/%d: task %s crashed", arm, trial, task.id)
-            answer = TaskAnswer(text=f"(runner crashed: {exc})", stopped_reason="error")
-        duration_ms = (time.monotonic() - t0) * 1000
-        checks = score_answer(task.checks, answer.text, workspace)
-        passed = bool(checks) and all(c.passed for c in checks)
+        answer, checks, duration_ms = execute_task(task, runner, workspace)
+        passed = answer.stopped_reason == "final" and bool(checks) and all(c.passed for c in checks)
         out.passed[task.id] = passed
         out.duration_ms[task.id] = duration_ms
         emit("task_done", arm=arm, trial=trial, task_id=task.id, passed=passed)
@@ -602,20 +595,23 @@ def simulate_selection(
 
     def one_run(use_selection: bool, run_seed: int) -> float:
         rng = random.Random(run_seed)
-        tmp = Path(f"{_sim_dir()}/sim-{use_selection}-{run_seed}.db")
-        tmp.unlink(missing_ok=True)
-        selector = SpecialistSelector(MetaLearner(tmp))
-        wins = 0
-        for _ in range(rounds):
-            if use_selection and rng.random() < attention:
-                choice = selector.rank(names)[0]
-            else:
-                choice = rng.choice(names)
-            success = rng.random() < competence[choice]
-            wins += int(success)
-            selector.record(choice, success=success)
-        with contextlib.suppress(OSError):  # Windows may still hold the handle
-            tmp.unlink(missing_ok=True)
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="isaac-sim-") as directory:
+            learner = MetaLearner(Path(directory) / "simulation.db")
+            selector = SpecialistSelector(learner)
+            wins = 0
+            try:
+                for _ in range(rounds):
+                    if use_selection and rng.random() < attention:
+                        choice = selector.rank(names)[0]
+                    else:
+                        choice = rng.choice(names)
+                    success = rng.random() < competence[choice]
+                    wins += int(success)
+                    selector.record(choice, success=success)
+            finally:
+                learner.close()
         return wins / rounds
 
     on = [one_run(True, seed + i) for i in range(repeats)]

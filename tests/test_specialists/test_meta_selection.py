@@ -24,7 +24,11 @@ class _StubSpecialist:
 
     def run(self, task: str, context: str = "") -> SpecialistResult:
         return SpecialistResult(
-            specialist=self.name, task=task, output=f"did:{task}", success=self._succeed
+            specialist=self.name,
+            task=task,
+            output=f"did:{task}",
+            success=self._succeed,
+            verified_success=self._succeed,
         )
 
 

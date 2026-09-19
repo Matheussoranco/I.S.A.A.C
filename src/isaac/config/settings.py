@@ -290,28 +290,17 @@ class Settings(BaseSettings):
     shell_allowed_commands: list[str] = Field(default_factory=list)
     """Commands the ShellConnector/ShellTool may execute (empty = use default set)."""
     shell_unrestricted: bool = False
-    """When True, the host ShellTool runs commands through the platform shell
-    (enabling pipes, redirects, and aliases) instead of the strict allow-list +
-    metacharacter block.  Constitutional review still hard-denies critical
-    patterns (rm -rf /, fork bombs, disk writes, …) in either mode.  Off by
-    default — opt in only on a trusted machine.
+    """Deprecated compatibility flag. True blocks host commands.
 
-    Confined: unrestricted execution additionally requires an explicit
-    ``shell_allowed_commands`` allow-list plus audit logging (see
-    ``isaac.tools.shell``); without both it is BLOCKED.
-    Canonical env: ``ISAAC_SHELL_UNRESTRICTED``."""
+    Arbitrary host execution cannot guarantee filesystem confinement. Use the
+    Docker code tool instead. There is no unsafe override.
+    """
     shell_tool_timeout: int = Field(default=30, ge=1, le=600)
     """Default timeout (seconds) for the host ShellTool.
 
     Canonical env: ``ISAAC_SHELL_TOOL_TIMEOUT`` (not ``TIMEOUT``)."""
     shell_pass_secrets: bool = False
-    """Opt-in to inherit secret env vars (``OPENAI_*``, ``TELEGRAM_*``,
-    ``*TOKEN*``, ``*KEY*``, ``*PASSWORD*``, ``*SECRET*``) in child shells.
-
-    Default False: child processes receive a minimal env (PATH, SYSTEMROOT,
-    TEMP/TMP, HOME, LANG, …) and secrets are stripped.  Set
-    ``ISAAC_SHELL_PASS_SECRETS=true`` only for trusted workflows that
-    genuinely need credentials in the child."""
+    """Deprecated compatibility flag; no host child processes are launched."""
     connector_audit_log: str = ""
     """Path for connector audit log (default: ~/.isaac/connector_audit.log)."""
 

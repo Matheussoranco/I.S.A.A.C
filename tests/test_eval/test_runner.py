@@ -35,7 +35,7 @@ def _fake_runner(workspace):
         if task.id == "t-math":
             return TaskAnswer(text="The answer is 4.")
         if task.id == "t-file":
-            (workspace / "hello.txt").write_text("hello world", encoding="utf-8")
+            (task.workspace / "hello.txt").write_text("hello world", encoding="utf-8")
             return TaskAnswer(text="written")
         return TaskAnswer(text="no idea", stopped_reason="max_iterations")
 
@@ -73,7 +73,7 @@ def test_run_suite_seeds_task_files(tmp_path) -> None:
     seen: dict[str, str] = {}
 
     def runner(t: EvalTask) -> TaskAnswer:
-        seen["content"] = (ws / "data" / "in.txt").read_text(encoding="utf-8")
+        seen["content"] = (t.workspace / "data" / "in.txt").read_text(encoding="utf-8")
         return TaskAnswer(text=seen["content"])
 
     summary = run_suite([task], runner, workspace=ws, model="m", provider="p")

@@ -11,14 +11,18 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import tempfile
 import time
+import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from isaac.agents.agent_loop import ApprovalCallback, StopCallback, _RunBoundary, _RunStopped
 from isaac.eval.checkers import CheckOutcome, score_answer
 from isaac.eval.results import EvalStore
 from isaac.eval.suite import EvalTask, suite_hash
+from isaac.security.workspace import workspace_scope
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +109,12 @@ def _default_workspace() -> Path:
     return root
 
 
-def default_runner(auto_approve: bool = False) -> RunnerFn:
+def default_runner(
+    auto_approve: bool = False,
+    *,
+    should_stop: StopCallback | None = None,
+    approval_callback: ApprovalCallback | None = None,
+) -> RunnerFn:
     """A real runner: AgentLoop for ``runner: agent`` tasks, the specialist
     Orchestrator for ``runner: team`` tasks. Requires a configured LLM."""
 
@@ -113,10 +122,20 @@ def default_runner(auto_approve: bool = False) -> RunnerFn:
         if task.runner == "team":
             from isaac.specialists import Orchestrator
 
-            team_result = Orchestrator(auto_approve=auto_approve).run(task.prompt)
+            team_result = Orchestrator(
+                auto_approve=auto_approve,
+                max_iterations=task.max_iterations,
+                specialist_max_iterations=task.max_iterations,
+                max_wall_seconds=task.timeout_seconds,
+                should_stop=should_stop,
+                approval_callback=approval_callback,
+            ).run(
+                task.prompt,
+                context=f"Task workspace: {task.workspace}. Use this directory for all files.",
+            )
             return TaskAnswer(
                 text=team_result.final_output or "",
-                stopped_reason="final" if team_result.success else "error",
+                stopped_reason=team_result.stopped_reason,
             )
 
         from isaac.agents.agent_loop import build_default_agent
@@ -126,8 +145,13 @@ def default_runner(auto_approve: bool = False) -> RunnerFn:
             max_wall_seconds=task.timeout_seconds,
             auto_approve=auto_approve,
             only=task.tools,
+            should_stop=should_stop,
+            approval_callback=approval_callback,
         )
-        agent_result = loop.run(task.prompt)
+        agent_result = loop.run(
+            task.prompt,
+            context=f"Task workspace: {task.workspace}. Use this directory for all files.",
+        )
         return TaskAnswer(
             text=agent_result.output or "", stopped_reason=agent_result.stopped_reason
         )
@@ -158,6 +182,32 @@ def _seed_files(task: EvalTask, workspace: Path) -> None:
             shutil.copyfile(src, target)
         except OSError as exc:
             logger.warning("Task %s: cannot copy attachment %s: %s", task.id, src, exc)
+
+
+def execute_task(
+    task: EvalTask, runner: RunnerFn, parent: Path
+) -> tuple[TaskAnswer, list[CheckOutcome], float]:
+    """Execute and score in a fresh directory, retained for evidence/review.
+
+    Injected runners receive the directory via task.workspace. A runner that
+    ignores that contract cannot score artifacts from a previous run.
+    """
+    parent.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="task-", dir=parent))
+    scoped_task = replace(task, workspace=root)
+    started = time.monotonic()
+    boundary = _RunBoundary(task.timeout_seconds)
+    with workspace_scope(root):
+        try:
+            _seed_files(scoped_task, root)
+            answer = boundary.call(lambda: runner(scoped_task))
+        except _RunStopped as exc:
+            answer = TaskAnswer(text=f"(runner stopped: {exc.reason})", stopped_reason=exc.reason)
+        except Exception as exc:
+            logger.exception("Task %s: execution failed", task.id)
+            answer = TaskAnswer(text=f"(runner crashed: {exc})", stopped_reason="error")
+        checks = score_answer(task.checks, answer.text, root)
+    return answer, checks, (time.monotonic() - started) * 1000
 
 
 def run_suite(
@@ -198,7 +248,7 @@ def run_suite(
             except Exception:
                 logger.debug("eval on_event raised", exc_info=True)
 
-    run_id = store.new_run_id() if store else f"local{int(time.time())}"
+    run_id = store.new_run_id() if store else f"local-{uuid.uuid4().hex}"
     started_at = time.time()
     summary = EvalRunSummary(
         run_id=run_id,
@@ -212,16 +262,8 @@ def run_suite(
 
     for i, task in enumerate(tasks, 1):
         emit("task_start", n=i, total=len(tasks), task_id=task.id)
-        _seed_files(task, workspace)
-        t0 = time.monotonic()
-        try:
-            answer = runner(task)
-        except Exception as exc:
-            logger.exception("Task %s: runner crashed", task.id)
-            answer = TaskAnswer(text=f"(runner crashed: {exc})", stopped_reason="error")
-        duration_ms = (time.monotonic() - t0) * 1000
-        checks = score_answer(task.checks, answer.text, workspace)
-        passed = bool(checks) and all(c.passed for c in checks)
+        answer, checks, duration_ms = execute_task(task, runner, workspace)
+        passed = answer.stopped_reason == "final" and bool(checks) and all(c.passed for c in checks)
         summary.outcomes.append(
             TaskOutcome(
                 task_id=task.id,

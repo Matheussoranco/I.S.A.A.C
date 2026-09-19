@@ -182,3 +182,26 @@ def mock_docker():
 
     with patch("docker.from_env", return_value=mock_client):
         yield mock_client, mock_container
+
+
+@pytest.fixture(autouse=True)
+def isolate_runtime_data(tmp_path_factory, monkeypatch):
+    """Tests never write into the user's databases or download embedding models."""
+    from isaac.config.settings import get_settings
+    from isaac.improvement import performance
+    from isaac.memory import skill_library
+    from isaac.meta import learner
+
+    home = tmp_path_factory.mktemp("isaac-runtime")
+    workspace = home / "workspace"
+    workspace.mkdir(parents=True)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "isaac_home", home)
+    monkeypatch.setattr(settings, "allowed_paths", [str(workspace)])
+    monkeypatch.setattr(settings, "skills_dir", home / "skills")
+    monkeypatch.setattr(performance, "_tracker", None)
+    monkeypatch.setattr(learner, "_learner", None)
+    monkeypatch.setattr(skill_library, "_get_chroma_client", lambda: None)
+    yield
+    performance.reset_tracker()
+    learner.reset_learner()

@@ -106,7 +106,8 @@ def test_handle_agent_routes_to_loop(monkeypatch: Any) -> None:
     result = mcp_tools.call_tool("isaac_agent", {"task": "do it", "tools": ["web_search"]})
 
     assert result["output"] == "final answer"
-    assert result["success"] is True
+    assert result["completed"] is True
+    assert result["success"] is False
     assert result["iterations"] == 2
     assert result["tool_calls"][0]["name"] == "web_search"
     assert captured["task"] == "do it"

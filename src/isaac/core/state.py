@@ -252,6 +252,7 @@ class IsaacState(TypedDict, total=False):
     * ``ui_cycle``   — latest-wins (screenshot→action loop counter).
     """
 
+    verified_success: bool | None
     messages: Annotated[list[BaseMessage], add_messages]
     world_model: Annotated[WorldModel, _replace]
     hypothesis: Annotated[str, _replace]

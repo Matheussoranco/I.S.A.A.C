@@ -130,19 +130,20 @@ class CodeExecutor:
             str(tmp_dir): {"bind": "/input", "mode": "ro"},
         }
 
-        container = self._manager.create_container(
-            command=["python", "/input/task.py"],
-            volumes=volumes,
-        )
-
         t0 = time.perf_counter()
+        container = None
         try:
+            container = self._manager.create_container(
+                command=["python", "/input/task.py"],
+                volumes=volumes,
+            )
             self._manager.start(container)
             exit_code = self._manager.wait(container)
             stdout, stderr = self._manager.logs(container)
             duration_ms = (time.perf_counter() - t0) * 1000
         finally:
-            self._manager.destroy(container)
+            if container is not None:
+                self._manager.destroy(container)
             # Clean up host temp files
             try:
                 task_file.unlink(missing_ok=True)

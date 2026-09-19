@@ -75,7 +75,19 @@ def sandbox_node(state: IsaacState) -> dict[str, Any]:
                 "constitution_decision": decision.to_dict(),
             }
     except Exception as exc:
-        logger.debug("Constitution review skipped (%s)", exc)
+        from isaac.core.state import ExecutionResult
+
+        return {
+            "execution_logs": [
+                ExecutionResult(
+                    stdout="",
+                    stderr=f"Safety review unavailable: {exc}",
+                    exit_code=126,
+                    duration_ms=0.0,
+                )
+            ],
+            "current_phase": "sandbox",
+        }
 
     executor = CodeExecutor()
     try:

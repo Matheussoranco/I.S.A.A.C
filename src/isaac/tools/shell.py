@@ -1,29 +1,9 @@
-"""Shell Tool — run commands on the host, gated by the constitutional critic.
-
-This is the capability that lets a specialist actually *operate the PC*: run
-``git``, invoke build tools, move files, query the system.  Because that power
-is dangerous, every invocation passes through three gates:
-
-1. **Constitutional review** (:func:`isaac.security.constitution.review`) —
-   a critical-severity match (``rm -rf /``, fork bomb, raw disk write, …) is a
-   hard deny that nothing can override.
-2. **Risk gating** — the tool is risk level 4, so the :class:`AgentLoop`
-   refuses to run it unless the caller opted in (``auto_approve`` / human
-   approval).  An OS-operator specialist opts in explicitly.
-3. **Execution mode** — by default commands run through the strict allow-list
-   + metacharacter block of :class:`~isaac.skills.connectors.shell.ShellConnector`.
-   Setting ``ISAAC_SHELL_UNRESTRICTED=true`` switches to a full platform shell
-   (PowerShell on Windows, ``/bin/sh`` elsewhere) for power users on a trusted
-   machine — the constitutional gate still applies.
-"""
+"""Approval-gated, read-only host commands with a fail-closed safety review."""
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
-import platform
-import subprocess
 from typing import Any
 
 from isaac.tools.base import IsaacTool, ToolResult
@@ -103,11 +83,10 @@ class ShellTool(IsaacTool):
 
     name = "shell"
     description = (
-        "Run a command on the host operating system and return its stdout/stderr/"
-        "exit code. Use for git, build tools, package managers, file management, "
-        "and system queries. Provide 'command' (the full command line) and "
-        "optionally 'cwd' (working directory) and 'timeout' (seconds). High risk: "
-        "destructive commands are blocked by the safety critic."
+        "Run a bounded read-only command within allowed roots. Supports echo, pwd, "
+        "whoami, hostname, date, uname, ls/dir [path], cat/head/tail/wc file, "
+        "and grep literal-text file. No external programs, scripts, pipes or chains. "
+        "Use file tools for changes and the Docker code tool for computation."
     )
     risk_level = 4  # __init_subclass__ auto-sets requires_approval = True
     sandbox_required = False
@@ -145,9 +124,12 @@ class ShellTool(IsaacTool):
             pass_secrets = bool(getattr(settings, "shell_pass_secrets", False))
             allowlist_cfg: list[str] = list(getattr(settings, "shell_allowed_commands", []) or [])
         except Exception:
-            default_timeout, unrestricted, pass_secrets, allowlist_cfg = 30, False, False, []
+            return ToolResult(success=False, error="BLOCKED: shell configuration unavailable")
 
-        timeout = max(1, min(int(kwargs.get("timeout", default_timeout)), 600))
+        try:
+            timeout = max(1, min(int(kwargs.get("timeout", default_timeout)), 600))
+        except (ValueError, TypeError, OverflowError):
+            return ToolResult(success=False, error="Invalid timeout: expected seconds as int.")
 
         # ── Gate 1: constitutional review (fail-closed) ────────────────────
         try:
@@ -215,131 +197,14 @@ class ShellTool(IsaacTool):
             command=command,
         )
 
-    def _run_unrestricted_confined(
-        self,
-        command: str,
-        cwd: str | None,
-        timeout: int,
-        pass_secrets: bool = False,
-        allowlist_cfg: list[str] | None = None,
-    ) -> ToolResult:
-        """Confined unrestricted shell: allow-list + audit log required.
-
-        ``ISAAC_SHELL_UNRESTRICTED=true`` alone is NOT enough: an explicit
-        ``ISAAC_SHELL_ALLOWED_COMMANDS`` allow-list must be configured and
-        every invocation is audit-logged.  The constitutional gate (fail-closed)
-        already ran before this point.
-        """
-        from isaac.skills.connectors.shell import _DEFAULT_ALLOWED
-
-        allowed = {c.lower() for c in (allowlist_cfg or [])} or set(_DEFAULT_ALLOWED)
-        if not allowlist_cfg:
-            logger.error("Unrestricted shell BLOCKED: no ISAAC_SHELL_ALLOWED_COMMANDS configured")
-            return ToolResult(
-                success=False,
-                error="BLOCKED: ISAAC_SHELL_UNRESTRICTED requires an explicit "
-                "ISAAC_SHELL_ALLOWED_COMMANDS allow-list.",
-            )
-        first = (command.strip().split() or [""])[0].lower().rstrip(";,&|")
-        if first not in allowed:
-            return ToolResult(
-                success=False,
-                error=f"BLOCKED: command '{first}' not in unrestricted allow-list.",
-            )
-        try:
-            from isaac.skills.connectors.registry import audit_connector
-        except Exception:
-            audit_connector = None  # type: ignore[assignment]
-        if audit_connector is not None:
-            with contextlib.suppress(Exception):
-                audit_connector("shell", "unrestricted-invoke", command[:200])
-        result = self._run_unrestricted(command, cwd, timeout, pass_secrets)
-        if audit_connector is not None:
-            with contextlib.suppress(Exception):
-                audit_connector(
-                    "shell",
-                    "unrestricted-success" if result.success else "unrestricted-error",
-                    command[:200],
-                )
-        return result
-
-    def _run_unrestricted(
-        self, command: str, cwd: str | None, timeout: int, pass_secrets: bool = False
-    ) -> ToolResult:
-        """Run without the metacharacter block, but still confined.
-
-        POSIX path avoids ``shell=True``: the command is parsed with shlex
-        and executed as argv (``shell=False``), so ``$(...)``, backticks,
-        pipes and redirections never reach ``/bin/sh``. Anything that is
-        not a plain argv invocation is denied rather than reinterpreted.
-        """
-        # Command substitution / expansion never allowed, even unrestricted:
-        # it escapes the first-word allow-list ("git $(rm -rf ~)").
-        if "$(" in command or "`" in command or "${" in command:
-            return ToolResult(
-                success=False,
-                error="BLOCKED: command substitution ($(), ``, ${}) is never allowed.",
-            )
-        is_windows = platform.system() == "Windows"
-        child_env = build_child_env(pass_secrets=pass_secrets)
-        try:
-            if is_windows:
-                args = [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    command,
-                ]
-                completed = subprocess.run(
-                    args,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    cwd=cwd,
-                    env=child_env,
-                )
-            else:
-                import shlex as _shlex
-
-                try:
-                    argv = _shlex.split(command, posix=True)
-                except ValueError as exc:
-                    return ToolResult(
-                        success=False,
-                        error=f"BLOCKED: could not parse command safely ({exc}).",
-                    )
-                if not argv:
-                    return ToolResult(success=False, error="Missing 'command' parameter.")
-                # shell=False: no pipes, redirections, chains, globs or
-                # expansions. Multi-command input is denied, not half-run.
-                if any(tok in {"|", "&", ";", ">", "<", "&&", "||", "$", "~"} for tok in argv):
-                    return ToolResult(
-                        success=False,
-                        error="BLOCKED: shell operators are not allowed, even unrestricted. "
-                        "Run one plain command per invocation.",
-                    )
-                completed = subprocess.run(
-                    argv,
-                    shell=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    cwd=cwd,
-                    env=child_env,
-                    executable=None,
-                )
-        except subprocess.TimeoutExpired:
-            return ToolResult(success=False, error=f"Command timed out after {timeout}s.")
-        except Exception as exc:
-            return ToolResult(success=False, error=f"Shell execution failed: {exc}")
-
-        return self._format(
-            stdout=completed.stdout or "",
-            stderr=completed.stderr or "",
-            exit_code=completed.returncode,
-            command=command,
+    def _run_unrestricted_confined(self, *args: Any, **kwargs: Any) -> ToolResult:
+        return ToolResult(
+            success=False,
+            error="BLOCKED: unrestricted host execution is disabled; use the Docker code tool.",
         )
+
+    def _run_unrestricted(self, *args: Any, **kwargs: Any) -> ToolResult:
+        return self._run_unrestricted_confined(*args, **kwargs)
 
     @staticmethod
     def _format(stdout: str, stderr: str, exit_code: int, command: str) -> ToolResult:

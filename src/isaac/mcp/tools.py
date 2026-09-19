@@ -384,6 +384,8 @@ def _handle_agent(args: dict[str, Any]) -> dict[str, Any]:
     return {
         "output": result.output,
         "success": result.success,
+        "completed": result.completed,
+        "verified_success": result.verified_success,
         "iterations": result.iterations,
         "stopped_reason": result.stopped_reason,
         "tool_calls": [

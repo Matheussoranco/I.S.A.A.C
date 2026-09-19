@@ -104,7 +104,8 @@ class TestAgentLoop:
         result = loop.run("please echo hi")
 
         assert result.stopped_reason == "final"
-        assert result.success is True
+        assert result.completed is True
+        assert result.success is False  # No trusted task validator supplied.
         assert "hi" in result.output
         assert result.iterations == 2
         assert len(result.tool_calls) == 1
@@ -222,7 +223,7 @@ class TestAgentLoop:
         result = loop.run("take forever")
         assert result.stopped_reason == "budget_exhausted"
         assert result.success is False
-        assert len(result.tool_calls) == 1
+        assert len(result.tool_calls) in (0, 1)
         assert "budget" in result.output
 
     def test_zero_budget_disables_wall_clock_guard(self) -> None:

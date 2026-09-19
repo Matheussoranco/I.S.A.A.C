@@ -37,10 +37,17 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
+from isaac.agents.agent_loop import (
+    ApprovalCallback,
+    StopCallback,
+    _active_boundary,
+    _BackgroundCall,
+    _RunBoundary,
+    _RunStopped,
+)
 from isaac.specialists.base import Specialist, SpecialistResult
 
 logger = logging.getLogger(__name__)
@@ -51,6 +58,10 @@ Planner = Callable[[str, list[dict], str], "list[SubTask]"]
 
 #: Hard cap on the number of subtasks a plan may contain.
 MAX_SUBTASKS = 8
+
+
+class _InvalidPlan(ValueError):
+    pass
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -110,6 +121,18 @@ class OrchestrationResult:
     success: bool
     duration_ms: float
     error: str = ""
+    stopped_reason: str = "final"
+
+    @property
+    def completed(self) -> bool:
+        return (
+            self.stopped_reason == "final"
+            and not self.error
+            and bool(self.plan)
+            and len(self.results) == len(self.plan)
+            and {r.subtask.id for r in self.results} == {s.id for s in self.plan}
+            and all(r.result.stopped_reason == "final" for r in self.results)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable view of the orchestration."""
@@ -121,6 +144,7 @@ class OrchestrationResult:
             "success": self.success,
             "duration_ms": self.duration_ms,
             "error": self.error,
+            "stopped_reason": self.stopped_reason,
         }
 
 
@@ -156,6 +180,12 @@ class Orchestrator:
         planner: Planner | None = None,
         use_meta_selection: bool | None = None,
         selector: Any | None = None,
+        max_iterations: int = 8,
+        timeout_seconds: float = 0,
+        max_wall_seconds: float = 0,
+        should_stop: StopCallback | None = None,
+        approval_callback: ApprovalCallback | None = None,
+        specialist_max_iterations: int | None = None,
     ) -> None:
         """Initialise the orchestrator.
 
@@ -174,6 +204,14 @@ class Orchestrator:
                 ``True``/``False`` is what the ablation harness uses.
             selector: Optional :class:`~isaac.meta.specialist_selector.SpecialistSelector`
                 override (tests and the ablation inject an isolated one).
+            max_iterations: Hard cap on planning waves (prevents infinite
+                dependency loops). Defaults to 8 (== MAX_SUBTASKS).
+            timeout_seconds: Per-subtask timeout in seconds (0 = unlimited).
+                A timed-out subtask returns a failed result instead of hanging
+                the whole wave.
+            max_wall_seconds: Total wall-clock budget for the run
+                (0 = unlimited). Exhaustion stops scheduling with
+                ``stopped_reason="budget_exhausted"`` semantics.
         """
         self._llm = manager_llm
         self.max_workers = max(1, int(max_workers))
@@ -183,6 +221,12 @@ class Orchestrator:
         self._planner = planner or self._plan
         self._use_meta_selection = use_meta_selection
         self._selector_override = selector
+        self.max_iterations = max(1, int(max_iterations))
+        self.timeout_seconds = max(0.0, float(timeout_seconds))
+        self.max_wall_seconds = max(0.0, float(max_wall_seconds))
+        self._should_stop = should_stop
+        self._approval_callback = approval_callback
+        self.specialist_max_iterations = specialist_max_iterations
 
     # ------------------------------------------------------------------
     # Lazy dependencies
@@ -260,52 +304,108 @@ class Orchestrator:
             caught and surfaced as a failed result.
         """
         start = time.monotonic()
+        boundary = _RunBoundary(
+            self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
+        )
+        outcome = OrchestrationResult(goal, [], [], "", False, 0)
         try:
-            # 1. Plan ------------------------------------------------------
-            try:
-                roster = self._list_roster()
-            except Exception:  # pragma: no cover - registry import shouldn't fail
-                logger.exception("Failed to list specialist roster")
-                roster = []
-            roster = self._apply_meta_selection(roster)
-            plan = self._planner(goal, roster, context)
-            self._emit("plan", {"plan": [s.to_dict() for s in plan]})
-
-            # 2. Schedule + execute respecting dependencies ----------------
-            results = self._execute(plan, context)
-
-            # 3. Synthesize ------------------------------------------------
-            final = self._synthesize(goal, results)
-            self._emit("synthesis", {"output": final})
-
-            success = bool(results) and all(r.result.success for r in results)
-            self._emit("final", {"output": final, "success": success})
-
-            duration_ms = round((time.monotonic() - start) * 1000, 1)
-
-            # 4. Record (best-effort) -------------------------------------
-            self._record(goal, plan, results, success, duration_ms)
-
-            return OrchestrationResult(
-                goal=goal,
-                plan=plan,
+            outcome = boundary.call(lambda: self._run(goal, context, boundary, outcome))
+        except _RunStopped as exc:
+            results = list(outcome.results)
+            finished = {r.subtask.id for r in results}
+            results.extend(
+                SubTaskResult(st, self._timeout_result(st, exc.reason))
+                for st in outcome.plan
+                if st.id not in finished
+            )
+            outcome = replace(
+                outcome,
                 results=results,
-                final_output=final,
-                success=success,
-                duration_ms=duration_ms,
-            )
-        except Exception as exc:  # pragma: no cover - defensive top-level guard
-            logger.exception("Orchestration failed for goal=%r", goal)
-            duration_ms = round((time.monotonic() - start) * 1000, 1)
-            return OrchestrationResult(
-                goal=goal,
-                plan=[],
-                results=[],
-                final_output="",
                 success=False,
-                duration_ms=duration_ms,
-                error=str(exc),
+                error=exc.reason,
+                stopped_reason=exc.reason,
+                final_output="\n\n".join(r.result.output for r in results),
             )
+        except Exception as exc:
+            logger.exception("Orchestration failed for goal=%r", goal)
+            outcome = replace(
+                outcome,
+                success=False,
+                error=str(exc),
+                stopped_reason="invalid_plan" if isinstance(exc, _InvalidPlan) else "error",
+            )
+        outcome.duration_ms = round((time.monotonic() - start) * 1000, 1)
+        return outcome
+
+    def _run(
+        self, goal: str, context: str, boundary: _RunBoundary, outcome: OrchestrationResult
+    ) -> OrchestrationResult:
+        started = time.monotonic()
+        try:
+            roster = self._list_roster()
+        except Exception:
+            logger.exception("Failed to list specialist roster")
+            roster = []
+        boundary.check()
+        roster = self._apply_meta_selection(roster)
+        boundary.check()
+        outcome.plan = self._planner(goal, roster, context)
+        boundary.check()
+        self._validate_plan(outcome.plan)
+        self._emit("plan", {"plan": [s.to_dict() for s in outcome.plan]})
+        outcome.results = self._execute(outcome.plan, context, boundary, outcome.results)
+        boundary.check()
+        reasons = [
+            r.result.stopped_reason for r in outcome.results if r.result.stopped_reason != "final"
+        ]
+        if reasons:
+            outcome.stopped_reason = reasons[0]
+            outcome.error = reasons[0]
+            outcome.final_output = "\n\n".join(r.result.output for r in outcome.results)
+        else:
+            outcome.final_output = self._synthesize(goal, outcome.results)
+            boundary.check()
+            self._emit("synthesis", {"output": outcome.final_output})
+        outcome.success = outcome.completed and all(r.result.success for r in outcome.results)
+        boundary.check()
+        self._emit("final", {"output": outcome.final_output, "success": outcome.success})
+        outcome.duration_ms = round((time.monotonic() - started) * 1000, 1)
+        self._record(goal, outcome.plan, outcome.results, outcome.success, outcome.duration_ms)
+        boundary.check()
+        return outcome
+
+    @staticmethod
+    def _validate_plan(plan: list[SubTask]) -> None:
+        if not isinstance(plan, list) or not plan:
+            raise _InvalidPlan("Plan must contain at least one subtask")
+        if len(plan) > MAX_SUBTASKS:
+            raise _InvalidPlan(f"Plan exceeds {MAX_SUBTASKS} subtasks; nothing was executed")
+        ids: set[str] = set()
+        for st in plan:
+            if (
+                not isinstance(st, SubTask)
+                or not isinstance(st.id, str)
+                or not st.id.strip()
+                or not isinstance(st.description, str)
+                or not st.description.strip()
+                or not isinstance(st.specialist, str)
+                or not st.specialist.strip()
+                or not isinstance(st.depends_on, list)
+                or any(not isinstance(dep, str) for dep in st.depends_on)
+            ):
+                raise _InvalidPlan("Malformed subtask")
+            if st.id in ids:
+                raise _InvalidPlan(f"Duplicate subtask id: {st.id}")
+            ids.add(st.id)
+        for st in plan:
+            if st.id in st.depends_on or not set(st.depends_on) <= ids:
+                raise _InvalidPlan(f"Invalid dependencies for subtask {st.id}")
+        visited: set[str] = set()
+        while len(visited) < len(plan):
+            ready = {st.id for st in plan if set(st.depends_on) <= visited} - visited
+            if not ready:
+                raise _InvalidPlan("Dependency cycle in plan")
+            visited.update(ready)
 
     # ------------------------------------------------------------------
     # Planning
@@ -382,6 +482,8 @@ class Orchestrator:
         try:
             content = self._invoke(system, human)
             plan = self._parse_plan(content)
+        except (_InvalidPlan, _RunStopped):
+            raise
         except Exception:  # pragma: no cover - defensive (covers LLM + parse)
             logger.debug("Planner LLM/parse failed; using generalist fallback", exc_info=True)
             return fallback
@@ -399,12 +501,6 @@ class Orchestrator:
 
     @staticmethod
     def _parse_plan(content: str) -> list[SubTask]:
-        """Parse the manager LLM's JSON plan into :class:`SubTask` s.
-
-        Strips Markdown code fences, parses the JSON, and clamps the result to
-        :data:`MAX_SUBTASKS`. Returns an empty list when nothing usable is found
-        (callers substitute the generalist fallback).
-        """
         text = (content or "").strip()
         if text.startswith("```"):
             # Drop the opening fence (optionally ```json) and the closing fence.
@@ -423,83 +519,137 @@ class Orchestrator:
             return []
 
         subtasks: list[SubTask] = []
-        for i, item in enumerate(raw[:MAX_SUBTASKS], start=1):
+        if len(raw) > MAX_SUBTASKS:
+            raise _InvalidPlan(f"Plan exceeds {MAX_SUBTASKS} subtasks")
+        for i, item in enumerate(raw, start=1):
             if not isinstance(item, dict):
-                continue
-            sid = str(item.get("id") or f"t{i}")
-            description = str(item.get("description") or "").strip()
-            specialist = str(item.get("specialist") or "generalist").strip() or "generalist"
-            depends_raw = item.get("depends_on") or []
-            depends_on = [str(d) for d in depends_raw] if isinstance(depends_raw, list) else []
-            if not description:
-                continue
+                raise _InvalidPlan("Malformed subtask")
             subtasks.append(
                 SubTask(
-                    id=sid,
-                    description=description,
-                    specialist=specialist,
-                    depends_on=depends_on,
+                    id=item.get("id", f"t{i}"),
+                    description=item.get("description", ""),
+                    specialist=item.get("specialist", "generalist"),
+                    depends_on=item.get("depends_on", []),
                 )
             )
+        if subtasks:
+            Orchestrator._validate_plan(subtasks)
         return subtasks
 
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
 
-    def _execute(self, plan: list[SubTask], context: str) -> list[SubTaskResult]:
-        """Run *plan* in dependency-ordered parallel waves.
-
-        Subtasks whose dependencies are all complete run together in a thread
-        pool. If a wave makes no progress (a dependency cycle or an unknown
-        dependency id), the remaining subtasks run regardless of their declared
-        dependencies so the pipeline always terminates.
-
-        Args:
-            plan: The subtasks to run.
-            context: Shared context prepended to every subtask.
-
-        Returns:
-            One :class:`SubTaskResult` per subtask, in completion order.
-        """
-        if not plan:
-            return []
-
+    def _execute(
+        self,
+        plan: list[SubTask],
+        context: str,
+        boundary: _RunBoundary,
+        ordered: list[SubTaskResult],
+    ) -> list[SubTaskResult]:
+        self._validate_plan(plan)
         completed: dict[str, SubTaskResult] = {}
         pending: list[SubTask] = list(plan)
-        ordered: list[SubTaskResult] = []
+        waves = 0
 
         while pending:
+            boundary.check()
+            if waves >= self.max_iterations:
+                for st in pending:
+                    ordered.append(
+                        SubTaskResult(
+                            subtask=st,
+                            result=self._timeout_result(st, "max_iterations"),
+                        )
+                    )
+                break
+            waves += 1
             ready = [st for st in pending if all(dep in completed for dep in st.depends_on)]
             if not ready:
-                # No progress possible (cycle / unknown dep): run the rest now.
-                ready = list(pending)
+                raise _InvalidPlan("Unresolvable dependencies")
 
-            wave_results = self._run_wave(ready, completed, context)
-            for st, res in wave_results:
+            blocked = [
+                st
+                for st in ready
+                if any(completed[dep].result.stopped_reason != "final" for dep in st.depends_on)
+            ]
+            for st in blocked:
+                res = SubTaskResult(st, self._timeout_result(st, "dependency_failed"))
                 completed[st.id] = res
                 ordered.append(res)
+            runnable = [st for st in ready if st not in blocked]
+            wave_results = self._run_wave(runnable, completed, context, boundary, ordered)
+            for st, res in wave_results:
+                completed[st.id] = res
 
             ready_ids = {st.id for st in ready}
             pending = [st for st in pending if st.id not in ready_ids]
 
         return ordered
 
+    def _timeout_result(self, subtask: SubTask, reason: str) -> Any:
+        """Build a failed SpecialistResult for skipped/timed-out subtasks."""
+        from isaac.specialists.base import SpecialistResult
+
+        return SpecialistResult(
+            specialist=subtask.specialist,
+            task=subtask.description,
+            output=f"Subtask {subtask.id} skipped: {reason}.",
+            success=False,
+            stopped_reason=reason,
+            error=reason,
+        )
+
     def _run_wave(
         self,
         wave: list[SubTask],
         completed: dict[str, SubTaskResult],
         context: str,
+        boundary: _RunBoundary,
+        ordered: list[SubTaskResult],
     ) -> list[tuple[SubTask, SubTaskResult]]:
-        """Execute one wave of independent subtasks concurrently."""
-        workers = min(self.max_workers, len(wave)) or 1
         out: list[tuple[SubTask, SubTaskResult]] = []
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(self._run_subtask, st, completed, context): st for st in wave}
-            for future in futures:
-                st = futures[future]
-                res = future.result()
-                out.append((st, res))
+        pending = list(wave)
+        active: list[tuple[SubTask, _RunBoundary, _BackgroundCall]] = []
+        try:
+            while pending or active:
+                boundary.check()
+                while pending and len(active) < self.max_workers:
+                    st = pending.pop(0)
+                    child = _RunBoundary(
+                        self.timeout_seconds, parent=boundary, timeout_reason="timeout"
+                    )
+                    work = _BackgroundCall(
+                        child,
+                        lambda st=st, child=child: self._run_subtask(st, completed, context, child),
+                    )
+                    active.append((st, child, work))
+                for st, child, work in list(active):
+                    reason = child.reason()
+                    if not reason and not work.done.is_set():
+                        continue
+                    if reason:
+                        work.cancel()
+                        res = SubTaskResult(st, self._timeout_result(st, reason))
+                        self._emit("subtask_timeout", {"id": st.id, "reason": reason})
+                    else:
+                        try:
+                            res = work.future.result()
+                        except _RunStopped as exc:
+                            res = SubTaskResult(st, self._timeout_result(st, exc.reason))
+                        except Exception as exc:
+                            logger.debug("Subtask %s failed: %s", st.id, exc, exc_info=True)
+                            res = SubTaskResult(st, self._timeout_result(st, "error"))
+                            res.result.error = str(exc)
+                    active.remove((st, child, work))
+                    out.append((st, res))
+                    ordered.append(res)
+                if active:
+                    time.sleep(0.005)
+        finally:
+            for _, child, work in active:
+                child.stop(boundary.reason() or "cancelled")
+                work.cancel()
         return out
 
     def _run_subtask(
@@ -507,6 +657,7 @@ class Orchestrator:
         subtask: SubTask,
         completed: dict[str, SubTaskResult],
         context: str,
+        boundary: _RunBoundary,
     ) -> SubTaskResult:
         """Instantiate the target specialist and run a single subtask.
 
@@ -532,8 +683,11 @@ class Orchestrator:
             },
         )
 
-        specialist = self._make_specialist(subtask.specialist)
+        boundary.check()
+        specialist = self._make_specialist(subtask.specialist, boundary)
+        boundary.check()
         result = specialist.run(subtask.description, context=ctx)
+        boundary.check()
 
         self._emit(
             "subtask_done",
@@ -541,7 +695,7 @@ class Orchestrator:
         )
         return SubTaskResult(subtask=subtask, result=result)
 
-    def _make_specialist(self, name: str) -> Specialist:
+    def _make_specialist(self, name: str, boundary: _RunBoundary | None = None) -> Specialist:
         """Instantiate *name*, falling back sensibly when it is unknown.
 
         With meta-selection on, an unresolvable name falls back to the
@@ -549,19 +703,24 @@ class Orchestrator:
         generalist — the one place where accumulated win-rates decide the
         routing outright instead of merely advising the planner.
         """
+        kwargs: dict[str, Any] = {
+            "auto_approve": self.auto_approve,
+            "on_event": self._on_event,
+            "approval_callback": self._approval_callback,
+            "should_stop": (lambda: bool(boundary.reason())) if boundary else self._should_stop,
+            "max_wall_seconds": boundary.remaining() if boundary else self.max_wall_seconds,
+        }
+        if self.specialist_max_iterations is not None:
+            kwargs["max_iterations"] = self.specialist_max_iterations
         try:
-            return self._specialist_factory(name, auto_approve=self.auto_approve, on_event=None)
+            return self._specialist_factory(name, **kwargs)
         except KeyError:
             fallback = self._fallback_specialist_name()
             logger.debug("Unknown specialist %r; falling back to %s", name, fallback)
             try:
-                return self._specialist_factory(
-                    fallback, auto_approve=self.auto_approve, on_event=None
-                )
+                return self._specialist_factory(fallback, **kwargs)
             except KeyError:  # pragma: no cover - generalist is always registered
-                return self._specialist_factory(
-                    "generalist", auto_approve=self.auto_approve, on_event=None
-                )
+                return self._specialist_factory("generalist", **kwargs)
 
     def _fallback_specialist_name(self) -> str:
         """Pick the substitute for an unknown specialist name."""
@@ -644,6 +803,8 @@ class Orchestrator:
             content = self._invoke(system, human)
             if content and content.strip():
                 return content.strip()
+        except _RunStopped:
+            raise
         except Exception:  # pragma: no cover - defensive
             logger.debug("Synthesis LLM failed; concatenating outputs", exc_info=True)
 
@@ -665,9 +826,14 @@ class Orchestrator:
         """
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        boundary = _active_boundary.get()
+        if boundary is not None:
+            boundary.check()
         response = self._manager().invoke(
             [SystemMessage(content=system), HumanMessage(content=human)]
         )
+        if boundary is not None:
+            boundary.check()
         content = getattr(response, "content", response)
         return content if isinstance(content, str) else str(content)
 
@@ -692,6 +858,8 @@ class Orchestrator:
         collecting evidence is free, and the ablation needs both arms to build
         the same history so only its *use* differs.
         """
+        if not results or any(r.result.verified_success is None for r in results):
+            return
         try:
             from isaac.meta.learner import get_learner
 

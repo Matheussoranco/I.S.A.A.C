@@ -1,27 +1,16 @@
-"""Browser Tool — persistent Playwright browser session for web automation.
-
-Unlike a stateless fetch, this tool keeps a single Chromium page **alive
-across actions** so the agent can drive a real multi-step browsing session:
-navigate → read → click → type → navigate again, all on the same page with
-cookies, history and DOM state preserved (the "Claude for Chrome" capability).
-
-The browser runs in-process via Playwright's async API.  A single page is
-lazily launched on first use and reused for every subsequent action within
-the same agent run; the agent loop calls :meth:`aclose` when the run ends.
-
-Requires the optional ``browser`` extra::
-
-    pip install playwright && python -m playwright install chromium
-"""
-
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
+from urllib.parse import urlsplit
 
+from isaac.skills.connectors.web_fetch import WebFetchConnector
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -35,23 +24,6 @@ BrowserVisualCallback = Callable[[str, dict[str, Any]], None]
 
 
 class BrowserTool(IsaacTool):
-    """Drive a persistent Chromium page via Playwright.
-
-    Actions
-    -------
-    navigate      Go to a URL (``url``).
-    extract_text  Return the visible text of the current page.
-    get_html      Return the current page's HTML.
-    get_links     List the anchors (text → href) on the current page.
-    click         Click an element by CSS selector (``selector``).
-    type          Fill an input by CSS selector (``selector``, ``text``).
-    press         Press a key, e.g. ``Enter`` (``key``).
-    eval          Evaluate a JavaScript expression (``script``).
-    screenshot    Save a PNG of the current page and return its path.
-    back          Navigate back in history.
-    current       Report the current URL and title.
-    """
-
     name = "browser"
     description = (
         "Drive a persistent web browser to accomplish a task: navigate to URLs, read "
@@ -105,7 +77,26 @@ class BrowserTool(IsaacTool):
         visual_callback: BrowserVisualCallback | None = None,
         viewport_width: int = _DEFAULT_VIEWPORT_WIDTH,
         viewport_height: int = _DEFAULT_VIEWPORT_HEIGHT,
+        engine: str = "chromium",
+        channel: str | None = None,
     ) -> None:
+        engine = engine.strip().lower()
+        channel = channel.strip().lower() if channel else None
+        channel = "msedge" if channel == "edge" else channel
+        if engine in {"chrome", "edge", "msedge"}:
+            selected_channel = "chrome" if engine == "chrome" else "msedge"
+            if channel and channel != selected_channel:
+                raise ValueError("Browser engine alias conflicts with the selected channel.")
+            engine, channel = "chromium", selected_channel
+        if engine not in {"chromium", "firefox", "webkit"}:
+            raise ValueError("Browser engine must be chromium, firefox, webkit, chrome, or edge.")
+        if channel not in {None, "chromium", "chrome", "msedge"}:
+            raise ValueError("Browser channel must be chromium, chrome, or msedge (edge).")
+        if channel and engine != "chromium":
+            raise ValueError("Browser channels are supported only with the chromium engine.")
+        self.engine = engine
+        self.channel = channel
+        self._profile: TemporaryDirectory[str] | None = None
         self._pw: Any = None
         self._browser: Any = None
         self._context: Any = None
@@ -162,25 +153,72 @@ class BrowserTool(IsaacTool):
 
         from playwright.async_api import async_playwright
 
-        self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(
-            headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
-        self._context = await self._browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
-            viewport={"width": self._viewport_width, "height": self._viewport_height},
-        )
-        self._page = await self._context.new_page()
-        logger.info("BrowserTool: launched persistent Chromium session.")
+        try:
+            self._pw = await async_playwright().start()
+            self._profile = TemporaryDirectory(prefix="isaac-browser-")
+            options: dict[str, Any] = {
+                "headless": True,
+                "viewport": {"width": self._viewport_width, "height": self._viewport_height},
+                "service_workers": "block",
+                "accept_downloads": False,
+            }
+            if self.engine == "chromium":
+                options["chromium_sandbox"] = True
+            if self.channel:
+                options["channel"] = self.channel
+            browser_type = getattr(self._pw, self.engine)
+            self._context = await browser_type.launch_persistent_context(
+                self._profile.name, **options
+            )
+            if not hasattr(self._context, "route_web_socket"):
+                raise RuntimeError("Browser network isolation requires Playwright >= 1.48.")
+            await self._context.route("**/*", self._route_request)
+            await self._context.route_web_socket("**/*", self._block_websocket)
+            self._page = (
+                self._context.pages[0] if self._context.pages else await self._context.new_page()
+            )
+        except BaseException:
+            await self.aclose()
+            raise
+        logger.info("BrowserTool: launched isolated %s session.", self.channel or self.engine)
         self._emit_visual(
             "browser_ready",
             width=self._viewport_width,
             height=self._viewport_height,
         )
         return self._page
+
+    async def _route_request(self, route: Any) -> None:
+        try:
+            await asyncio.to_thread(WebFetchConnector._validate_url, route.request.url)
+        except ValueError:
+            await route.abort("blockedbyclient")
+            return
+        try:
+            response = await route.fetch(max_redirects=0, timeout=_DEFAULT_TIMEOUT_MS)
+        except Exception:
+            await route.abort("failed")
+            return
+        try:
+            await route.fulfill(response=response)
+        finally:
+            await response.dispose()
+
+    async def _block_websocket(self, route: Any) -> None:
+        await route.close()
+
+    async def _navigation_url(self, value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("No URL provided.")
+        url = value.strip()
+        if "\\" in url or any(ord(char) < 32 or ord(char) == 127 for char in url):
+            raise ValueError("URL contains invalid characters.")
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", url):
+            url = "https:" + url if url.startswith("//") else "https://" + url
+        if urlsplit(url).scheme.lower() not in {"http", "https"}:
+            raise ValueError("Only absolute http(s) URLs are allowed.")
+        await asyncio.to_thread(WebFetchConnector._validate_url, url)
+        return url
 
     async def aclose(self) -> None:
         """Tear down the browser session (called by the agent loop on finish)."""
@@ -196,6 +234,9 @@ class BrowserTool(IsaacTool):
             except Exception as exc:  # pragma: no cover - best-effort teardown
                 logger.debug("BrowserTool teardown step failed: %s", exc)
         self._pw = self._browser = self._context = self._page = None
+        if self._profile is not None:
+            self._profile.cleanup()
+            self._profile = None
 
     async def _emit_frame(self, page: Any) -> None:
         """Publish the current viewport as a compact PNG data payload."""
@@ -242,6 +283,13 @@ class BrowserTool(IsaacTool):
         action = (kwargs.get("action") or "").strip()
         if not action:
             return ToolResult(success=False, error="Missing 'action' parameter.")
+        if action not in self.parameters["properties"]["action"]["enum"]:
+            return ToolResult(success=False, error=f"Unknown browser action: {action}")
+        if action == "navigate":
+            try:
+                kwargs["url"] = await self._navigation_url(kwargs.get("url"))
+            except ValueError as exc:
+                return ToolResult(success=False, error=str(exc))
 
         try:
             import playwright  # noqa: F401
@@ -249,8 +297,8 @@ class BrowserTool(IsaacTool):
             return ToolResult(
                 success=False,
                 error=(
-                    "Playwright is not installed. Run: pip install playwright && "
-                    "python -m playwright install chromium"
+                    "Playwright is not installed. Run: pip install 'playwright>=1.48' && "
+                    f"python -m playwright install {self.channel or self.engine}"
                 ),
             )
 
@@ -261,8 +309,9 @@ class BrowserTool(IsaacTool):
             return ToolResult(
                 success=False,
                 error=(
-                    f"Could not launch browser ({exc}). Chromium may be missing — run: "
-                    "python -m playwright install chromium"
+                    f"Could not launch {self.channel or self.engine} ({exc}). "
+                    f"Install the selected browser: python -m playwright install "
+                    f"{self.channel or self.engine}"
                 ),
             )
 
@@ -274,11 +323,7 @@ class BrowserTool(IsaacTool):
 
     async def _dispatch(self, page: Any, action: str, kwargs: dict[str, Any]) -> ToolResult:
         if action == "navigate":
-            url = kwargs.get("url", "")
-            if not url:
-                return ToolResult(success=False, error="No URL provided.")
-            if "://" not in url:
-                url = "https://" + url
+            url = await self._navigation_url(kwargs.get("url"))
             await page.goto(url, wait_until="domcontentloaded", timeout=_DEFAULT_TIMEOUT_MS)
             title = await page.title()
             await self._emit_frame(page)

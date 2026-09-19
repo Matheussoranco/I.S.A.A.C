@@ -64,19 +64,23 @@ def meta_learner_node(state: IsaacState) -> dict[str, Any]:
             task_desc = str(msg.content)[:300]
             break
 
-    learner.record(
-        task_desc=task_desc,
-        task_type=task_type,
-        strategy=strategy,
-        success=success,
-        error_type=error_type,
-        error_msg=error_msg,
-        iterations=state.get("iteration", 0),
-        duration_ms=duration_ms,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        session_id=session_id,
-    )
+    # A successful process is not evidence that the user's task was fulfilled.
+    # Only a trusted caller-provided verdict may become a learning label.
+    verified = state.get("verified_success")
+    if isinstance(verified, bool):
+        learner.record(
+            task_desc=task_desc,
+            task_type=task_type,
+            strategy=strategy,
+            success=verified,
+            error_type=error_type,
+            error_msg=error_msg,
+            iterations=state.get("iteration", 0),
+            duration_ms=duration_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            session_id=session_id,
+        )
 
     # Query best strategies and surface into world_model for next planning cycle
     best = learner.get_best_strategy(task_type)

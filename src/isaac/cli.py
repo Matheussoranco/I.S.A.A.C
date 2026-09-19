@@ -200,7 +200,7 @@ if typer is not None:
                 else f"tool-call health: {health.malformed}/{health.intended_calls} malformed, "
                 f"{health.repaired} repaired, {health.unrecovered} lost"
             )
-        raise typer.Exit(0 if result.success else 1)
+        raise typer.Exit(0 if result.completed else 1)
 
     @app.command(name="ui")
     def ui_command(
@@ -241,6 +241,7 @@ if typer is not None:
             host=host,
             port=port,
             log_level="debug" if verbose else "info",
+            ws_max_size=12 * 1024 * 1024,
         )
 
     @app.command(name="desktop")
@@ -1043,11 +1044,115 @@ if typer is not None:
                 typer.echo(f"  [{mark}]")
 
         result = Orchestrator(
-            max_workers=max_workers, auto_approve=auto_approve, on_event=on_event
+            max_workers=max_workers,
+            auto_approve=auto_approve,
+            on_event=on_event,
+            max_iterations=8,
+            timeout_seconds=600.0,
+            max_wall_seconds=1800.0,
         ).run(goal)
         typer.echo("\n=== RESULT ===")
         typer.echo(result.final_output or "(no output)")
-        raise typer.Exit(0 if result.success else 1)
+        raise typer.Exit(0 if result.completed else 1)
+
+    @app.command()
+    def remind(
+        action: str = typer.Argument("list", help="add, list, done, due"),
+        text: str = typer.Argument(
+            "", help="Reminder text (for add). Use 'text @ in 2h' for due date."
+        ),
+    ) -> None:
+        """Persistent reminders with due dates (surfaced by heartbeat + REPL).
+
+        Examples::
+
+            isaac remind add "Pay bills @ in 2h"
+            isaac remind list
+            isaac remind due
+            isaac remind done <id>
+        """
+        _setup_logging()
+        from isaac.memory.reminders import (
+            add_reminder,
+            complete_reminder,
+            due_reminders,
+            list_reminders,
+            parse_remind_args,
+        )
+
+        if action == "add":
+            if not text:
+                text = typer.prompt("Reminder text")
+            body, due = parse_remind_args(text)
+            if not body:
+                typer.echo("Empty reminder.")
+                raise typer.Exit(1)
+            rem = add_reminder(body, due)
+            typer.echo(
+                f"Saved [{rem.id}] {rem.text}" + (f" (due {rem.due_at})" if rem.due_at else "")
+            )
+        elif action == "list":
+            items = list_reminders()
+            if not items:
+                typer.echo('No reminders. Add one: isaac remind add "Call mom @ in 2h"')
+                return
+            for r in items:
+                due = f" | due {r.due_at}" if r.due_at else ""
+                typer.echo(f"  [{r.id}] {r.text}{due}")
+        elif action == "due":
+            items = due_reminders()
+            if not items:
+                typer.echo("Nothing due.")
+                return
+            for r in items:
+                typer.echo(f"  DUE [{r.id}] {r.text} (due {r.due_at})")
+        elif action == "done":
+            if not text:
+                typer.echo("Provide an id: isaac remind done <id>")
+                raise typer.Exit(1)
+            typer.echo("Done." if complete_reminder(text) else "Not found.")
+        else:
+            typer.echo(f"Unknown action: {action} (add, list, due, done)")
+
+    @app.command()
+    def ask(
+        path: str = typer.Argument(
+            ..., help="Text, PNG/JPEG/WebP, PDF, DOCX/XLSX/PPTX or audio (optional parsers)."
+        ),
+        prompt: str = typer.Option("", "--prompt", "-p", help="Question about the file."),
+        max_iters: int = typer.Option(8, "--max-iters", "-n"),
+        auto_approve: bool = typer.Option(
+            False,
+            "--auto-approve/--no-auto-approve",
+            "-y/-N",
+            help="Allow high-risk tools without approval (default off).",
+        ),
+    ) -> None:
+        _setup_logging()
+
+        from isaac.agents.agent_loop import build_default_agent
+        from isaac.multimodal.files import read_any_file
+        from isaac.tools import register_all_tools
+
+        register_all_tools()
+        info = read_any_file(path)
+        if not info["ok"]:
+            typer.echo(f"Attachment error: {info['error']}", err=True)
+            raise typer.Exit(2)
+        q = prompt or "Summarise this file and list the key facts."
+        try:
+            agent = build_default_agent(max_iterations=max_iters, auto_approve=auto_approve)
+            result = agent.run(q, attachments=info["attachments"])
+        except Exception as exc:
+            # No LLM configured (no Ollama model / no API key): still useful —
+            # show the local parse plus how to enable the agent.
+            typer.echo(info["text"][:8000])
+            typer.echo(f"\n[agent unavailable: {exc}]")
+            typer.echo("Tip: pull a local model (ollama pull qwen3.6) or set")
+            typer.echo("ISAAC_LLM_PROVIDER + OPENAI_API_KEY / ANTHROPIC_API_KEY.")
+            raise typer.Exit(2) from None
+        typer.echo(result.output or "(no output)")
+        raise typer.Exit(0 if result.completed else 1)
 
     @app.command()
     def specialists() -> None:

@@ -129,3 +129,33 @@ class TestAuditLog:
         log2 = AuditLog(log_dir=audit_dir)
         e2 = log2.log("system", "resumed")
         assert e2.prev_hash == e1.entry_hash
+
+    def test_resume_large_record_and_interleaved_instances(self, audit_dir: Path) -> None:
+        first = AuditLog(audit_dir)
+        second = AuditLog(audit_dir)
+        a = first.log("system", "large", details={"text": "ação" * 10000})
+        b = second.log("system", "second")
+        c = first.log("system", "third")
+        assert b.prev_hash == a.entry_hash
+        assert c.prev_hash == b.entry_hash
+        assert first.verify_chain() == (True, 3)
+
+    def test_incomplete_tail_is_not_reset(self, audit_dir: Path) -> None:
+        log = AuditLog(audit_dir)
+        log.log("system", "start")
+        with (audit_dir / "audit.jsonl").open("ab") as file:
+            file.write(b'{"incomplete":')
+        with pytest.raises(ValueError, match="corrupt audit log"):
+            log.log("system", "resume")
+
+    def test_legacy_entry_without_version(self, audit_dir: Path) -> None:
+        from dataclasses import asdict
+
+        log = AuditLog(audit_dir)
+        entry = AuditEntry("2026-01-01", "system", "old", prev_hash=_GENESIS_HASH, hash_version=1)
+        entry.entry_hash = entry.compute_hash()
+        data = asdict(entry)
+        data.pop("hash_version")
+        (audit_dir / "audit.jsonl").write_text(json.dumps(data) + "\n", encoding="utf-8")
+        log.log("system", "new")
+        assert log.verify_chain() == (True, 2)

@@ -8,7 +8,7 @@ Usage::
 
 The decorator captures:
 * duration in milliseconds
-* success (no exception raised)
+* observed outcome (True / False / unknown), separate from task correctness
 * iteration & session id (read from state)
 * error message (truncated to 500 chars)
 
@@ -29,6 +29,28 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
+def observed_success(value: Any) -> bool | None:
+    """Extract an explicit execution outcome; normal return alone is unknown."""
+    if isinstance(value, Mapping):
+        if value.get("errors") or value.get("error"):
+            return False
+        if "execution_logs" in value:
+            logs = value["execution_logs"]
+            outcomes = [observed_success(log) for log in logs]
+            if False in outcomes:
+                return False
+            return True if outcomes and all(v is True for v in outcomes) else None
+        if "exit_code" in value:
+            return value["exit_code"] == 0
+        if isinstance(value.get("success"), bool):
+            return value["success"]
+    if hasattr(value, "exit_code"):
+        return bool(value.exit_code == 0)
+    if hasattr(value, "success") and isinstance(value.success, bool):
+        return value.success
+    return None
+
+
 def track_node(node_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Wrap a node function with timing + success tracking."""
 
@@ -37,10 +59,12 @@ def track_node(node_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             start = time.monotonic()
             err = ""
-            success = True
+            success: bool | None = None
             state = args[0] if args and isinstance(args[0], Mapping) else {}
             try:
-                return func(*args, **kwargs)
+                result = func(*args, **kwargs)
+                success = observed_success(result)
+                return result
             except Exception as exc:
                 success = False
                 err = f"{type(exc).__name__}: {exc}"
@@ -76,9 +100,11 @@ def track_skill(skill_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.monotonic()
             err = ""
-            success = True
+            success: bool | None = None
             try:
-                return func(*args, **kwargs)
+                result = func(*args, **kwargs)
+                success = observed_success(result)
+                return result
             except Exception as exc:
                 success = False
                 err = f"{type(exc).__name__}: {exc}"

@@ -208,7 +208,7 @@ class TestShellConnector:
         from isaac.skills.connectors.shell import ShellConnector
 
         result = ShellConnector().run(command="python -c print(1)")
-        assert "allowlist" in result["error"].lower()
+        assert "allowlist" in result["error"].lower() or "blocked" in result["error"].lower()
 
 
 # ---------------------------------------------------------------------------

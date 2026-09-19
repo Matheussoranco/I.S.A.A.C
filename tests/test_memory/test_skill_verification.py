@@ -58,10 +58,11 @@ class TestVerifierAccepts:
     def test_sandbox_path_is_used_when_required(self) -> None:
         verifier = SkillVerifier(timeout=VERIFY_TIMEOUT, require_sandbox=True)
         payload = {
+            "ok": True,
             "checks": [
                 {"name": "import", "status": "passed", "detail": ""},
                 {"name": "doctest", "status": "skipped", "detail": ""},
-                {"name": "selftest", "status": "skipped", "detail": ""},
+                {"name": "selftest", "status": "passed", "detail": ""},
                 {"name": "example", "status": "skipped", "detail": ""},
             ],
             "callables": ["ok"],
@@ -78,8 +79,7 @@ class TestVerifierAccepts:
 
     def test_plain_function_verifies_as_import_evidence(self, verifier: SkillVerifier) -> None:
         outcome = verifier.verify(_candidate("adder", "def add(a, b):\n    return a + b\n"))
-        assert outcome.verified
-        # No self-test in source: the outcome must not overclaim.
+        assert not outcome.verified
         assert outcome.evidence == "import"
         assert "add" in outcome.callables
 
@@ -119,7 +119,7 @@ def double(x):
         outcome = verifier.verify(
             _candidate("login_macro", "def login(page):\n    page.click('#go')\n", skill_type="ui")
         )
-        assert outcome.verified
+        assert not outcome.verified
         assert outcome.evidence == "static"
 
 
@@ -182,7 +182,7 @@ class TestLibraryGate:
 
     def test_rejection_is_recorded_and_counted(self, tmp_path: Path) -> None:
         lib = SkillLibrary(tmp_path)
-        lib.commit(_candidate("good", "def ok():\n    return 1\n"))
+        lib.commit(_candidate("good", "def ok():\n    return 1\n", input_schema={"example": {}}))
         lib.commit(_candidate("bad", "def f(:\n    pass"))
 
         stats = lib.promotion_stats()
@@ -207,12 +207,14 @@ class TestLibraryGate:
 
     def test_promoted_metadata_records_the_evidence(self, tmp_path: Path) -> None:
         lib = SkillLibrary(tmp_path)
-        lib.commit(_candidate("inc", "def inc(x):\n    return x + 1\n"))
+        lib.commit(
+            _candidate("inc", "def inc(x):\n    return x + 1\n", input_schema={"example": {"x": 1}})
+        )
 
         meta = lib.get_metadata("inc")
         assert meta is not None
         assert meta["verified"] is True
-        assert meta["verification_evidence"] == "import"
+        assert meta["verification_evidence"] == "behaviour"
 
     def test_verifier_can_be_injected(self, tmp_path: Path) -> None:
         class _AlwaysReject:

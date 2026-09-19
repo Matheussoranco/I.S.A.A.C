@@ -166,7 +166,7 @@ def test_runner_copies_binary_attachments(tmp_path) -> None:
     seen: dict[str, bytes] = {}
 
     def runner(t) -> TaskAnswer:
-        seen["bytes"] = (ws / "gaia" / "data.xlsx").read_bytes()
+        seen["bytes"] = (t.workspace / "gaia" / "data.xlsx").read_bytes()
         return TaskAnswer(text="FINAL ANSWER: 100")
 
     summary = run_suite([task], runner, workspace=ws, model="m", provider="p")

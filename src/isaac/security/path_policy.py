@@ -44,10 +44,12 @@ DENIED_SUFFIXES = frozenset({".pem", ".key", ".pfx", ".p12", ".kdbx"})
 
 def is_sensitive_path(path: Path) -> bool:
     """Return whether *path* is, or is inside, a credential location."""
-    resolved_parts = tuple(part.lower() for part in path.parts)
+    resolved_parts = tuple(part.lower().rstrip(" .") for part in path.parts)
+    if any(":" in part for part in path.parts if part != path.anchor):
+        return True  # NTFS alternate streams and drive-relative paths.
     if any(part in DENIED_DIR_NAMES for part in resolved_parts[:-1]):
         return True
-    name = path.name.lower()
+    name = path.name.lower().rstrip(" .")
     return (
         name in DENIED_DIR_NAMES
         or name in DENIED_FILE_NAMES

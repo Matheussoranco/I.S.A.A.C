@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
+import tempfile
 import threading
 import uuid
 from collections.abc import Callable
@@ -18,8 +20,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from isaac.agents.agent_loop import AgentLoop, build_default_agent
@@ -28,13 +30,17 @@ from isaac.agents.trace import TraceStore
 from isaac.config.settings import get_settings
 from isaac.interfaces.conversation_store import ConversationStore
 from isaac.llm.provider import build_llm_for_profile
+from isaac.multimodal.files import AttachmentError, parse_uploads, read_any_file
 from isaac.security.credentials import credential_available, set_credential
+from isaac.security.workspace import resolve_allowed
 
 _ASSETS = Path(__file__).with_name("web_assets")
 _APP_TITLE = "I.S.A.A.C."
 _APP_VERSION = "1.6.2"
 _APPROVAL_TIMEOUT_SECONDS = 120.0
 _MAX_HISTORY_CHARS = 40_000
+MAX_WEBSOCKET_BYTES = 12 * 1024 * 1024
+MAX_REQUEST_BYTES = 16 * 1024
 
 AgentBuilder = Callable[..., AgentLoop]
 ComputerRunnerBuilder = Callable[..., ComputerAgentRunner]
@@ -157,6 +163,12 @@ def _create_app(
     app = FastAPI(title=_APP_TITLE, version=_APP_VERSION, docs_url=None, redoc_url=None)
     app.mount("/assets", StaticFiles(directory=_ASSETS), name="assets")
 
+    @app.middleware("http")
+    async def check_origin(request: Request, call_next):
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and not _same_origin(request):
+            return JSONResponse({"error": "Same-origin request required"}, status_code=403)
+        return await call_next(request)
+
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
         return FileResponse(_ASSETS / "index.html")
@@ -175,6 +187,43 @@ def _create_app(
             "openai_configured": credential_available("openai"),
             "anthropic_configured": credential_available("anthropic"),
         }
+
+    @app.post("/api/read-file")
+    async def read_file(request: Request) -> dict[str, Any]:
+        body = await _bounded_json(request)
+        path = body.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise HTTPException(400, "Missing 'path'")
+        allowed = await asyncio.to_thread(resolve_allowed, path)
+        if allowed is None:
+            raise HTTPException(403, "Path outside allowed scope or credential path denied")
+        info = await asyncio.to_thread(read_any_file, allowed)
+        if not info["ok"]:
+            raise HTTPException(422, info["error"])
+        return info
+
+    @app.get("/api/reminders")
+    async def reminders_list() -> dict[str, Any]:
+        try:
+            from isaac.memory.reminders import due_reminders, list_reminders
+
+            items = [r.to_dict() for r in list_reminders()]
+            due = [r.to_dict() for r in due_reminders()]
+            return {"ok": True, "reminders": items, "due": due}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @app.post("/api/speak")
+    async def speak(request: Request) -> Response:
+        body = await _bounded_json(request)
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+            raise HTTPException(400, "Provide 1–2000 characters of text")
+        try:
+            audio = await asyncio.to_thread(_synthesize_audio, text)
+            return Response(audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+        except Exception as exc:
+            raise HTTPException(503, f"TTS unavailable: {exc}") from exc
 
     @app.websocket("/ws")
     async def agent_socket(websocket: WebSocket) -> None:
@@ -209,12 +258,22 @@ def _create_app(
         sender = asyncio.create_task(_send_events(websocket, session))
         try:
             while True:
-                payload = await websocket.receive_json()
+                raw = await websocket.receive_text()
+                if len(raw) > MAX_WEBSOCKET_BYTES or len(raw.encode("utf-8")) > MAX_WEBSOCKET_BYTES:
+                    await websocket.close(code=1009, reason="Message exceeds size limit")
+                    break
+                try:
+                    payload = json.loads(raw)
+                    if not isinstance(payload, dict):
+                        raise ValueError("Expected a JSON object")
+                except ValueError:
+                    await session.emit("error", message="Invalid JSON message")
+                    continue
                 action = str(payload.get("action", ""))
                 if action == "run":
                     prompt = str(payload.get("message", "")).strip()
-                    if not prompt:
-                        await session.emit("error", message="Digite uma mensagem para o agente.")
+                    if not prompt or len(prompt) > 40_000:
+                        await session.emit("error", message="Provide 1–40000 characters of text")
                         continue
                     if session.run_task is not None and not session.run_task.done():
                         await session.emit(
@@ -232,6 +291,7 @@ def _create_app(
                             mode=_clean_mode(payload.get("mode")),
                             computer_runner_builder=computer_runner_builder,
                             llm_builder=llm_builder,
+                            uploads=payload.get("attachments", []),
                         )
                     )
                 elif action == "cancel":
@@ -336,14 +396,31 @@ async def _run_agent(
     mode: str,
     computer_runner_builder: ComputerRunnerBuilder,
     llm_builder: ProfileLLMBuilder,
+    uploads: object = None,
 ) -> None:
     context = session.conversation_context()
-    session.history.append({"role": "user", "content": prompt})
-    session.store.add(session.conversation_id, "user", prompt)
     await session.emit("run_started", message=prompt)
-    await _emit_conversations(session)
 
     try:
+        attachments = await asyncio.to_thread(parse_uploads, uploads if uploads is not None else [])
+        if attachments and mode == "computer":
+            raise AttachmentError(
+                "Attachments require Agent mode; Computer mode does not accept files"
+            )
+        if session.cancelled.is_set():
+            raise AttachmentError("Attachment processing cancelled")
+        await session.emit("attachments_accepted")
+        history_prompt = prompt
+        if attachments:
+            history_prompt += (
+                "\n\n"
+                + "\n".join(block["text"] for block in attachments if block["type"] == "text")[
+                    :_MAX_HISTORY_CHARS
+                ]
+            )
+        session.history.append({"role": "user", "content": history_prompt})
+        session.store.add(session.conversation_id, "user", history_prompt)
+        await _emit_conversations(session)
         try:
             trace_store: TraceStore | None = TraceStore()
         except Exception:
@@ -377,7 +454,8 @@ async def _run_agent(
                 should_stop=session.cancelled.is_set,
                 trace_store=trace_store,
             )
-            result = await asyncio.to_thread(agent.run, prompt, context)
+            kwargs = {"attachments": attachments} if attachments else {}
+            result = await asyncio.to_thread(agent.run, prompt, context, **kwargs)
         session.history.append({"role": "assistant", "content": result.output})
         session.store.add(session.conversation_id, "assistant", result.output)
         await _emit_conversations(session)
@@ -385,6 +463,8 @@ async def _run_agent(
             "run_complete",
             output=result.output,
             success=result.success,
+            completed=result.completed,
+            verified_success=result.verified_success,
             stopped_reason=result.stopped_reason,
             iterations=result.iterations,
             tool_calls=len(result.tool_calls),
@@ -454,8 +534,57 @@ def _same_origin_websocket(websocket: WebSocket) -> bool:
     origin = websocket.headers.get("origin")
     if not origin:
         return True
+    return _same_origin(websocket)
+
+
+def _same_origin(request: Request | WebSocket) -> bool:
+    origin = request.headers.get("origin", "")
     parsed = urlparse(origin)
-    return parsed.scheme in {"http", "https"} and parsed.netloc == websocket.headers.get("host")
+    scheme = "https" if request.url.scheme in {"https", "wss"} else "http"
+    return (
+        parsed.scheme == scheme
+        and parsed.netloc == request.headers.get("host")
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
+        and request.headers.get("sec-fetch-site", "same-origin") == "same-origin"
+    )
+
+
+async def _bounded_json(request: Request) -> dict:
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            size = int(length)
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Content-Length") from exc
+        if size < 0 or size > MAX_REQUEST_BYTES:
+            raise HTTPException(413, "Request body exceeds size limit")
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > MAX_REQUEST_BYTES:
+            raise HTTPException(413, "Request body exceeds size limit")
+        raw.extend(chunk)
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise HTTPException(400, "Invalid JSON") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Expected a JSON object")
+    return body
+
+
+def _synthesize_audio(text: str) -> bytes:
+    from isaac.multimodal.voice.tts import TextToSpeech
+
+    with tempfile.TemporaryDirectory(prefix="isaac-speech-") as directory:
+        path = Path(directory) / "speech.wav"
+        TextToSpeech().synthesize(text, out_path=path)
+        with path.open("rb") as stream:
+            audio = stream.read(20 * 1024 * 1024 + 1)
+        if len(audio) > 20 * 1024 * 1024 or not audio.startswith(b"RIFF") or audio[8:12] != b"WAVE":
+            raise ValueError("TTS did not produce a bounded WAV file")
+        return audio
 
 
 def _model_profiles(settings: Any) -> list[dict[str, Any]]:

@@ -101,7 +101,6 @@ def run_voice_repl(hands_free: bool = False) -> int:
     # -- Pre-warm --------------------------------------------------------
     from isaac.multimodal.voice.audio_io import (
         record_until_silence,
-        save_wav,
     )
     from isaac.multimodal.voice.stt import get_stt
     from isaac.multimodal.voice.tts import get_tts

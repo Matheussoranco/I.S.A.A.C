@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import asdict, dataclass, field
+from threading import Lock
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -29,20 +30,45 @@ class ImprovementResult:
     critique_action: str = ""
     pruned_rows: int = 0
     errors: list[str] = field(default_factory=list)
+    refinement_status: str = "not_requested"
+    improvement_verified: bool = False
 
 
 class ImprovementEngine:
-    """Run a single improvement pass across the agent's cognitive infrastructure."""
+    _active: bool = False
+    _cycle_lock = Lock()
 
     def __init__(self) -> None:
         from isaac.improvement.skill_curation import SkillCurator
 
         self._curator = SkillCurator()
 
-    def run_cycle(self) -> ImprovementResult:
-        from isaac.improvement.performance import get_tracker
+    def run_cycle(self, *, recursive: bool = False, _depth: int = 0) -> ImprovementResult:
+        if not ImprovementEngine._cycle_lock.acquire(blocking=False):
+            result = ImprovementResult(started_at=time.time(), finished_at=time.time())
+            result.errors.append("re-entrancy blocked: another cycle is running")
+            return result
+        try:
+            if ImprovementEngine._active:
+                result = ImprovementResult(started_at=time.time(), finished_at=time.time())
+                result.errors.append("re-entrancy blocked: another cycle is running")
+                return result
+            ImprovementEngine._active = True
+            try:
+                return self._run_cycle_inner(recursive=recursive, _depth=_depth)
+            finally:
+                ImprovementEngine._active = False
+        finally:
+            ImprovementEngine._cycle_lock.release()
 
+    def _run_cycle_inner(self, *, recursive: bool = False, _depth: int = 0) -> ImprovementResult:
         result = ImprovementResult(started_at=time.time(), finished_at=0.0)
+        if recursive:
+            result.refinement_status = "unsupported"
+            result.errors.append(
+                "recursive refinement unavailable: no bounded before/after evaluator is "
+                "configured; ran one maintenance cycle without verified improvement"
+            )
 
         # 1. Skill curation
         try:
@@ -70,6 +96,8 @@ class ImprovementEngine:
 
         # 3. Telemetry pruning (90-day window)
         try:
+            from isaac.improvement.performance import get_tracker
+
             result.pruned_rows = get_tracker().prune(older_than_days=90)
         except Exception as exc:
             logger.exception("Improvement: prune failed.")
@@ -86,6 +114,24 @@ class ImprovementEngine:
             logger.exception("Improvement: memory consolidation failed.")
             result.errors.append(f"consolidation: {exc}")
 
+        try:
+            from isaac.security.audit import audit
+
+            audit(
+                "system",
+                "improvement-cycle",
+                details={
+                    "decisions": len(result.curation_decisions),
+                    "pruned": result.pruned_rows,
+                    "errors": len(result.errors),
+                    "recursive": recursive,
+                    "refinement_status": result.refinement_status,
+                    "improvement_verified": result.improvement_verified,
+                },
+            )
+        except Exception as exc:
+            result.errors.append(f"audit: {exc}")
+
         result.finished_at = time.time()
         return result
 
@@ -95,13 +141,15 @@ class ImprovementEngine:
 # ---------------------------------------------------------------------------
 
 _engine: ImprovementEngine | None = None
+_engine_lock = Lock()
 
 
 def get_engine() -> ImprovementEngine:
     global _engine
-    if _engine is None:
-        _engine = ImprovementEngine()
-    return _engine
+    with _engine_lock:
+        if _engine is None:
+            _engine = ImprovementEngine()
+        return _engine
 
 
 def run_improvement_cycle() -> ImprovementResult:

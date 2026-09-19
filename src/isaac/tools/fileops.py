@@ -19,12 +19,15 @@ unwanted files to an archive folder, which is reversible.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from isaac.security.file_mutation import copy_file, write_text
 from isaac.security.path_policy import is_sensitive_path
+from isaac.security.workspace import allowed_roots, resolve_allowed
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -34,43 +37,11 @@ _MAX_LIST_ENTRIES = 2_000
 
 
 def _allowed_roots() -> list[Path]:
-    """Return the configured allow-listed root directories (resolved)."""
-    try:
-        from isaac.config.settings import get_settings
-
-        raw = get_settings().allowed_paths or [str(Path.home())]
-    except Exception:
-        raw = [str(Path.home())]
-    roots: list[Path] = []
-    for r in raw:
-        try:
-            roots.append(Path(r).expanduser().resolve())
-        except Exception:
-            continue
-    return roots or [Path.home().resolve()]
+    return allowed_roots()
 
 
 def _resolve(path_str: str) -> Path | None:
-    """Resolve *path_str* and confirm it lies within an allow-listed root.
-
-    Returns ``None`` if the path escapes every allowed root or targets a
-    protected credential location (``~/.ssh``, ``.env``, key files, ...).
-    """
-    if not path_str:
-        return None
-    try:
-        target = Path(path_str).expanduser().resolve()
-    except Exception:
-        return None
-    if is_sensitive_path(target):
-        return None
-    for root in _allowed_roots():
-        try:
-            target.relative_to(root)
-            return target
-        except ValueError:
-            continue
-    return None
+    return resolve_allowed(path_str)
 
 
 def _denied(path_str: str) -> ToolResult:
@@ -96,7 +67,7 @@ def _has_sensitive_descendant(root: Path) -> Path | None:
         return None
     try:
         for child in root.rglob("*"):
-            if is_sensitive_path(child):
+            if is_sensitive_path(child) or _resolve(str(child)) is None:
                 return child
     except OSError:
         # An incomplete scan cannot establish that the tree is safe.
@@ -141,7 +112,7 @@ class FsListTool(IsaacTool):
                 if len(lines) >= _MAX_LIST_ENTRIES:
                     lines.append(f"... truncated at {_MAX_LIST_ENTRIES} entries ...")
                     break
-                if is_sensitive_path(child):
+                if is_sensitive_path(child) or _resolve(str(child)) is None:
                     continue
                 try:
                     st = child.stat()
@@ -251,6 +222,10 @@ class FsWriteTool(IsaacTool):
         "properties": {
             "path": {"type": "string", "description": "Absolute file path to write."},
             "content": {"type": "string", "description": "Full text content."},
+            "overwrite": {
+                "type": "boolean",
+                "description": "Explicitly replace existing content; requires approval.",
+            },
             "append": {
                 "type": "boolean",
                 "description": "Append instead of overwrite (default false).",
@@ -258,6 +233,9 @@ class FsWriteTool(IsaacTool):
         },
         "required": ["path", "content"],
     }
+
+    def approval_required(self, **kwargs: Any) -> bool:
+        return bool(kwargs.get("overwrite") or kwargs.get("append"))
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str = str(kwargs.get("path", ""))
@@ -267,9 +245,16 @@ class FsWriteTool(IsaacTool):
             return _denied(path_str)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            mode = "a" if bool(kwargs.get("append", False)) else "w"
-            with target.open(mode, encoding="utf-8") as fh:
-                fh.write(content)
+            overwrite = bool(kwargs.get("overwrite", False))
+            if kwargs.get("append") and target.exists():
+                content = target.read_text(encoding="utf-8") + content
+                overwrite = True
+            if target.exists() and not overwrite:
+                return ToolResult(
+                    success=False,
+                    error="Destination exists; set overwrite=true and approve replacement.",
+                )
+            write_text(target, content, overwrite=overwrite)
             return ToolResult(success=True, output=f"Wrote {len(content)} chars to {target}")
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
@@ -327,6 +312,9 @@ class FsMoveTool(IsaacTool):
         "required": ["src", "dest"],
     }
 
+    def approval_required(self, **kwargs: Any) -> bool:
+        return bool(kwargs.get("overwrite"))
+
     async def execute(self, **kwargs: Any) -> ToolResult:
         src_str, dest_str = str(kwargs.get("src", "")), str(kwargs.get("dest", ""))
         src, dest = _resolve(src_str), _resolve(dest_str)
@@ -350,9 +338,25 @@ class FsMoveTool(IsaacTool):
             )
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if dest.exists() and dest.is_file():
-                dest.unlink()
-            shutil.move(str(src), str(dest))
+            if dest.is_dir():
+                return ToolResult(
+                    success=False,
+                    error="Destination must be the exact new path, not an existing directory.",
+                )
+            if src == dest:
+                return ToolResult(success=False, error="Source and destination are identical.")
+            if src.is_dir():
+                if dest.exists():
+                    return ToolResult(
+                        success=False, error="Directory replacement is not supported."
+                    )
+                src.rename(dest)
+            elif kwargs.get("overwrite"):
+                # Atomic replace: failure leaves the original destination intact.
+                os.replace(src, dest)
+            else:
+                copy_file(src, dest)
+                src.unlink()
             return ToolResult(success=True, output=f"Moved {src} -> {dest}")
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
@@ -371,10 +375,17 @@ class FsCopyTool(IsaacTool):
         "type": "object",
         "properties": {
             "src": {"type": "string", "description": "Absolute source path."},
+            "overwrite": {
+                "type": "boolean",
+                "description": "Replace an existing file with approval. No directory merges.",
+            },
             "dest": {"type": "string", "description": "Absolute destination path."},
         },
         "required": ["src", "dest"],
     }
+
+    def approval_required(self, **kwargs: Any) -> bool:
+        return bool(kwargs.get("overwrite"))
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         src_str, dest_str = str(kwargs.get("src", "")), str(kwargs.get("dest", ""))
@@ -404,10 +415,22 @@ class FsCopyTool(IsaacTool):
                     )
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.is_dir():
+                return ToolResult(
+                    success=False,
+                    error="Destination must be a new exact path; directory merges are refused.",
+                )
+            if src == dest:
+                return ToolResult(success=False, error="Source and destination are identical.")
+            if dest.exists() and not kwargs.get("overwrite"):
+                return ToolResult(
+                    success=False,
+                    error="Destination exists; set overwrite=true and approve replacement.",
+                )
             if src.is_dir():
-                shutil.copytree(str(src), str(dest), dirs_exist_ok=True)
+                shutil.copytree(str(src), str(dest))
             else:
-                shutil.copy2(str(src), str(dest))
+                copy_file(src, dest, overwrite=bool(kwargs.get("overwrite")))
             return ToolResult(success=True, output=f"Copied {src} -> {dest}")
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))

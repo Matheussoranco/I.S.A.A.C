@@ -13,11 +13,24 @@ from __future__ import annotations
 import contextlib
 import logging
 from datetime import datetime, timezone
+from functools import wraps
+from pathlib import Path
+from threading import RLock
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _scheduler: Any | None = None
+_scheduler_lock = RLock()
+
+
+def _synchronized(function: Any) -> Any:
+    @wraps(function)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        with _scheduler_lock:
+            return function(*args, **kwargs)
+
+    return wrapped
 
 
 def _get_settings() -> Any:
@@ -115,11 +128,71 @@ def improvement_job() -> None:
         logger.warning("Improvement cycle failed: %s", exc)
 
 
+def _send_reminder_notification(text: str, chat_id: str, token: str) -> None:
+    import httpx
+
+    try:
+        response = httpx.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text[:4000]},
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            raise RuntimeError("Telegram did not confirm delivery")
+    except Exception:
+        raise RuntimeError("Telegram reminder delivery failed") from None
+
+
+def reminders_job(*, isaac_home: Path | None = None) -> None:
+    from isaac.memory.reminders import claim_due_reminders, finish_reminder_notification
+
+    settings = _get_settings()
+    home = isaac_home if isaac_home is not None else settings.isaac_home
+    token = getattr(settings, "telegram_bot_token", "")
+    recipients = getattr(settings, "telegram_allowed_users", [])
+    channels = [("log", "")]
+    if token and recipients:
+        channels.extend((f"telegram:{user}", str(user)) for user in dict.fromkeys(recipients))
+    errors = []
+    for channel, recipient in channels:
+        for claim in claim_due_reminders(channel, isaac_home=home):
+            reminder = claim.reminder
+            text = f"⏰ Due reminder [{reminder.id}]: {reminder.text}"
+            try:
+                if channel == "log":
+                    logger.info(text)
+                else:
+                    _send_reminder_notification(text, recipient, token)
+            except Exception as exc:
+                finish_reminder_notification(
+                    reminder.id,
+                    channel,
+                    claim.token,
+                    delivered=False,
+                    error=str(exc),
+                    isaac_home=home,
+                )
+                errors.append(f"{reminder.id} ({channel}): {exc}")
+            else:
+                finish_reminder_notification(
+                    reminder.id,
+                    channel,
+                    claim.token,
+                    delivered=True,
+                    isaac_home=home,
+                )
+    if errors:
+        raise RuntimeError("Reminder delivery failed: " + "; ".join(errors))
+
+
 # ---------------------------------------------------------------------------
 # Scheduler lifecycle
 # ---------------------------------------------------------------------------
 
 
+@_synchronized
 def start_scheduler() -> None:
     """Start the APScheduler background scheduler.
 
@@ -167,6 +240,13 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        reminders_job,
+        IntervalTrigger(minutes=5),
+        id="reminders",
+        replace_existing=True,
+    )
+
     if getattr(settings, "improvement_enabled", False):
         scheduler.add_job(
             improvement_job,
@@ -188,6 +268,7 @@ def start_scheduler() -> None:
     )
 
 
+@_synchronized
 def stop_scheduler() -> None:
     """Shutdown the scheduler gracefully."""
     global _scheduler
@@ -198,6 +279,7 @@ def stop_scheduler() -> None:
         logger.info("Heartbeat scheduler stopped.")
 
 
+@_synchronized
 def register_callback(
     callback: Any,
     *,

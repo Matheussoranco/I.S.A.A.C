@@ -98,7 +98,8 @@ def test_websocket_runs_agent_and_streams_completion(tmp_path) -> None:
     assert started == {"type": "run_started", "data": {"message": "hello"}}
     assert completed["type"] == "run_complete"
     assert completed["data"]["output"] == "hello back"
-    assert completed["data"]["success"] is True
+    assert completed["data"]["completed"] is True
+    assert completed["data"]["success"] is False
 
 
 def test_websocket_configures_model_without_exposing_credentials(tmp_path) -> None:

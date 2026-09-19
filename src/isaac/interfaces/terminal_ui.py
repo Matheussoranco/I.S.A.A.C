@@ -1,19 +1,31 @@
 """Rich Terminal UI — beautiful CLI rendering for I.S.A.A.C.
 
 Provides a ``TerminalUI`` helper that encapsulates all Rich console
-operations:  banners, panels, spinners, streaming token output,
+operations: banners, panels, spinners, streaming token output,
 code-block highlighting, and node-progress indicators.
 
 Inspired by Cline and Claude Code terminal interfaces.
+
+Enhanced with:
+- Streaming token-by-token output
+- Multimodal attachment display
+- Live browser/desktop visualization
+- Structured tool call visualization
+- Conversation history management
+- Settings panel
 """
 
 from __future__ import annotations
 
 import time
+from typing import Any
 
+from rich.box import HEAVY, MINIMAL, ROUNDED
 from rich.console import Console, Group
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.rule import Rule
 from rich.style import Style
 from rich.table import Table
@@ -38,6 +50,10 @@ ISAAC_THEME = Theme(
         "isaac.hint": "dim italic",
         "isaac.phase": "bold bright_cyan",
         "isaac.border": "bright_cyan",
+        "isaac.accent": "bright_magenta",
+        "isaac.tool": "bold bright_blue",
+        "isaac.tool_arg": "dim cyan",
+        "isaac.attachment": "bold bright_yellow",
     }
 )
 
@@ -54,6 +70,26 @@ PHASE_ICONS: dict[str, tuple[str, str]] = {
     "computer_use": ("\U0001f5a5", "Computer Use"),  # 🖥
     "reflection": ("\U0001f914", "Reflection"),  # 🤔
     "skill_abstraction": ("\U0001f4be", "Skill Save"),  # 💾
+    "multimodal_input": ("\U0001f4f7", "Multimodal"),  # 📷
+    "memory_consolidation": ("\U0001f9e0", "Consolidation"),  # 🧠
+}
+
+TOOL_ICONS: dict[str, str] = {
+    "browser": "\U0001f310",  # 🌐
+    "web_search": "\U0001f50d",  # 🔍
+    "shell": "\U0001f4bb",  # 💻
+    "code": "\U0001f4c4",  # 📄
+    "fs_read": "\U0001f4c3",  # 📃
+    "fs_write": "\U0001f4be",  # 💾
+    "fs_list": "\U0001f4c2",  # 📂
+    "computer_batch": "\U0001f5a5",  # 🖥
+    "computer_view": "\U0001f441",  # 👁
+    "computer_control": "\U0001f5b1",  # 🖱
+    "email_read": "\U0001f4e7",  # 📧
+    "email_send": "\U0001f4e8",  # 📩
+    "calendar_read": "\U0001f4c5",  # 📅
+    "calendar_write": "\U0001f4c6",  # 📆
+    "skill": "\U0001f9ea",  # 🧪
 }
 
 
@@ -63,6 +99,9 @@ class TerminalUI:
     def __init__(self) -> None:
         self.console = Console(theme=ISAAC_THEME, highlight=False)
         self._start_time: float = 0.0
+        self._streaming = False
+        self._live: Live | None = None
+        self._stream_buffer: list[str] = []
 
     # ------------------------------------------------------------------
     # Banner
@@ -96,7 +135,7 @@ class TerminalUI:
             "Intelligent System for Autonomous Action and Cognition",
             style="italic bright_white",
         )
-        version_text = Text("v0.2.0", style="dim cyan")
+        version_text = Text("v1.6.2", style="dim cyan")
         combined = Text.assemble(subtitle, "  ", version_text)
 
         banner_group = Group(logo, combined)
@@ -107,6 +146,7 @@ class TerminalUI:
                 banner_group,
                 border_style="bright_cyan",
                 padding=(0, 2),
+                box=HEAVY,
             )
         )
         self.console.print()
@@ -172,6 +212,7 @@ class TerminalUI:
                 subtitle_align="right",
                 border_style="bright_cyan",
                 padding=(1, 2),
+                box=ROUNDED,
             )
         )
         self.console.print()
@@ -182,6 +223,8 @@ class TerminalUI:
 
     def start_stream(self) -> None:
         """Begin a streaming response block."""
+        self._streaming = True
+        self._stream_buffer = []
         self.console.print()
         title = Text(" I.S.A.A.C. ", style="bold bright_cyan")
         self.console.print(Rule(title=title, style="bright_cyan"))
@@ -189,6 +232,7 @@ class TerminalUI:
 
     def end_stream(self, elapsed: float | None = None) -> None:
         """End a streaming response block."""
+        self._streaming = False
         if elapsed is None and self._start_time:
             elapsed = time.monotonic() - self._start_time
         suffix = Text(f" {elapsed:.1f}s ", style="dim") if elapsed else Text("")
@@ -217,7 +261,6 @@ class TerminalUI:
         table.add_row("exit_code", Text(f"{status_icon} {exit_code}", style=status_style))
 
         if stdout.strip():
-            # Try to detect and highlight code
             display = stdout.strip()[:500]
             table.add_row("stdout", Text(display, style="white"))
 
@@ -226,7 +269,9 @@ class TerminalUI:
             table.add_row("stderr", Text(display, style="isaac.warning"))
 
         self.console.print(
-            Panel(table, title="[dim]Execution[/dim]", border_style="dim", padding=(0, 1))
+            Panel(
+                table, title="[dim]Execution[/dim]", border_style="dim", padding=(0, 1), box=MINIMAL
+            )
         )
 
     def print_ui_summary(
@@ -252,7 +297,13 @@ class TerminalUI:
         table.add_row("last_action", f"{status}  {last_action_type} - {last_action_desc[:60]}")
 
         self.console.print(
-            Panel(table, title="[dim]UI Actions[/dim]", border_style="dim", padding=(0, 1))
+            Panel(
+                table,
+                title="[dim]UI Actions[/dim]",
+                border_style="dim",
+                padding=(0, 1),
+                box=MINIMAL,
+            )
         )
 
     def print_mode_badge(self, mode: str, phase: str) -> None:
@@ -269,6 +320,100 @@ class TerminalUI:
         )
 
     # ------------------------------------------------------------------
+    # Tool call visualization
+    # ------------------------------------------------------------------
+
+    def print_tool_call(self, name: str, args: dict[str, Any], call_id: str = "") -> None:
+        """Print a tool call with syntax-highlighted arguments."""
+        icon = TOOL_ICONS.get(name, "\u2699")  # ⚙
+
+        # Format arguments nicely
+        args_text = Text()
+        if args:
+            for i, (k, v) in enumerate(args.items()):
+                if i > 0:
+                    args_text.append(", ")
+                args_text.append(f"{k}=", style="isaac.tool_arg")
+                # Truncate long values
+                v_str = str(v)
+                if len(v_str) > 100:
+                    v_str = v_str[:97] + "..."
+                args_text.append(v_str)
+        else:
+            args_text.append("(no args)", style="dim")
+
+        self.console.print(f"  [isaac.tool]{icon} {name}[/isaac.tool] {args_text}")
+
+    def print_tool_result(self, name: str, success: bool, output: str, duration_ms: float) -> None:
+        """Print a tool result with appropriate styling."""
+        status_icon = "\u2714" if success else "\u2718"  # ✔ / ✘
+        status_style = "isaac.success" if success else "isaac.error"
+
+        # Truncate output
+        display = output.strip()[:300]
+        if len(output) > 300:
+            display += "... [truncated]"
+
+        self.console.print(
+            f"  [{status_style}]{status_icon} {name}[/{status_style}] "
+            f"[dim]({duration_ms:.0f}ms)[/dim]\n"
+            f"    {display}"
+        )
+
+    def print_tool_repair(self, outcome: str, calls: list[str] | None = None) -> None:
+        """Print a tool repair event."""
+        self.console.print(
+            f"  [isaac.warning]\u21bb Repaired[/isaac.warning] "
+            f"{', '.join(calls) if calls else 'tool call'}"
+        )
+
+    # ------------------------------------------------------------------
+    # Attachment display
+    # ------------------------------------------------------------------
+
+    def print_attachments(self, attachments: list[dict]) -> None:
+        """Display attached files."""
+        if not attachments:
+            return
+
+        self.console.print()
+        for att in attachments:
+            name = att.get("name", "unknown")
+            size = att.get("size", 0)
+            att_type = att.get("type", "file")
+            icon = "📄"
+            if att_type == "image":
+                icon = "🖼"
+            elif att_type == "audio":
+                icon = "🎵"
+            elif att_type == "document":
+                icon = "📑"
+
+            self.console.print(
+                f"  [isaac.attachment]{icon} {name}[/isaac.attachment] "
+                f"[dim]({size:,} bytes, {att_type})[/dim]"
+            )
+        self.console.print()
+
+    # ------------------------------------------------------------------
+    # Browser/Computer visualization
+    # ------------------------------------------------------------------
+
+    def print_browser_status(self, url: str, title: str = "", dimensions: str = "") -> None:
+        """Print browser status update."""
+        self.console.print(
+            f"  [isaac.info]\U0001f310 Browser[/isaac.info] "
+            f"[dim]{title}[/dim] [isaac.dim]{dimensions}[/isaac.dim]\n"
+            f"    {url}"
+        )
+
+    def print_computer_status(self, action: str, desc: str = "") -> None:
+        """Print computer use status update."""
+        self.console.print(
+            f"  [isaac.info]\U0001f5a5 Computer[/isaac.info] [bold]{action}[/bold] {desc}"
+        )
+
+    # ------------------------------------------------------------------
     # Errors & warnings
     # ------------------------------------------------------------------
 
@@ -280,6 +425,7 @@ class TerminalUI:
                 title="[bold red]Error[/bold red]",
                 border_style="red",
                 padding=(0, 2),
+                box=ROUNDED,
             )
         )
 
@@ -297,7 +443,9 @@ class TerminalUI:
 
     def print_help(self) -> None:
         """Print the slash-command help table."""
-        table = Table(title="Commands", border_style="dim", show_header=True, header_style="bold")
+        table = Table(
+            title="Commands", border_style="dim", show_header=True, header_style="bold", box=ROUNDED
+        )
         table.add_column("Command", style="cyan")
         table.add_column("Description")
 
@@ -305,6 +453,13 @@ class TerminalUI:
         table.add_row("/clear", "Clear the terminal")
         table.add_row("/status", "Show system status")
         table.add_row("/compact", "Toggle compact output mode")
+        table.add_row("/attach <file>", "Attach file for next message")
+        table.add_row("/remind <text @ in 2h>", "Set a reminder")
+        table.add_row("/reminders", "List reminders")
+        table.add_row("/persona <slug>", "Switch persona")
+        table.add_row("/team <goal>", "Run specialist team")
+        table.add_row("/speak <text>", "Text-to-speech")
+        table.add_row("/improve", "Run improvement cycle")
         table.add_row("/exit, /quit", "Exit I.S.A.A.C.")
 
         self.console.print(table)
@@ -329,7 +484,9 @@ class TerminalUI:
         table.add_row("scheduler", ok if scheduler_ok else fail)
 
         self.console.print(
-            Panel(table, title="[bold]System Status[/bold]", border_style="bright_cyan")
+            Panel(
+                table, title="[bold]System Status[/bold]", border_style="bright_cyan", box=ROUNDED
+            )
         )
 
     def clear(self) -> None:
@@ -339,3 +496,94 @@ class TerminalUI:
     def print_goodbye(self) -> None:
         """Print the exit message."""
         self.console.print("\n  [isaac.dim]Shutting down. Goodbye.[/isaac.dim]\n")
+
+    # ------------------------------------------------------------------
+    # Conversation history
+    # ------------------------------------------------------------------
+
+    def print_conversation_list(self, conversations: list[dict], active_id: str | None) -> None:
+        """Print conversation list in sidebar style."""
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column(style="dim", width=4)
+        table.add_column()
+
+        for i, conv in enumerate(conversations, 1):
+            marker = "\u2022" if conv.get("id") == active_id else " "
+            title = conv.get("title", f"Conversation {i}")
+            table.add_row(f"[isaac.accent]{marker}[/isaac.accent]", title)
+
+        self.console.print(
+            Panel(
+                table, title="[bold]Conversations[/bold]", border_style="bright_cyan", box=ROUNDED
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Settings panel
+    # ------------------------------------------------------------------
+
+    def print_settings(self, settings: dict) -> None:
+        """Print settings panel."""
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column(style="dim", width=20)
+        table.add_column()
+
+        for key, value in settings.items():
+            table.add_row(key, str(value))
+
+        self.console.print(
+            Panel(table, title="[bold]Settings[/bold]", border_style="bright_cyan", box=ROUNDED)
+        )
+
+    # ------------------------------------------------------------------
+    # Progress indicators
+    # ------------------------------------------------------------------
+
+    def show_progress(self, description: str) -> Progress:
+        """Create and return a Rich Progress context manager."""
+        return Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console,
+            transient=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Streaming with Live display
+    # ------------------------------------------------------------------
+
+    def create_streaming_display(self) -> Live:
+        """Create a Live display for streaming output."""
+        self._stream_buffer = []
+
+        def render() -> Panel:
+            content = Text("".join(self._stream_buffer), style="isaac.token")
+            return Panel(
+                content,
+                title=Text(" I.S.A.A.C. (streaming) ", style="bold bright_cyan"),
+                border_style="bright_cyan",
+                padding=(1, 2),
+                box=ROUNDED,
+            )
+
+        live = Live(render(), console=self.console, refresh_per_second=15, transient=False)
+        self._live = live
+        return live
+
+    def update_stream(self, token: str) -> None:
+        """Update the streaming display with a new token."""
+        if self._live is not None:
+            self._stream_buffer.append(token)
+            self._live.update(self._live.renderable)
+
+    def stop_streaming(self, elapsed: float | None = None) -> None:
+        """Stop the streaming display."""
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+        self.end_stream(elapsed)
+
+
+def create_terminal_ui() -> TerminalUI:
+    """Factory function to create a TerminalUI instance."""
+    return TerminalUI()

@@ -20,7 +20,7 @@ class TestSkillLibrary:
         candidate = SkillCandidate(
             name="rotate_grid",
             code="def rotate(grid):\n    return [list(r) for r in zip(*grid[::-1])]",
-            input_schema={"grid": "list[list[int]]"},
+            input_schema={"grid": "list[list[int]]", "example": {"grid": [[1, 2], [3, 4]]}},
             output_schema={"result": "list[list[int]]"},
             task_context="ARC rotation task",
             success_count=2,
@@ -45,6 +45,7 @@ class TestSkillLibrary:
             SkillCandidate(
                 name="flip_horizontal",
                 code="def flip(g): return [r[::-1] for r in g]",
+                input_schema={"example": {"g": [[1, 2]]}},
                 task_context="ARC flip task",
                 success_count=1,
             ),
@@ -54,6 +55,7 @@ class TestSkillLibrary:
             SkillCandidate(
                 name="fill_color",
                 code="def fill(g, c): pass",
+                input_schema={"example": {"g": [[0]], "c": 1}},
                 task_context="ARC color fill",
                 success_count=1,
             ),
@@ -68,7 +70,13 @@ class TestSkillLibrary:
         # gate rejects a skill that defines nothing reusable, so the fixture
         # is now an actual function.
         _commit_trusted_fixture(
-            lib1, SkillCandidate(name="my_skill", code="def go():\n    return 1", success_count=1)
+            lib1,
+            SkillCandidate(
+                name="my_skill",
+                code="def go():\n    return 1",
+                success_count=1,
+                input_schema={"example": {}},
+            ),
         )
 
         # Re-open from same directory

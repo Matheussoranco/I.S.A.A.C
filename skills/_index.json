@@ -1,35 +1,23 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "skills": {
     "generate_localized_greeting": {
       "name": "generate_localized_greeting",
-      "input_schema": {},
-      "output_schema": {},
-      "task_context": "Generate a friendly greeting response in Portuguese to acknowledge the user's 'Olá!' and invite them to state their request or task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "style": {"type": "string", "enum": ["boxed", "plain"]},
+          "user_name": {"type": "string"},
+          "include_emoji": {"type": "boolean"}
+        }
+      },
+      "output_schema": {"type": "string"},
+      "task_context": "Generate a friendly greeting response in Portuguese to acknowledge the user and invite them to state their request",
       "success_count": 2,
       "skill_type": "code",
-      "tags": [],
-      "file": "generate_localized_greeting.py"
-    },
-    "refined_generate_a_localized_greeting": {
-      "name": "refined_generate_a_localized_greeting",
-      "input_schema": {},
-      "output_schema": {},
-      "task_context": "Generate a localized greeting response in Portuguese using the 'generate_localized_greeting' skill, acknowledging the user and establishing I.S.A.A.C.'s identity",
-      "success_count": 2,
-      "skill_type": "code",
-      "tags": [],
-      "file": "refined_generate_a_localized_greeting.py"
-    },
-    "refined_call_generate_localized_greeti": {
-      "name": "refined_call_generate_localized_greeti",
-      "input_schema": {},
-      "output_schema": {},
-      "task_context": "Call generate_localized_greeting skill to produce a greeting for the input 'Ola!', which appears to be Portuguese/Spanish for 'Hello'",
-      "success_count": 2,
-      "skill_type": "code",
-      "tags": [],
-      "file": "refined_call_generate_localized_greeti.py"
+      "tags": ["greeting", "pt-BR", "verified"],
+      "file": "generate_localized_greeting.py",
+      "evidence": "import"
     },
     "python_sorting_demonstration": {
       "name": "python_sorting_demonstration",
@@ -38,18 +26,9 @@
       "task_context": "Write a Python script that demonstrates list sorting using the built-in sort() method and sorted() function, with example usage",
       "success_count": 2,
       "skill_type": "code",
-      "tags": [],
-      "file": "python_sorting_demonstration.py"
-    },
-    "refined_invoke_generate_localized_gree": {
-      "name": "refined_invoke_generate_localized_gree",
-      "input_schema": {},
-      "output_schema": {},
-      "task_context": "Invoke generate_localized_greeting skill to craft a Portuguese response acknowledging the user's inverted greeting and clarifying I.S.A.A.C.'s role as the assistant",
-      "success_count": 2,
-      "skill_type": "code",
-      "tags": [],
-      "file": "refined_invoke_generate_localized_gree.py"
+      "tags": ["python", "example", "verified"],
+      "file": "python_sorting_demonstration.py",
+      "evidence": "import"
     }
   }
 }

@@ -82,8 +82,7 @@ SNIPPETS: list[tuple[str, str]] = [
     ),
     (
         "http_status_check",
-        "import urllib.request\n"
-        "print(urllib.request.urlopen('http://example.com').status)",
+        "import urllib.request\nprint(urllib.request.urlopen('http://example.com').status)",
     ),
 ]
 
@@ -114,9 +113,7 @@ def main() -> int:
                     skill_abstraction_prompt(concrete_code=concrete, task_context=name)
                 )
                 content = (
-                    response.content
-                    if isinstance(response.content, str)
-                    else str(response.content)
+                    response.content if isinstance(response.content, str) else str(response.content)
                 )
                 generalised = _extract_code(content)
             except Exception as exc:
