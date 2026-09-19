@@ -92,11 +92,7 @@ def build_llm_for_profile(
         from langchain_anthropic import ChatAnthropic
 
         effort = reasoning_effort if reasoning_effort in {"low", "medium", "high", "max"} else None
-        return ChatAnthropic(
-            model=model,
-            api_key=api_key or None,  # type: ignore[arg-type]
-            effort=effort,  # type: ignore[arg-type]
-        )
+        return ChatAnthropic(**{"model": model, "api_key": api_key or None, "effort": effort})
     raise ValueError(f"Unsupported LLM provider: {provider!r}.")
 
 
@@ -169,12 +165,13 @@ def _capped_llm(max_tokens: int) -> BaseChatModel:
         api_key = provider_api_key("anthropic", settings)
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(
-            model=model_name,  # type: ignore[arg-type]
-            temperature=temperature,
-            max_tokens=max_tokens,
-            api_key=api_key,
-        )
+        anthropic_kwargs: dict[str, Any] = {
+            "model": model_name,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "api_key": api_key,
+        }
+        return ChatAnthropic(**anthropic_kwargs)
 
     # llamacpp / openai_compat and anything else: reuse the tier builder and
     # bind the cap at call time.

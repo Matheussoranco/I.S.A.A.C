@@ -4,6 +4,7 @@ import socket
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,7 +26,9 @@ def runtime(monkeypatch):
     }
     pw = SimpleNamespace(**engines, stop=AsyncMock())
     api = ModuleType("playwright.async_api")
-    api.async_playwright = MagicMock(return_value=SimpleNamespace(start=AsyncMock(return_value=pw)))
+    cast(Any, api).async_playwright = MagicMock(
+        return_value=SimpleNamespace(start=AsyncMock(return_value=pw))
+    )
     monkeypatch.setitem(sys.modules, "playwright", ModuleType("playwright"))
     monkeypatch.setitem(sys.modules, "playwright.async_api", api)
     return pw, context, page
@@ -92,7 +95,8 @@ def test_invalid_browser_selection_is_rejected(engine, channel):
 
 def test_personal_profile_cannot_be_supplied():
     with pytest.raises(TypeError):
-        BrowserTool(user_data_dir="personal-profile")
+        kw: dict[str, Any] = {"user_data_dir": "personal-profile"}
+        BrowserTool(**kw)
 
 
 async def test_profiles_are_not_shared_between_instances(runtime):
@@ -100,6 +104,7 @@ async def test_profiles_are_not_shared_between_instances(runtime):
     try:
         await first._ensure_page()
         await second._ensure_page()
+        assert first._profile is not None and second._profile is not None
         assert first._profile.name != second._profile.name
     finally:
         await first.aclose()

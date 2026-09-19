@@ -13,6 +13,7 @@ Covers three guarantees:
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -54,12 +55,14 @@ class TestLocalFirstDefaults:
         assert DEFAULT_LOCAL_MODEL is DEFAULT_MODEL
 
     def test_llm_settings_default_to_ollama(self, pristine_env: None) -> None:
-        cfg = LLMSettings(_env_file=None)
+        kw: dict[str, Any] = {"_env_file": None}
+        cfg = LLMSettings(**kw)
         assert cfg.llm_provider == "ollama"
         assert cfg.model_name == "qwen3.6"
 
     def test_settings_load_with_no_api_keys(self, pristine_env: None) -> None:
-        s = Settings(_env_file=None, llm=LLMSettings(_env_file=None))
+        kw: dict[str, Any] = {"_env_file": None}
+        s = Settings(**kw, llm=LLMSettings(**kw))
         # No credentials anywhere — and nothing raises.
         assert s.openai_api_key == ""
         assert s.anthropic_api_key == ""
@@ -73,7 +76,8 @@ class TestLocalFirstDefaults:
         assert s.local_first is True
 
     def test_no_retired_or_stale_model_defaults(self, pristine_env: None) -> None:
-        s = Settings(_env_file=None, llm=LLMSettings(_env_file=None))
+        kw: dict[str, Any] = {"_env_file": None}
+        s = Settings(**kw, llm=LLMSettings(**kw))
         # claude-3.5-sonnet was retired in Oct 2025; claude-sonnet-4-6 is a
         # generation behind. Neither may reappear as a default.
         assert s.subagent_model == "claude-opus-4-8"

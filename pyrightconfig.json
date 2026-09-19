@@ -1,9 +1,12 @@
 {
   "venvPath": ".",
   "venv": ".venv",
-  "pythonVersion": "3.10",
+  "pythonVersion": "3.12",
   "include": ["src", "tests"],
   "exclude": ["**/__pycache__"],
   "typeCheckingMode": "basic",
-  "reportMissingModuleSource": "none"
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportTypedDictNotRequiredAccess": "none",
+  "reportUnusedExpression": "none"
 }

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock
 
 import httpx
@@ -149,12 +150,12 @@ def test_storage_errors_propagate(tmp_path):
 
 def test_notification_claims_retry_expiry_and_persistent_ack(tmp_path):
     reminder = reminders.add_reminder("due", "2026-01-01", isaac_home=tmp_path)
-    options = dict(isaac_home=tmp_path, now="2026-01-02T00:00Z")
+    options: dict[str, Any] = dict(isaac_home=tmp_path, now="2026-01-02T00:00Z")
     with ThreadPoolExecutor(max_workers=8) as pool:
         claims = list(pool.map(lambda _: reminders.claim_due_reminders("log", **options), range(8)))
     assert sum(map(len, claims)) == 1
     first = next(batch[0] for batch in claims if batch)
-    later = dict(options, now="2026-01-02T00:05Z")
+    later: dict[str, Any] = dict(options, now="2026-01-02T00:05Z")
     second = reminders.claim_due_reminders("log", **later)[0]
     with pytest.raises(ValueError, match="stale"):
         reminders.finish_reminder_notification(

@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from isaac.specialists.base import SpecialistResult
+from isaac.specialists.base import Specialist, SpecialistResult
 from isaac.specialists.orchestrator import Orchestrator, SubTask, orchestrate
 
 
-class _StubSpecialist:
+class _StubSpecialist(Specialist):
     """A minimal specialist whose run() echoes the task and flags dependency context."""
 
     def __init__(self, name: str) -> None:

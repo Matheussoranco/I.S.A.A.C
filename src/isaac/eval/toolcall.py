@@ -433,6 +433,7 @@ def run_suite(
     constrained = mode == "constrained"
     if llm is None:
         llm = _build_llm(model, base_url, temperature, constrained)
+    assert llm is not None
 
     system = SYSTEM_PROMPT
     if constrained:

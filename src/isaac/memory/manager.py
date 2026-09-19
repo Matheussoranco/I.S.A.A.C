@@ -235,6 +235,15 @@ class MemoryManager:
         except Exception:
             logger.warning("MemoryManager: KG sync failed.", exc_info=True)
 
+    def consolidate(self) -> None:
+        """Consolidate episodic memory into persistent layers."""
+        try:
+            from isaac.memory.consolidation import consolidate_now
+
+            consolidate_now()
+        except Exception:
+            logger.warning("MemoryManager: consolidation failed.", exc_info=True)
+
     def close(self) -> None:
         """Close all memory layer connections."""
         if self._semantic is not None:

@@ -8,16 +8,17 @@ a real model, or the user's ``~/.isaac`` database.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from isaac.meta.learner import MetaLearner
 from isaac.meta.specialist_selector import SPECIALIST_TASK_TYPE, SpecialistSelector
-from isaac.specialists.base import SpecialistResult
+from isaac.specialists.base import Specialist, SpecialistResult
 from isaac.specialists.orchestrator import Orchestrator, SubTask
 
 
-class _StubSpecialist:
+class _StubSpecialist(Specialist):
     def __init__(self, name: str, succeed: bool = True) -> None:
         self.name = name
         self._succeed = succeed
@@ -62,7 +63,7 @@ def selector(tmp_path: Path) -> SpecialistSelector:
     return SpecialistSelector(MetaLearner(tmp_path / "meta.db"))
 
 
-def _factory(succeed: bool = True, known: set[str] | None = None):
+def _factory(succeed: bool = True, known: set[str] | None = None) -> Any:
     def factory(name: str, **kwargs):
         if known is not None and name not in known:
             raise KeyError(name)

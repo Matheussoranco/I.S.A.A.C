@@ -205,8 +205,16 @@ class SandboxManager:
         )
         exit_code: int = result.exit_code or 0
         raw_out, raw_err = result.output or (b"", b"")
-        stdout = (raw_out or b"").decode(errors="replace")
-        stderr = (raw_err or b"").decode(errors="replace")
+        stdout = (
+            raw_out.decode(errors="replace")
+            if isinstance(raw_out, (bytes, bytearray))
+            else str(raw_out or "")
+        )
+        stderr = (
+            raw_err.decode(errors="replace")
+            if isinstance(raw_err, (bytes, bytearray))
+            else str(raw_err or "")
+        )
         return exit_code, stdout, stderr
 
     def take_screenshot(

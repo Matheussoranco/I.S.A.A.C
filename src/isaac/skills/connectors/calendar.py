@@ -62,7 +62,7 @@ class CalendarConnector(BaseConnector):
 
         from icalendar import Calendar  # type: ignore[import-untyped]
 
-        cal = Calendar.from_ical(ics_path.read_bytes())
+        cal = Calendar.from_ical(ics_path.read_text(encoding="utf-8", errors="replace"))
         events: list[dict[str, str]] = []
         for component in cal.walk():
             if component.name == "VEVENT":
@@ -97,7 +97,7 @@ class CalendarConnector(BaseConnector):
 
         # Load existing or create new calendar
         if ics_path.exists():
-            cal = Calendar.from_ical(ics_path.read_bytes())
+            cal = Calendar.from_ical(ics_path.read_text(encoding="utf-8", errors="replace"))
         else:
             cal = Calendar()
             cal.add("prodid", "-//I.S.A.A.C.//Calendar//EN")

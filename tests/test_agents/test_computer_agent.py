@@ -7,10 +7,10 @@ from typing import Any
 
 import isaac.agents.computer_agent as computer_module
 from isaac.agents.computer_agent import ComputerAgentRunner
-from isaac.tools.desktop import ScreenFrame
+from isaac.tools.desktop import DesktopBackend, ScreenFrame
 
 
-class _Backend:
+class _Backend(DesktopBackend):
     def __init__(self) -> None:
         self.actions: list[dict[str, Any]] = []
 

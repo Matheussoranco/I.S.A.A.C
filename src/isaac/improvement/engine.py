@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field
 from threading import Lock
 from typing import Any
 
+from isaac.improvement.skill_curation import SkillCurator
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,10 +39,9 @@ class ImprovementResult:
 class ImprovementEngine:
     _active: bool = False
     _cycle_lock = Lock()
+    _curator: SkillCurator
 
     def __init__(self) -> None:
-        from isaac.improvement.skill_curation import SkillCurator
-
         self._curator = SkillCurator()
 
     def run_cycle(self, *, recursive: bool = False, _depth: int = 0) -> ImprovementResult:
@@ -108,8 +109,7 @@ class ImprovementEngine:
             from isaac.memory.manager import get_memory_manager
 
             mm = get_memory_manager()
-            if hasattr(mm, "consolidate"):
-                mm.consolidate()
+            mm.consolidate()
         except Exception as exc:
             logger.exception("Improvement: memory consolidation failed.")
             result.errors.append(f"consolidation: {exc}")

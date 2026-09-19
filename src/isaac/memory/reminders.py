@@ -57,7 +57,8 @@ def _store_path(isaac_home: Path | None = None) -> Path:
     if isaac_home is None:
         from isaac.config.settings import get_settings
 
-        isaac_home = get_settings().isaac_home
+        home_dir = get_settings().isaac_home
+        return Path(home_dir) / "reminders.sqlite3"
     return Path(isaac_home) / "reminders.sqlite3"
 
 
@@ -139,12 +140,12 @@ def _transaction(isaac_home: Path | None) -> Iterator[sqlite3.Connection]:
 
 def _reminder(row: sqlite3.Row) -> Reminder:
     return Reminder(
-        id=row["id"],
-        text=row["text"],
-        created_at=row["created_at"],
-        due_at=row["due_at"],
+        id=str(row["id"]),
+        text=str(row["text"]),
+        created_at=str(row["created_at"]),
+        due_at=str(row["due_at"]),
         done=bool(row["done"]),
-        source=row["source"],
+        source=str(row["source"]),
     )
 
 
@@ -181,7 +182,7 @@ def complete_reminder(reminder_id: str, *, isaac_home: Path | None = None) -> bo
             raise ValueError("ambiguous reminder id prefix")
         if not rows:
             return False
-        conn.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rows[0]["id"],))
+        conn.execute("UPDATE reminders SET done = 1 WHERE id = ?", (str(rows[0]["id"]),))
     return True
 
 
@@ -209,7 +210,7 @@ def claim_due_reminders(
     if not math.isfinite(lease_seconds) or lease_seconds <= 0:
         raise ValueError("lease_seconds must be positive and finite")
     current = _now(now).timestamp()
-    claimed = []
+    claimed: list[ReminderNotification] = []
     with _transaction(isaac_home) as conn:
         rows = conn.execute(
             "SELECT r.* FROM reminders r LEFT JOIN notifications n "
@@ -226,7 +227,7 @@ def claim_due_reminders(
                 "VALUES (?, ?, ?, ?, 1) ON CONFLICT(reminder_id, channel) DO UPDATE SET "
                 "token = excluded.token, lease_until = excluded.lease_until, "
                 "attempts = attempts + 1",
-                (row["id"], channel, token, current + lease_seconds),
+                (str(row["id"]), channel, token, current + lease_seconds),
             )
             claimed.append(ReminderNotification(_reminder(row), token))
     return claimed
@@ -275,7 +276,8 @@ def parse_remind_args(text: str) -> tuple[str, str]:
         match = re.fullmatch(r"in\s+(\d+(?:\.\d+)?)\s*([hmd])", when.lower())
         if not match:
             raise ValueError("relative due time must be 'in <positive number>h|m|d'")
-        seconds = float(match[1]) * {"h": 3600, "m": 60, "d": 86400}[match[2]]
+        multipliers = {"h": 3600, "m": 60, "d": 86400}
+        seconds = float(match.group(1)) * multipliers[match.group(2)]
         if not math.isfinite(seconds) or seconds <= 0:
             raise ValueError("relative due time must be positive and finite")
         try:

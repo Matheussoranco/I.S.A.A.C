@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +20,7 @@ class _FakeAgent:
         return AgentRunResult(output="hello back", iterations=1, stopped_reason="final")
 
 
-def _builder(**kwargs: Any) -> _FakeAgent:
+def _builder(**kwargs: Any) -> Any:
     assert kwargs["llm"] is _FAKE_LLM
     assert callable(kwargs["on_event"])
     assert callable(kwargs["browser_event_callback"])
@@ -168,7 +168,7 @@ def test_computer_mode_uses_first_party_runner(tmp_path) -> None:
     client = TestClient(
         create_app(
             agent_builder=_builder,
-            computer_runner_builder=_Runner,
+            computer_runner_builder=cast(Any, _Runner),
             conversation_store=ConversationStore(tmp_path / "conversations.sqlite3"),
             llm_builder=lambda *args, **kwargs: _FAKE_LLM,
         )

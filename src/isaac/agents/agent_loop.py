@@ -46,7 +46,7 @@ from contextvars import ContextVar, copy_context
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from isaac.agents.tool_repair import (
     RepairOutcome,
@@ -59,15 +59,20 @@ from isaac.agents.validation import validate_args
 from isaac.security.redact import redact_secrets
 from isaac.tools.base import IsaacTool
 
-try:
+if TYPE_CHECKING:
     from pydantic import BaseModel
 
     PYDANTIC_AVAILABLE = True
-except ImportError:
-    PYDANTIC_AVAILABLE = False
+else:
+    try:
+        from pydantic import BaseModel
 
-    class BaseModel:  # type: ignore[no-redef]
-        pass
+        PYDANTIC_AVAILABLE = True
+    except ImportError:
+        PYDANTIC_AVAILABLE = False
+
+        class BaseModel:  # type: ignore[no-redef]
+            pass
 
 
 logger = logging.getLogger(__name__)
@@ -1193,12 +1198,14 @@ def build_default_agent(
     tools = registry.list_all()
     if browser_event_callback is not None:
         for tool in tools:
-            if tool.name == "browser" and hasattr(tool, "set_visual_callback"):
-                tool.set_visual_callback(browser_event_callback)
+            cb_setter = getattr(tool, "set_visual_callback", None)
+            if tool.name == "browser" and callable(cb_setter):
+                cb_setter(browser_event_callback)
     if desktop_event_callback is not None:
         for tool in tools:
-            if tool.name.startswith("computer_") and hasattr(tool, "set_visual_callback"):
-                tool.set_visual_callback(desktop_event_callback)
+            cb_setter = getattr(tool, "set_visual_callback", None)
+            if tool.name.startswith("computer_") and callable(cb_setter):
+                cb_setter(desktop_event_callback)
     if only is not None:
         wanted = set(only)
         tools = [t for t in tools if t.name in wanted]

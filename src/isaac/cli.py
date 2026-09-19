@@ -15,21 +15,31 @@ tokens      Manage capability tokens.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
-try:
-    import typer  # type: ignore[import-untyped]
-except ImportError:
-    # Fallback: if Typer is not installed, provide a minimal CLI via argparse
-    typer = None  # type: ignore[assignment]
+if TYPE_CHECKING:
+    import typer
 
-if typer is not None:
     app = typer.Typer(
         name="isaac",
         help="I.S.A.A.C. — Intelligent System for Autonomous Action and Cognition",
         add_completion=False,
     )
 else:
-    app = None  # type: ignore[assignment]
+    try:
+        import typer  # type: ignore[import-untyped]
+    except ImportError:
+        # Fallback: if Typer is not installed, provide a minimal CLI via argparse
+        typer = None  # type: ignore[assignment]
+
+    if typer is not None:
+        app = typer.Typer(
+            name="isaac",
+            help="I.S.A.A.C. — Intelligent System for Autonomous Action and Cognition",
+            add_completion=False,
+        )
+    else:
+        app = None  # type: ignore[assignment]
 
 
 def _setup_logging(verbose: bool = False) -> None:
@@ -45,7 +55,7 @@ def _setup_logging(verbose: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 
-if typer is not None:
+if TYPE_CHECKING or typer is not None:
     assert app is not None
 
     @app.command()
@@ -108,13 +118,15 @@ if typer is not None:
             from rich.panel import Panel
 
             console = Console()
-            _echo = console.print
             _rich = True
         except Exception:
             console = None
             _rich = False
 
-            def _echo(*a: object, **k: object) -> None:  # type: ignore[misc]
+        def _echo(*a: Any, **k: Any) -> None:
+            if _rich and console is not None:
+                console.print(*a, **k)
+            else:
                 typer.echo(" ".join(str(x) for x in a))
 
         def on_event(kind: str, data: dict) -> None:
@@ -151,11 +163,12 @@ if typer is not None:
 
         # Real human-in-the-loop approval for risk-4/5 tools when a terminal
         # is attached (instead of all-or-nothing blocking).
-        approval_callback = None
-        if not auto_approve and sys.stdin.isatty():
+        def _ask_approval(name: str, args: Any, risk: Any) -> bool:
+            return bool(typer.confirm(f"Allow high-risk tool '{name}' (risk {risk}) with {args}?"))
 
-            def approval_callback(name: str, args: dict, risk: int) -> bool:
-                return typer.confirm(f"Allow high-risk tool '{name}' (risk {risk}) with {args}?")
+        approval_callback: Any = (
+            _ask_approval if (not auto_approve and sys.stdin.isatty()) else None
+        )
 
         try:
             trace_store: TraceStore | None = TraceStore()

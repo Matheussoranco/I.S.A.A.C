@@ -9,6 +9,7 @@ for the active cognitive cycle.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.messages import (
@@ -25,7 +26,7 @@ DEFAULT_KEEP_RECENT = 10
 DEFAULT_SUMMARY_PREFIX = "[Context Summary] "
 
 
-def _estimate_tokens(messages: list[BaseMessage]) -> int:
+def _estimate_tokens(messages: Sequence[BaseMessage]) -> int:
     """Rough token estimate — ~4 chars per token heuristic."""
     total_chars = sum(
         len(m.content) if isinstance(m.content, str) else len(str(m.content)) for m in messages
@@ -48,7 +49,7 @@ def _extract_text(message: BaseMessage) -> str:
 
 
 def summarise_messages(
-    messages: list[BaseMessage],
+    messages: Sequence[BaseMessage],
     llm: Any | None = None,
 ) -> str:
     """Produce a text summary of a message batch.
@@ -61,7 +62,7 @@ def summarise_messages(
     return _summarise_extractive(messages)
 
 
-def _summarise_extractive(messages: list[BaseMessage]) -> str:
+def _summarise_extractive(messages: Sequence[BaseMessage]) -> str:
     """Extractive fallback — concatenates condensed excerpts."""
     lines: list[str] = []
     for msg in messages:
@@ -72,7 +73,7 @@ def _summarise_extractive(messages: list[BaseMessage]) -> str:
     return "\n".join(lines)
 
 
-def _summarise_with_llm(messages: list[BaseMessage], llm: Any) -> str:
+def _summarise_with_llm(messages: Sequence[BaseMessage], llm: Any) -> str:
     """Use the LLM to produce an abstractive summary."""
     conversation = _summarise_extractive(messages)
     prompt = [
@@ -95,7 +96,7 @@ def _summarise_with_llm(messages: list[BaseMessage], llm: Any) -> str:
 
 
 def compress_messages(
-    messages: list[BaseMessage],
+    messages: Sequence[BaseMessage],
     max_messages: int = DEFAULT_MAX_MESSAGES,
     keep_recent: int = DEFAULT_KEEP_RECENT,
     llm: Any | None = None,
@@ -126,7 +127,7 @@ def compress_messages(
         Compressed message list.
     """
     if len(messages) <= max_messages:
-        return messages
+        return list(messages)
 
     # Preserve system messages at the start
     system_prefix: list[BaseMessage] = []
@@ -138,7 +139,7 @@ def compress_messages(
             non_system.append(msg)
 
     if len(non_system) <= keep_recent:
-        return messages
+        return list(messages)
 
     old = non_system[:-keep_recent]
     recent = non_system[-keep_recent:]

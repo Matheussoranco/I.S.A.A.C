@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -20,7 +21,7 @@ from isaac.nodes.clarification import (
 )
 
 
-def _state(query: str, **kwargs) -> dict:
+def _state(query: str, **kwargs: Any) -> Any:
     return {
         "messages": [HumanMessage(content=query)],
         "perception_confidence": kwargs.pop("perception_confidence", 1.0),
@@ -34,19 +35,19 @@ def test_ambiguity_score_short_vague() -> None:
 
 
 def test_after_perception_routes_direct_to_fast_path() -> None:
-    assert after_perception({"task_mode": "direct"}) == NODE_DIRECT_RESPONSE
+    assert after_perception(cast(Any, {"task_mode": "direct"})) == NODE_DIRECT_RESPONSE
 
 
 def test_after_perception_routes_through_clarification() -> None:
-    assert after_perception({"task_mode": "code"}) == NODE_CLARIFICATION
+    assert after_perception(cast(Any, {"task_mode": "code"})) == NODE_CLARIFICATION
 
 
 def test_after_clarification_routes_to_end_when_question_asked() -> None:
-    assert after_clarification({"needs_clarification": True}) == "__end__"
+    assert after_clarification(cast(Any, {"needs_clarification": True})) == "__end__"
 
 
 def test_after_clarification_continues_when_unambiguous() -> None:
-    assert after_clarification({"needs_clarification": False}) == NODE_EXPLORER
+    assert after_clarification(cast(Any, {"needs_clarification": False})) == NODE_EXPLORER
 
 
 def test_clarification_node_passes_through_when_unambiguous() -> None:
@@ -76,7 +77,7 @@ def test_clarification_node_emits_question_when_ambiguous() -> None:
     assert update["current_phase"] == "clarification"
     [msg] = update["messages"]
     assert isinstance(msg, AIMessage)
-    assert "fix" in msg.content.lower()
+    assert "fix" in str(msg.content).lower()
 
 
 def test_needs_clarification_threshold() -> None:

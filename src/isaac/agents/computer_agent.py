@@ -288,7 +288,9 @@ def _as_dict(value: Any) -> dict[str, Any]:
         return {str(k): v for k, v in value.items() if v is not None}
     dump = getattr(value, "model_dump", None)
     if callable(dump):
-        return dict(dump(exclude_none=True))
+        res = dump(exclude_none=True)
+        if isinstance(res, dict):
+            return {str(k): v for k, v in res.items() if v is not None}
     data = getattr(value, "__dict__", {})
     return {str(k): v for k, v in data.items() if not str(k).startswith("_") and v is not None}
 

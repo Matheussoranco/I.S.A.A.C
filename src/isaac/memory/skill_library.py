@@ -143,10 +143,11 @@ class SkillLibrary:
         try:
             chroma_dir = self._dir / ".chromadb"
             chroma_dir.mkdir(parents=True, exist_ok=True)
-            self._chroma_client = chromadb.PersistentClient(
+            client = chromadb.PersistentClient(
                 path=str(chroma_dir),
             )
-            self._collection = self._chroma_client.get_or_create_collection(
+            self._chroma_client = client
+            self._collection = client.get_or_create_collection(
                 name="skills",
                 metadata={"hnsw:space": "cosine"},
             )

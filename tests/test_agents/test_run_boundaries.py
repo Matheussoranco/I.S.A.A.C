@@ -6,6 +6,7 @@ import threading
 import time
 from contextvars import ContextVar
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -77,7 +78,7 @@ def success(task, name="generalist"):
     return SpecialistResult(name, task, f"done:{task}", True)
 
 
-def factory(name, **kwargs):
+def factory(name: str, **kwargs: Any) -> Any:
     return SimpleNamespace(run=lambda task, context="": success(task, name))
 
 
@@ -104,7 +105,8 @@ async def test_attachments_are_multimodal_content_blocks(asynchronous):
         {"type": "text", "text": "describe\n\n<context>\ncontext\n</context>"},
         image,
     ]
-    message.content[1]["image_url"]["url"] = "changed"
+    assert isinstance(message.content, list)
+    cast(dict[str, Any], message.content[1])["image_url"]["url"] = "changed"
     assert image["image_url"]["url"].startswith("data:")
     assert result.completed
 
@@ -244,6 +246,7 @@ async def test_async_cancellation_during_approval_prevents_late_execution():
 class _timeout:
     async def __aenter__(self):
         self.task = asyncio.current_task()
+        assert self.task is not None
         self.handle = asyncio.get_running_loop().call_later(1, self.task.cancel)
 
     async def __aexit__(self, *args):
@@ -270,7 +273,7 @@ def test_cancellation_during_retry_backoff_prevents_second_model_call():
         [SubTask("a", "one", "x", ["missing"])],
         [SubTask("a", "one", "x", ["a"])],
         [SubTask("a", "one", "x", ["b"]), SubTask("b", "two", "x", ["a"])],
-        [SubTask("a", "one", "x", "a")],
+        [SubTask("a", "one", "x", cast(Any, "a"))],
         [SubTask(str(i), "one", "x") for i in range(MAX_SUBTASKS + 1)],
         [],
     ],
@@ -279,7 +282,7 @@ def test_invalid_plan_is_rejected_before_any_dispatch(plan):
     created = []
     result = Orchestrator(
         planner=lambda *args: plan,
-        specialist_factory=lambda *args, **kwargs: created.append(args),
+        specialist_factory=cast(Any, lambda *args, **kwargs: created.append(args)),
     ).run("goal")
     assert result.stopped_reason == "invalid_plan"
     assert result.error
@@ -301,7 +304,7 @@ def test_manager_plan_validation_does_not_fallback_or_truncate(malformation):
     manager = ScriptLLM(AIMessage(content=json.dumps({"subtasks": raw})))
     result = Orchestrator(
         manager_llm=manager,
-        specialist_factory=lambda *args, **kwargs: created.append(args),
+        specialist_factory=cast(Any, lambda *args, **kwargs: created.append(args)),
     ).run("goal")
     assert result.stopped_reason == "invalid_plan"
     assert created == []
@@ -349,7 +352,7 @@ def test_orchestration_budget_and_cancellation_include_manager_stages(stage, can
         gate.wait()
         return AIMessage(content=json.dumps({"subtasks": [st.to_dict() for st in plan]}))
 
-    def make(name, **kwargs):
+    def make(name: str, **kwargs: Any) -> Any:
         dispatched.append(name)
         return factory(name, **kwargs)
 
@@ -386,7 +389,7 @@ def test_remaining_budget_is_passed_after_planning_and_factory_time(monkeypatch)
         time.sleep(0.06)
         return [SubTask("a", "one", "x")]
 
-    def make(name, **kwargs):
+    def make(name: str, **kwargs: Any) -> Any:
         captured.append(kwargs)
         time.sleep(0.04)
         return Specialist(llm=ScriptLLM(AIMessage(content="done")), persona="", **kwargs)
@@ -424,7 +427,7 @@ def test_real_approval_callback_reaches_specialist_tool(monkeypatch, approved):
         kwargs.pop("only")
         return AgentLoop([action], **kwargs)
 
-    def make(name, **kwargs):
+    def make(name: str, **kwargs: Any) -> Any:
         if name == "missing":
             raise KeyError(name)
         return Specialist(
@@ -449,7 +452,7 @@ def test_parallel_subtask_timeouts_are_measured_from_dispatch_and_block_dependen
     gates = {name: Gate() for name in ("a", "b")}
     dispatched = []
 
-    def make(name, **kwargs):
+    def make(name: str, **kwargs: Any) -> Any:
         def run(task, context=""):
             dispatched.append(task)
             gates[task].wait()
@@ -483,7 +486,7 @@ def test_parallel_subtask_timeouts_are_measured_from_dispatch_and_block_dependen
 def test_queued_specialist_gets_its_own_timeout_at_dispatch():
     seen = []
 
-    def make(name, **kwargs):
+    def make(name: str, **kwargs: Any) -> Any:
         def run(task, context=""):
             seen.append((task, kwargs["max_wall_seconds"]))
             time.sleep(0.06)

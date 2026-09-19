@@ -44,10 +44,12 @@ def observed_success(value: Any) -> bool | None:
             return value["exit_code"] == 0
         if isinstance(value.get("success"), bool):
             return value["success"]
-    if hasattr(value, "exit_code"):
-        return bool(value.exit_code == 0)
-    if hasattr(value, "success") and isinstance(value.success, bool):
-        return value.success
+    code = getattr(value, "exit_code", None)
+    if code is not None:
+        return bool(code == 0)
+    succ = getattr(value, "success", None)
+    if isinstance(succ, bool):
+        return succ
     return None
 
 
