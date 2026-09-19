@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from threading import RLock
@@ -46,7 +46,7 @@ def _get_settings() -> Any:
 
 def heartbeat_job() -> None:
     """Periodic heartbeat — logs status and notifies operator."""
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     message = f"💓 Heartbeat at {now} — I.S.A.A.C. is running."
 
     logger.info(message)

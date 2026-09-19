@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -119,7 +119,7 @@ class UserProfile:
 
     def record_interaction(self) -> None:
         """Increment interaction count and update timestamps."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         self._data["interaction_count"] = self._data.get("interaction_count", 0) + 1
         if not self._data.get("first_seen"):
             self._data["first_seen"] = now

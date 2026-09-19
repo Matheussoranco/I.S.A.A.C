@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -148,7 +148,7 @@ class SemanticMemory:
         source:
             Provenance of the fact (e.g. 'perception', 'user', 'inference').
         """
-        ts = datetime.now(tz=timezone.utc).isoformat()
+        ts = datetime.now(tz=UTC).isoformat()
         self._graph.add_edge(
             subject,
             object,

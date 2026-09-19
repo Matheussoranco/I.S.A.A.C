@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from isaac.llm.providers.ollama import DEFAULT_BASE_URL, DEFAULT_MODEL
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class TaskComplexity(str, Enum):
+class TaskComplexity(StrEnum):
     """Task complexity levels for LLM routing."""
 
     SIMPLE = "simple"

@@ -6,7 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -109,7 +109,7 @@ def test_reminder_parser_normalizes_times():
         "task",
         "2026-09-20T07:00:00+00:00",
     )
-    before = datetime.now(timezone.utc).timestamp()
+    before = datetime.now(UTC).timestamp()
     body, due = reminders.parse_remind_args("task @ in 1.5h")
     assert body == "task"
     assert 5400 <= datetime.fromisoformat(due).timestamp() - before < 5402

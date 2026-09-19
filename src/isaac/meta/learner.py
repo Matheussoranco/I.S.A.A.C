@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +93,7 @@ class MetaLearner:
     ) -> None:
         """Persist a single task outcome."""
         with self._lock, self._conn:
-            ts = datetime.now(timezone.utc).isoformat()
+            ts = datetime.now(UTC).isoformat()
             self._conn.execute(
                 """INSERT INTO task_outcomes
                    (ts, task_desc, task_type, strategy, success, error_type, error_msg,
@@ -124,7 +124,7 @@ class MetaLearner:
             (task_type, strategy),
         ).fetchone()
 
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         if row is None:
             wins = 1 if success else 0
             losses = 0 if success else 1

@@ -99,7 +99,7 @@ def _default_key(value: Any) -> str:
     return repr(value)
 
 
-def _collect(
+def _collect[T](
     sampler: Callable[[], T],
     n: int,
     budget_s: float,
@@ -118,7 +118,7 @@ def _collect(
     return out
 
 
-def self_consistency(
+def self_consistency[T](
     sampler: Callable[[], T],
     n: int = 5,
     key: Callable[[Any], str] | None = None,
@@ -172,7 +172,7 @@ def self_consistency(
     )
 
 
-def best_of_n(
+def best_of_n[T](
     sampler: Callable[[], T],
     verifier: Callable[[T], float | bool],
     n: int = 5,
@@ -232,7 +232,7 @@ def best_of_n(
     )
 
 
-def solve_hard_step(
+def solve_hard_step[T](
     sampler: Callable[[], T],
     verifier: Callable[[T], float | bool] | None = None,
     n: int = 5,

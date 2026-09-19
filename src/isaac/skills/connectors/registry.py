@@ -14,7 +14,7 @@ import importlib
 import inspect
 import logging
 import pkgutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,7 @@ def audit_connector(connector_name: str, action: str, detail: str = "") -> None:
     """Append a timestamped entry to the connector audit log."""
     try:
         path = _audit_path()
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         line = f"{ts}  connector={connector_name}  action={action}"
         if detail:
             line += f"  detail={detail}"

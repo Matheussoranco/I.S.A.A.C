@@ -17,7 +17,7 @@ import logging
 import secrets
 import threading
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class CapabilityToken:
         if self.expires_at:
             try:
                 exp = datetime.fromisoformat(self.expires_at)
-                if datetime.now(timezone.utc) > exp:
+                if datetime.now(UTC) > exp:
                     return False
             except ValueError:
                 return False
@@ -110,7 +110,7 @@ class TokenStore:
     ) -> CapabilityToken:
         """Issue a new capability token."""
         with self._lock:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             token = CapabilityToken(
                 token_id=secrets.token_hex(16),
                 tool_name=tool_name,

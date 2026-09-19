@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import patch
 
@@ -143,11 +144,11 @@ class TestCronIsDue:
             pytest.skip("croniter not installed")
 
     def test_recently_run_not_due(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from isaac.background.cron_engine import CronTask, _is_due
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         task = CronTask(schedule="0 * * * *", last_run=now)
         try:
             result = _is_due(task)

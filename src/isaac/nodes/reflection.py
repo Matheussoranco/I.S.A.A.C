@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from isaac.core.state import (
@@ -146,7 +146,7 @@ def _reflect_ui(
         new_error = ErrorEntry(
             node="reflection",
             message=message,
-            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+            timestamp=datetime.now(tz=UTC).isoformat(),
             attempt=attempt,
         )
         updates["errors"] = [new_error]
@@ -288,7 +288,7 @@ def _reflect_code(
             node="reflection",
             message=diagnosis,
             traceback=log.stderr[:2000] if log.stderr else None,
-            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+            timestamp=datetime.now(tz=UTC).isoformat(),
             attempt=attempt,
         )
         updates["errors"] = [new_error]

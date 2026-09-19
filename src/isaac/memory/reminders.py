@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,14 +43,14 @@ def _datetime(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     except (ValueError, OverflowError) as exc:
         raise ValueError(f"invalid ISO-8601 timestamp: {value}") from exc
 
 
 def _now(value: str) -> datetime:
-    return datetime.now(timezone.utc) if value == "" else _datetime(value)
+    return datetime.now(UTC) if value == "" else _datetime(value)
 
 
 def _store_path(isaac_home: Path | None = None) -> Path:
@@ -153,7 +153,7 @@ def add_reminder(text: str, due_at: str = "", *, isaac_home: Path | None = None)
     reminder = Reminder(
         id=uuid.uuid4().hex,
         text=_nonempty(text, "text"),
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
         due_at=_datetime(due_at).isoformat() if due_at != "" else "",
     )
     with _transaction(isaac_home) as conn:
@@ -281,7 +281,7 @@ def parse_remind_args(text: str) -> tuple[str, str]:
         if not math.isfinite(seconds) or seconds <= 0:
             raise ValueError("relative due time must be positive and finite")
         try:
-            due = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+            due = datetime.now(UTC) + timedelta(seconds=seconds)
         except OverflowError as exc:
             raise ValueError("relative due time is out of range") from exc
     else:

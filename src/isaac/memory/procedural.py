@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -157,7 +157,7 @@ class ProceduralMemory:
         If the skill already exists, creates a new version.
         """
         name = candidate.name.strip().replace(" ", "_").lower()
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
 
         # Commit to base library
         self._base_lib.commit(candidate)

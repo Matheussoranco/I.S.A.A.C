@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from isaac.llm.providers import (
@@ -41,13 +41,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class Modality(str, Enum):
+class Modality(StrEnum):
     TEXT = "text"
     VISION = "vision"
     AUDIO = "audio"
 
 
-class Complexity(str, Enum):
+class Complexity(StrEnum):
     FAST = "fast"
     DEFAULT = "default"
     STRONG = "strong"

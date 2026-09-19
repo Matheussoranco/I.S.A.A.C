@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -138,7 +138,7 @@ class LongTermMemory:
             The UUID of the newly created memory.
         """
         memory_id = str(uuid.uuid4())
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         preview = content[:200]
 
         self._conn.execute(
@@ -205,7 +205,7 @@ class LongTermMemory:
             results = self._recall_fallback(query, top_k)
 
         # Update access counts
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         for mem in results:
             self._conn.execute(
                 "UPDATE memories "

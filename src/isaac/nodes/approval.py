@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from isaac.core.state import ErrorEntry, IsaacState, PendingApproval
@@ -91,7 +91,7 @@ def await_approval_node(state: IsaacState) -> dict[str, Any]:
                 ErrorEntry(
                     node="await_approval",
                     message=reason,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                 )
             )
 

@@ -20,7 +20,7 @@ import logging
 import os
 import threading
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -46,7 +46,7 @@ class CronTask:
     """Explicit authorization for unattended connector/host execution."""
     last_run: str = ""  # ISO datetime
     last_status: str = ""  # "ok" | "error" | ""
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 def _task_from_dict(d: dict[str, Any]) -> CronTask:
@@ -83,7 +83,7 @@ def _append_log(task_id: str, status: str, detail: str = "") -> None:
     try:
         path = _log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         line = f"{ts}  task={task_id}  status={status}"
         if detail:
             line += f"  detail={detail[:300]}"
@@ -289,7 +289,7 @@ def _is_due(task: CronTask) -> bool:
         logger.warning("croniter not installed — cron tasks will not fire.")
         return False
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if task.last_run:
         last = datetime.fromisoformat(task.last_run)
     else:
@@ -299,7 +299,7 @@ def _is_due(task: CronTask) -> bool:
     cron = croniter(task.schedule, last)
     next_run = cron.get_next(datetime)
     if next_run.tzinfo is None:
-        next_run = next_run.replace(tzinfo=timezone.utc)
+        next_run = next_run.replace(tzinfo=UTC)
     return now >= next_run
 
 
@@ -328,7 +328,7 @@ def _daemon_loop(poll_seconds: int = 30) -> None:
                     all_tasks = load_tasks()
                     for t in all_tasks:
                         if t.id == task.id:
-                            t.last_run = datetime.now(timezone.utc).isoformat()
+                            t.last_run = datetime.now(UTC).isoformat()
                             t.last_status = status
                             break
                     save_tasks(all_tasks)

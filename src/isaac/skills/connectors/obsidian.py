@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -169,7 +169,7 @@ class ObsidianConnector(BaseConnector):
         # Versioned backup — timestamped, never overwritten.
         backup_path = ""
         if existed:
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             backup = target.with_name(f"{target.name}.{stamp}.isaac_backup.md")
             backup.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
             backup_path = str(backup.relative_to(vault))

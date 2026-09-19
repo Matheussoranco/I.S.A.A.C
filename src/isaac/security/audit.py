@@ -26,7 +26,7 @@ import threading
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -195,7 +195,7 @@ class AuditLog:
         Returns the entry with its computed hash.
         """
         entry = AuditEntry(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             category=category,
             action=action,
             actor=actor,

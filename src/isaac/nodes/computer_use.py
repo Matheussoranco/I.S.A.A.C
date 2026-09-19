@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict
+from datetime import UTC
 from typing import Any
 
 from isaac.core.state import (
@@ -130,7 +131,7 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
         - Marks the step as ``'failed'``
         - Appends an ``ErrorEntry``
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from isaac.config.settings import settings
     from isaac.core.state import ErrorEntry, SkillCandidate
@@ -277,7 +278,7 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
                         f"step '{active_step.id}': {active_step.description}"
                     )
                 ),
-                timestamp=datetime.now(tz=timezone.utc).isoformat(),
+                timestamp=datetime.now(tz=UTC).isoformat(),
                 attempt=1,
             )
         ]

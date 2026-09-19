@@ -7,7 +7,7 @@ import os
 import platform
 import re
 import shlex
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
 
@@ -80,7 +80,7 @@ def run_readonly(command: str, cwd: str | None, allowed: frozenset[str]) -> str:
             "pwd": str(base),
             "whoami": getpass.getuser(),
             "hostname": platform.node(),
-            "date": datetime.now(timezone.utc).isoformat(),
+            "date": datetime.now(UTC).isoformat(),
             "uname": platform.system(),
         }[name] + "\n"
 

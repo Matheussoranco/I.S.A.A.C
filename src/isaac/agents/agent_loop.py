@@ -45,7 +45,7 @@ from concurrent.futures import Future
 from contextvars import ContextVar, copy_context
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from isaac.agents.tool_repair import (
@@ -122,7 +122,7 @@ DEFAULT_SYSTEM_PROMPT = (
 T = TypeVar("T", bound="BaseModel")
 
 
-class StopReason(str, Enum):
+class StopReason(StrEnum):
     """Reasons why the agent loop stopped."""
 
     FINAL = "final"
@@ -1159,7 +1159,7 @@ def _content_text(message: Any) -> str:
     return str(content).strip()
 
 
-def build_default_agent(
+def build_default_agent[T](
     *,
     llm: Any | None = None,
     system_prompt: str | None = None,
@@ -1180,6 +1180,8 @@ def build_default_agent(
     structured_output_model: type[T] | None = None,
     stream_callback: StreamCallback | None = None,
 ) -> AgentLoop:
+    """Construct an :class:`AgentLoop` wired with all registered built-in tools."""
+    # Function body follows...
     """Construct an :class:`AgentLoop` wired with all registered built-in tools.
 
     Parameters
