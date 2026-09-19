@@ -93,12 +93,12 @@ def _migrate(conn: sqlite3.Connection, path: Path) -> None:
             _insert(
                 conn,
                 Reminder(
-                    id=_nonempty(item.get("id"), "id"),
-                    text=_nonempty(item.get("text"), "text"),
-                    created_at=_datetime(item.get("created_at")).isoformat(),
-                    due_at=_datetime(due).isoformat() if due != "" else "",
-                    done=item.get("done", False),
-                    source=_nonempty(item.get("source", "user"), "source"),
+                    id=_nonempty(str(item.get("id") or ""), "id"),
+                    text=_nonempty(str(item.get("text") or ""), "text"),
+                    created_at=_datetime(str(item.get("created_at") or "")).isoformat(),
+                    due_at=_datetime(str(due)).isoformat() if due != "" else "",
+                    done=bool(item.get("done", False)),
+                    source=_nonempty(str(item.get("source") or "user"), "source"),
                 ),
             )
     conn.execute("INSERT INTO metadata (key) VALUES ('json_migrated')")

@@ -619,10 +619,16 @@ class Orchestrator:
                     child = _RunBoundary(
                         self.timeout_seconds, parent=boundary, timeout_reason="timeout"
                     )
-                    work = _BackgroundCall(
-                        child,
-                        lambda st=st, child=child: self._run_subtask(st, completed, context, child),
-                    )
+                    subtask_for_work = st
+                    child_for_work = child
+
+                    def _run_worker(
+                        _st: SubTask = subtask_for_work,
+                        _child: _RunBoundary = child_for_work,
+                    ) -> SpecialistResult:
+                        return self._run_subtask(_st, completed, context, _child)
+
+                    work = _BackgroundCall(child, _run_worker)
                     active.append((st, child, work))
                 for st, child, work in list(active):
                     reason = child.reason()

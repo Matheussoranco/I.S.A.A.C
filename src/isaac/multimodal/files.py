@@ -6,6 +6,7 @@ import tempfile
 import zipfile
 from itertools import islice
 from pathlib import Path
+from typing import Any
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_TOTAL_BYTES = 8 * 1024 * 1024
@@ -136,7 +137,7 @@ def parse_file(name: str, raw: bytes, *, max_chars: int = MAX_TEXT_CHARS) -> dic
         )
     clipped = len(text) > max_chars
     text = f"[File: {name}]\n{text[:max_chars]}" + ("\n[truncated]" if clipped else "")
-    blocks = [{"type": "text", "text": text}]
+    blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
     blocks.extend({"type": "image_url", "image_url": {"url": url}} for url in images)
     return {
         "ok": True,
@@ -165,7 +166,8 @@ def parse_uploads(uploads: object) -> list[dict]:
         total += len(raw)
         if total > MAX_TOTAL_BYTES:
             raise AttachmentError("Total attachment size exceeds limit")
-        blocks.extend(parse_file(upload.get("name"), raw)["attachments"])
+        upload_name = str(upload.get("name") or "")
+        blocks.extend(parse_file(upload_name, raw)["attachments"])
     return blocks
 
 
@@ -268,9 +270,10 @@ def _read_audio(raw: bytes, suffix: str) -> str:
             "Audio parser unavailable; install faster-whisper (includes av)"
         ) from exc
     with av.open(io.BytesIO(raw)) as container:
-        if not container.streams.audio or container.duration is None:
+        duration = getattr(container, "duration", None)
+        if not container.streams.audio or duration is None:
             raise AttachmentError("Audio duration could not be verified")
-        if container.duration / av.time_base > 300:
+        if duration / av.time_base > 300:
             raise AttachmentError("Audio exceeds five-minute limit")
     from isaac.multimodal.voice.stt import get_stt
 

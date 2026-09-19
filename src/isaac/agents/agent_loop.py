@@ -66,7 +66,7 @@ try:
 except ImportError:
     PYDANTIC_AVAILABLE = False
 
-    class BaseModel:
+    class BaseModel:  # type: ignore[no-redef]
         pass
 
 
@@ -591,12 +591,9 @@ class AgentLoop:
         )
         authorization_actor = "operator_token" if authorized else ""
         if needs_approval and self._approval_callback is not None:
+            callback = self._approval_callback
             try:
-                approved = bool(
-                    await boundary.acall(
-                        lambda: self._approval_callback(name, args, effective_risk)
-                    )
-                )
+                approved = bool(await boundary.acall(lambda: callback(name, args, effective_risk)))
                 boundary.check()
             except _RunStopped:
                 raise
@@ -1072,10 +1069,9 @@ class AgentLoop:
         )
 
         if result.completed and self._task_validator is not None:
+            validator = self._task_validator
             try:
-                result.verified_success = (
-                    await boundary.acall(lambda: self._task_validator(result)) is True
-                )
+                result.verified_success = await boundary.acall(lambda: validator(result)) is True
             except _RunStopped:
                 raise
             except Exception:
@@ -1105,8 +1101,8 @@ class AgentLoop:
             self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
         )
         try:
-            async for token in boundary.acall(
-                lambda: self._astream(task, context, attachments), asynchronous=True
+            async for token in (  # type: ignore[attr-defined]
+                boundary.acall(lambda: self._astream(task, context, attachments), asynchronous=True)
             ):
                 yield token
         except _RunStopped as exc:

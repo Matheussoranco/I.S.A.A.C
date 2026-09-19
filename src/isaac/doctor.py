@@ -153,13 +153,13 @@ def _check_selected_provider() -> CheckResult:
                 )
                 response.raise_for_status()
                 available = {entry["id"] for entry in response.json()["data"]}
-                models = {s.llm.model_name, s.llm.fast_model, s.llm.strong_model} - {""}
+                target_models = {s.llm.model_name, s.llm.fast_model, s.llm.strong_model} - {""}
                 override = getattr(s, f"{provider}_model", "")
                 if provider in {"llamacpp", "openai_compat"} and override:
-                    models = {override}
+                    target_models = {override}
                 missing = sorted(
                     model
-                    for model in models
+                    for model in target_models
                     if model not in available and f"{model}:latest" not in available
                 )
                 if missing:
