@@ -625,7 +625,7 @@ class Orchestrator:
                     def _run_worker(
                         _st: SubTask = subtask_for_work,
                         _child: _RunBoundary = child_for_work,
-                    ) -> SpecialistResult:
+                    ) -> SubTaskResult:
                         return self._run_subtask(_st, completed, context, _child)
 
                     work = _BackgroundCall(child, _run_worker)

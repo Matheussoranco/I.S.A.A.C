@@ -183,8 +183,8 @@ def extract_pair_delta(in_grid: Grid, out_grid: Grid) -> PairDelta:
 
     delta = PairDelta(
         shape_changed=in_grid.shape != out_grid.shape,
-        input_shape=in_grid.shape,
-        output_shape=out_grid.shape,
+        input_shape=(in_grid.shape[0], in_grid.shape[1]),
+        output_shape=(out_grid.shape[0], out_grid.shape[1]),
         n_objects_in=len(in_objs),
         n_objects_out=len(out_objs),
         background_in=bg_in,

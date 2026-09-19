@@ -91,7 +91,7 @@ def build_scene_graph(grid: Grid) -> SceneGraph:
 
     if not objects:
         return SceneGraph(
-            grid_shape=grid.shape,
+            grid_shape=(grid.shape[0], grid.shape[1]),
             background=bg,
             nodes=[],
             colour_groups={},
@@ -155,7 +155,7 @@ def build_scene_graph(grid: Grid) -> SceneGraph:
         nodes.append(node)
 
     return SceneGraph(
-        grid_shape=grid.shape,
+        grid_shape=(grid.shape[0], grid.shape[1]),
         background=bg,
         nodes=nodes,
         colour_groups=colour_groups,

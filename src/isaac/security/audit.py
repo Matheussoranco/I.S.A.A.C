@@ -58,7 +58,7 @@ def _process_lock(path: Path):
         if os.name == "nt":
             import msvcrt
 
-            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
         else:
             import fcntl  # type: ignore[import-not-found]
 
@@ -68,7 +68,7 @@ def _process_lock(path: Path):
         finally:
             lock.seek(0)
             if os.name == "nt":
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
             else:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
 

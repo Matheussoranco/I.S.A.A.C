@@ -1100,10 +1100,11 @@ class AgentLoop:
         boundary = _RunBoundary(
             self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
         )
+        stream_call: Any = boundary.acall(
+            lambda: self._astream(task, context, attachments), asynchronous=True
+        )
         try:
-            async for token in (  # type: ignore[attr-defined]
-                boundary.acall(lambda: self._astream(task, context, attachments), asynchronous=True)
-            ):
+            async for token in stream_call:
                 yield token
         except _RunStopped as exc:
             yield f"Stopped: {exc.reason}."
