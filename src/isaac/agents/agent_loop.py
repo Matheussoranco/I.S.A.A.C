@@ -1159,7 +1159,7 @@ def _content_text(message: Any) -> str:
     return str(content).strip()
 
 
-def build_default_agent[T](
+def build_default_agent[T: BaseModel](
     *,
     llm: Any | None = None,
     system_prompt: str | None = None,
