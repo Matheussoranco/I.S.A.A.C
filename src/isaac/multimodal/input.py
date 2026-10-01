@@ -52,7 +52,7 @@ def build_multimodal_message(
         try:
             from isaac.multimodal.voice.stt import get_stt
 
-            transcribed = get_stt().transcribe(str(audio_path))
+            transcribed = get_stt().transcribe(audio_path)
             if transcribed:
                 text = (text + "\n" + transcribed).strip() if text else transcribed
         except Exception as exc:

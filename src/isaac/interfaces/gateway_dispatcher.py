@@ -41,9 +41,7 @@ def load_enabled_gateways(
         cls = Gateway.GATEWAY_REGISTRY.get(name)
         if cls is None:
             known = ", ".join(sorted(Gateway.GATEWAY_REGISTRY)) or "<none>"
-            raise ValueError(
-                f"Unknown gateway {name!r} in ISAAC_GATEWAYS. Known gateways: {known}"
-            )
+            raise ValueError(f"Unknown gateway {name!r} in ISAAC_GATEWAYS. Known gateways: {known}")
         gateways.append(cls(agent_runner=agent_runner))
     return gateways
 

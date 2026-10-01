@@ -18,6 +18,7 @@ This module degrades gracefully — if neither STT nor TTS is available,
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import time
@@ -238,7 +239,7 @@ def run_voice_repl(hands_free: bool = False) -> int:
                 # Speak
                 if tts is not None:
                     try:
-                        tts.speak(reply_text)
+                        asyncio.run(tts.speak(reply_text))
                     except Exception as exc:
                         _print(f"TTS playback failed: {exc}", color="33")
 

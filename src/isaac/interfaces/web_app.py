@@ -29,11 +29,11 @@ from isaac.agents.computer_agent import ComputerAgentRunner
 from isaac.agents.trace import TraceStore
 from isaac.config.settings import get_settings
 from isaac.interfaces.conversation_store import ConversationStore
+from isaac.interfaces.desktop_api import router as desktop_router
 from isaac.llm.provider import build_llm_for_profile
 from isaac.multimodal.files import AttachmentError, parse_uploads, read_any_file
 from isaac.security.credentials import credential_available, set_credential
 from isaac.security.workspace import resolve_allowed
-from isaac.interfaces.desktop_api import router as desktop_router
 
 _ASSETS = Path(__file__).with_name("web_assets")
 _APP_TITLE = "I.S.A.A.C."
@@ -168,7 +168,7 @@ def _create_app(
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
         if request.method not in {"GET", "HEAD", "OPTIONS"} and not _same_origin(request):
-            # Allow requests during tests if we're using a TestClient (which often has no origin header)
+            # TestClient requests may omit the origin header.
             if request.headers.get("x-test-client"):
                 return await call_next(request)
             return JSONResponse({"error": "Same-origin request required"}, status_code=403)

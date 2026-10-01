@@ -78,9 +78,7 @@ class KanbanShowTool(IsaacTool):
                 comments = board.list_comments(task_id)
                 if comments:
                     out.append("  comments:")
-                    out.extend(
-                        f"    - [{c['author']}] {c['body']}" for c in comments
-                    )
+                    out.extend(f"    - [{c['author']}] {c['body']}" for c in comments)
                 return ToolResult(success=True, output="\n".join(out))
             state = board.get_board_state()
             lines = [f"Kanban board — {state['total']} tasks"]
@@ -89,9 +87,8 @@ class KanbanShowTool(IsaacTool):
                 for t in items:
                     assignee = f" @{t['assignee']}" if t["assignee"] else ""
                     lines.append(f"  [{t['id']}] (p{t['priority']}) {t['title']}{assignee}")
-            return ToolResult(success=True, output="\n".join(lines),
-                              metadata=state)
-        except Exception as exc:  # noqa: BLE001
+            return ToolResult(success=True, output="\n".join(lines), metadata=state)
+        except Exception as exc:
             return _err(exc)
 
 
@@ -118,7 +115,7 @@ class KanbanCreateTool(IsaacTool):
         "required": ["title"],
     }
 
-    async def execute(
+    async def execute(  # type: ignore[override]
         self,
         title: str,
         description: str = "",
@@ -193,7 +190,9 @@ class KanbanBlockTool(IsaacTool):
         "required": ["reason"],
     }
 
-    async def execute(self, reason: str, task_id: str = "", **_: Any) -> ToolResult:
+    async def execute(  # type: ignore[override]
+        self, reason: str, task_id: str = "", **_: Any
+    ) -> ToolResult:
         task_id = task_id or _current_task_id()
         if not task_id:
             return _err(KanbanError("no task_id given and ISAAC_KANBAN_TASK not set"))
@@ -252,7 +251,9 @@ class KanbanCommentTool(IsaacTool):
         "required": ["body"],
     }
 
-    async def execute(self, body: str, task_id: str = "", **_: Any) -> ToolResult:
+    async def execute(  # type: ignore[override]
+        self, body: str, task_id: str = "", **_: Any
+    ) -> ToolResult:
         task_id = task_id or _current_task_id()
         if not task_id:
             return _err(KanbanError("no task_id given and ISAAC_KANBAN_TASK not set"))
@@ -281,7 +282,9 @@ class KanbanLinkTool(IsaacTool):
         "required": ["task_id", "depends_on"],
     }
 
-    async def execute(self, task_id: str, depends_on: str, **_: Any) -> ToolResult:
+    async def execute(  # type: ignore[override]
+        self, task_id: str, depends_on: str, **_: Any
+    ) -> ToolResult:
         try:
             get_board().link_tasks(task_id, depends_on)
             return ToolResult(

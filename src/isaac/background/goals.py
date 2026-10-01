@@ -170,9 +170,7 @@ def get_goal(goal_id: str, *, isaac_home: Path | None = None) -> Goal | None:
     return _get_goal(goal_id, isaac_home)
 
 
-def list_goals(
-    *, status: str | None = None, isaac_home: Path | None = None
-) -> list[Goal]:
+def list_goals(*, status: str | None = None, isaac_home: Path | None = None) -> list[Goal]:
     """List goals, optionally filtered by status."""
     with _connect(isaac_home) as con:
         if status:
@@ -181,9 +179,7 @@ def list_goals(
                 (status,),
             ).fetchall()
         else:
-            rows = con.execute(
-                f"SELECT {_COLUMNS} FROM goals ORDER BY created_at"
-            ).fetchall()
+            rows = con.execute(f"SELECT {_COLUMNS} FROM goals ORDER BY created_at").fetchall()
     return [_row_to_goal(r) for r in rows]
 
 
@@ -230,9 +226,7 @@ def resume_goal(goal_id: str, *, isaac_home: Path | None = None) -> bool:
     return True
 
 
-def mark_goal_progress(
-    goal_id: str, note: str = "", *, isaac_home: Path | None = None
-) -> bool:
+def mark_goal_progress(goal_id: str, note: str = "", *, isaac_home: Path | None = None) -> bool:
     """Increment the progress counter (and optionally append a note)."""
     goal = _get_goal(goal_id, isaac_home)
     if goal is None:

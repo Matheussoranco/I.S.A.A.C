@@ -89,6 +89,7 @@ def test_running_flag_tracks_lifecycle() -> None:
 
 # ── Discord adapter ──────────────────────────────────────────────
 
+
 def test_discord_construct_fails_cleanly_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
     from isaac.interfaces.discord_gateway import DiscordGateway
@@ -160,8 +161,9 @@ def test_discord_should_respond(monkeypatch: pytest.MonkeyPatch) -> None:
 
     gw._client = types.SimpleNamespace(user=bot_user)
 
-    def check(*, author_bot: bool = False, dm: bool = False, mentioned: bool = False,
-              channel_id: int = 1) -> bool:
+    def check(
+        *, author_bot: bool = False, dm: bool = False, mentioned: bool = False, channel_id: int = 1
+    ) -> bool:
         return gw._should_respond(
             make_msg(author_bot=author_bot, dm=dm, mentioned=mentioned, channel_id=channel_id)
         )
@@ -179,6 +181,7 @@ def test_discord_should_respond(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ── Dispatcher ───────────────────────────────────────────────────
+
 
 def test_dispatcher_load_enabled_gateways_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ISAAC_GATEWAYS", raising=False)

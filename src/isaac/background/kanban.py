@@ -165,15 +165,32 @@ class KanbanBoard:
         status; the dispatcher later promotes backlog cards to ready."""
         if status not in COLUMNS:
             raise KanbanError(f"invalid status: {status!r}")
-        task = Task(title=title, description=description, status=status,
-                    priority=priority, assignee=assignee)
+        task = Task(
+            title=title,
+            description=description,
+            status=status,
+            priority=priority,
+            assignee=assignee,
+        )
         conn = self._conn()
         conn.execute(
             "INSERT INTO tasks (id,title,description,status,assignee,priority,"
             "claimed_at,heartbeat_at,blocked_reason,workspace,created_at,updated_at)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (task.id, task.title, task.description, task.status, task.assignee,
-             task.priority, "", "", "", "", task.created_at, task.updated_at),
+            (
+                task.id,
+                task.title,
+                task.description,
+                task.status,
+                task.assignee,
+                task.priority,
+                "",
+                "",
+                "",
+                "",
+                task.created_at,
+                task.updated_at,
+            ),
         )
         for dep in depends_on or []:
             if not self.get_task(dep):
@@ -186,12 +203,10 @@ class KanbanBoard:
         return task
 
     def get_task(self, task_id: str) -> Task | None:
-        row = self._conn().execute(
-            "SELECT * FROM tasks WHERE id=?", (task_id,)
-        ).fetchone()
+        row = self._conn().execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         if row is None:
             return None
-        return Task(**{k: row[k] for k in row.keys()})
+        return Task(**{k: row[k] for k in row.keys()})  # noqa: SIM118 - sqlite.Row iterates values
 
     def list_tasks(self, status: str | None = None) -> list[Task]:
         conn = self._conn()
@@ -201,10 +216,8 @@ class KanbanBoard:
                 (status,),
             ).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM tasks ORDER BY priority, created_at"
-            ).fetchall()
-        return [Task(**{k: r[k] for k in r.keys()}) for r in rows]
+            rows = conn.execute("SELECT * FROM tasks ORDER BY priority, created_at").fetchall()
+        return [Task(**{k: r[k] for k in r.keys()}) for r in rows]  # noqa: SIM118
 
     # -- state transitions --------------------------------------------------
 
@@ -214,9 +227,7 @@ class KanbanBoard:
             raise KanbanError(f"task not found: {task_id}")
         fields["updated_at"] = _now()
         sets = ", ".join(f"{k}=?" for k in fields)
-        self._conn().execute(
-            f"UPDATE tasks SET {sets} WHERE id=?", (*fields.values(), task_id)
-        )
+        self._conn().execute(f"UPDATE tasks SET {sets} WHERE id=?", (*fields.values(), task_id))
         self._conn().commit()
         return self.get_task(task_id)  # type: ignore[return-value]
 
@@ -305,15 +316,19 @@ class KanbanBoard:
         conn.commit()
 
     def dependencies_of(self, task_id: str) -> list[str]:
-        rows = self._conn().execute(
-            "SELECT depends_on FROM dependencies WHERE task_id=?", (task_id,)
-        ).fetchall()
+        rows = (
+            self._conn()
+            .execute("SELECT depends_on FROM dependencies WHERE task_id=?", (task_id,))
+            .fetchall()
+        )
         return [r["depends_on"] for r in rows]
 
     def dependents_of(self, task_id: str) -> list[str]:
-        rows = self._conn().execute(
-            "SELECT task_id FROM dependencies WHERE depends_on=?", (task_id,)
-        ).fetchall()
+        rows = (
+            self._conn()
+            .execute("SELECT task_id FROM dependencies WHERE depends_on=?", (task_id,))
+            .fetchall()
+        )
         return [r["task_id"] for r in rows]
 
     def _creates_cycle(self, task_id: str, depends_on: str) -> bool:
@@ -331,10 +346,7 @@ class KanbanBoard:
 
     def _deps_satisfied(self, task_id: str) -> bool:
         deps = self.dependencies_of(task_id)
-        return all(
-            (t := self.get_task(d)) is not None and t.status == "complete"
-            for d in deps
-        )
+        return all((t := self.get_task(d)) is not None and t.status == "complete" for d in deps)
 
     def _promote_dependents(self, completed_id: str) -> None:
         for dep_id in self.dependents_of(completed_id):
@@ -367,13 +379,20 @@ class KanbanBoard:
             (task_id, author, body, now),
         )
         self._conn().commit()
-        return {"id": cur.lastrowid, "task_id": task_id, "author": author,
-                "body": body, "created_at": now}
+        return {
+            "id": cur.lastrowid,
+            "task_id": task_id,
+            "author": author,
+            "body": body,
+            "created_at": now,
+        }
 
     def list_comments(self, task_id: str) -> list[dict[str, Any]]:
-        rows = self._conn().execute(
-            "SELECT * FROM comments WHERE task_id=? ORDER BY id", (task_id,)
-        ).fetchall()
+        rows = (
+            self._conn()
+            .execute("SELECT * FROM comments WHERE task_id=? ORDER BY id", (task_id,))
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     # -- board state --------------------------------------------------------

@@ -855,11 +855,11 @@ class AgentLoop:
         boundary = _active_boundary.get()
         assert boundary is not None
         boundary.check()
-        
+
         start_time = time.monotonic()
         total_prompt_tokens = 0
         total_completion_tokens = 0
-        
+
         llm = self._bind_tools(self._resolve_llm())
         user = task if not context else f"{task}\n\n<context>\n{context}\n</context>"
         system = self._system_prompt
@@ -867,6 +867,7 @@ class AgentLoop:
         # Inject persistent standing objectives (Phase 4.3)
         try:
             from isaac.background.goals import due_goals_context
+
             goals_ctx = due_goals_context()
             if goals_ctx:
                 system += f"\n\nStanding Objectives:\n{goals_ctx}"
@@ -896,6 +897,13 @@ class AgentLoop:
         reason = "max_iterations"
         iterations = 0
         health = ToolCallHealth()
+
+        if self._trace_store is not None:
+            try:
+                self._trace_run_id = self._trace_store.start_run(task)
+            except Exception:
+                logger.debug("trace start failed", exc_info=True)
+                self._trace_run_id = None
         progress.health = health
         reflexion_used = 0
         pending_reflexion = False
@@ -908,13 +916,6 @@ class AgentLoop:
         repeat_sig: str | None = None  # signature of the previous call
         repeat_count = 0  # consecutive occurrences of repeat_sig
         last_outputs: dict[str, str] = {}  # per-tool last output, for progress detection
-
-        if self._trace_store is not None:
-            try:
-                self._trace_run_id = self._trace_store.start_run(task)
-            except Exception:  # pragma: no cover - tracing must never break the loop
-                logger.debug("trace start failed", exc_info=True)
-                self._trace_run_id = None
 
         try:
             for i in range(self.max_iterations):
@@ -1091,11 +1092,7 @@ class AgentLoop:
                         messages.append(HumanMessage(content=f"Result of {name}:\n{body}"))
                     # Progress = succeeded + non-empty output + output differs
                     # from this tool's previous output.
-                    if (
-                        rec.success
-                        and rec.output.strip()
-                        and rec.output != last_outputs.get(name)
-                    ):
+                    if rec.success and rec.output.strip() and rec.output != last_outputs.get(name):
                         made_progress = True
                     last_outputs[name] = rec.output
                 if reason == "tool_call_budget":

@@ -25,7 +25,6 @@ import os
 import subprocess
 import sys
 import threading
-import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,7 +73,7 @@ def subprocess_spawner(task: Task, *, workspace: Path, profile: str) -> Any:
     env["ISAAC_KANBAN_TASK"] = task.id
     log_path = workspace / "agent.log"
     log_file = open(log_path, "ab")  # noqa: SIM115 — owned by subprocess
-    proc = subprocess.Popen(  # noqa: S603
+    proc = subprocess.Popen(
         [sys.executable, "-m", "isaac", "run", prompt, "--auto-approve"],
         cwd=str(workspace),
         env=env,
@@ -165,7 +164,7 @@ class KanbanDispatcher:
             if (now - last).total_seconds() > self.stale_seconds:
                 reclaimed.append(task)
         for task in reclaimed:
-            idem = self.board._update(  # noqa: SLF001 — internal reuse
+            idem = self.board._update(
                 task.id,
                 status="ready",
                 claimed_at="",
@@ -204,7 +203,7 @@ class KanbanDispatcher:
                 logger.debug("claim race lost on %s: %s", task.id, exc)
                 continue
             ws = task_workspace(task.id, self.workspace_root)
-            self.board._update(task.id, workspace=str(ws))  # noqa: SLF001
+            self.board._update(task.id, workspace=str(ws))
             try:
                 self.processes[task.id] = self.spawner(claimed, workspace=ws, profile=profile)
             except Exception as exc:

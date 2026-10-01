@@ -280,4 +280,4 @@ def _read_audio(raw: bytes, suffix: str) -> str:
     with tempfile.TemporaryDirectory(prefix="isaac-attachment-") as directory:
         path = Path(directory) / f"audio{suffix}"
         path.write_bytes(raw)
-        return get_stt().transcribe(str(path))
+        return get_stt().transcribe(path)

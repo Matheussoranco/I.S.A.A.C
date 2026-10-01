@@ -15,6 +15,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def patches_dir() -> Path:
 class Curator:
     """Audit skills in ProceduralMemory and propose actions."""
 
-    def __init__(self, llm: object | None = None, procedural: object | None = None) -> None:
+    def __init__(self, llm: Any = None, procedural: Any = None) -> None:
         self.llm = llm
         if procedural is not None:
             self._procedural = procedural
@@ -131,8 +132,12 @@ class Curator:
                 reason=f"mediocre success rate {success_rate:.2f} over {uses} uses",
                 confidence=0.6,
             )
-        stale = last_run_at is not None and (now - last_run_at) > STALE_DAYS * SECONDS_PER_DAY
-        if stale and uses < 3:
+        if (
+            last_run_at is not None
+            and (now - last_run_at) > STALE_DAYS * SECONDS_PER_DAY
+            and uses < 3
+        ):
+            assert last_run_at is not None
             days = int((now - last_run_at) / SECONDS_PER_DAY)
             return CuratorRecommendation(
                 skill_name=name,
@@ -267,13 +272,13 @@ class Curator:
         return path
 
 
-def _get(obj: object, attr: str, default: object = None) -> object:
+def _get(obj: Any, attr: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(attr, default)
     return getattr(obj, attr, default)
 
 
-def _parse_ts(value: object) -> float | None:
+def _parse_ts(value: Any) -> float | None:
     """Best-effort conversion of a timestamp-ish value to epoch seconds."""
     if value is None:
         return None

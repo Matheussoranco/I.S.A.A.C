@@ -101,12 +101,16 @@ class Gateway(ABC):
         # Handle audio attachments via STT
         if attachments:
             from pathlib import Path
+
             from isaac.multimodal.voice.stt import STTManager
+
             stt = STTManager()
             for attach in attachments:
                 # Check if attachment is an audio file (simplistic check for path/extension)
                 path_attr = getattr(attach, "file_path", None) or getattr(attach, "path", None)
-                if path_attr and any(str(path_attr).endswith(ext) for ext in [".wav", ".mp3", ".ogg", ".m4a"]):
+                if path_attr and any(
+                    str(path_attr).endswith(ext) for ext in [".wav", ".mp3", ".ogg", ".m4a"]
+                ):
                     try:
                         transcribed_text = stt.transcribe(Path(path_attr))
                         text = f"{text}\n[Audio]: {transcribed_text}" if text else transcribed_text

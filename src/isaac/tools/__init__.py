@@ -77,6 +77,7 @@ def register_all_tools() -> ToolRegistry:
 
 
 __all__ = [
+    "KANBAN_TOOL_CLASSES",
     "BrowserTool",
     "CalendarReadTool",
     "CalendarWriteTool",
@@ -97,7 +98,6 @@ __all__ = [
     "FsMoveTool",
     "FsReadTool",
     "FsWriteTool",
-    "KANBAN_TOOL_CLASSES",
     "KanbanBlockTool",
     "KanbanCommentTool",
     "KanbanCompleteTool",

@@ -16,13 +16,15 @@ import logging
 from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _scheduler: Any | None = None
 _scheduler_lock = RLock()
+_heartbeat_stop = Event()
+_heartbeat_daemon_thread = None
 
 
 def _heartbeat_path(*, isaac_home: Path | None = None) -> Path:
@@ -41,19 +43,13 @@ def _load_prompts(*, isaac_home: Path | None = None) -> list[dict[str, Any]]:
         return []
 
 
-def _save_prompts(
-    prompts: list[dict[str, Any]], *, isaac_home: Path | None = None
-) -> None:
+def _save_prompts(prompts: list[dict[str, Any]], *, isaac_home: Path | None = None) -> None:
     path = _heartbeat_path(isaac_home=isaac_home)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    path.write_text(json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def register_heartbeat_prompt(
-    prompt: str, *, isaac_home: Path | None = None
-) -> dict[str, Any]:
+def register_heartbeat_prompt(prompt: str, *, isaac_home: Path | None = None) -> dict[str, Any]:
     """Register a recurring push-prompt for idle sessions (``/heartbeat``).
 
     The *prompt* text is re-issued to the agent each time the heartbeat
@@ -67,9 +63,7 @@ def register_heartbeat_prompt(
     return entry
 
 
-def unregister_heartbeat_prompt(
-    index: int, *, isaac_home: Path | None = None
-) -> bool:
+def unregister_heartbeat_prompt(index: int, *, isaac_home: Path | None = None) -> bool:
     """Remove a registered heartbeat prompt by 0-based index."""
     prompts = _load_prompts(isaac_home=isaac_home)
     if not (0 <= index < len(prompts)):
@@ -80,9 +74,7 @@ def unregister_heartbeat_prompt(
     return True
 
 
-def list_heartbeat_prompts(
-    *, isaac_home: Path | None = None
-) -> list[dict[str, Any]]:
+def list_heartbeat_prompts(*, isaac_home: Path | None = None) -> list[dict[str, Any]]:
     """Return all registered heartbeat prompts (pending heartbeats)."""
     return _load_prompts(isaac_home=isaac_home)
 
@@ -108,6 +100,7 @@ def _profile_heartbeat_config() -> tuple[int, list[str]]:
     prompts: list[str] = []
     try:
         from isaac.config.profiles import get_active_profile, load_profile_overrides
+
         overrides = load_profile_overrides(get_active_profile())
         hb = overrides.get("heartbeat") if isinstance(overrides, dict) else None
         if isinstance(hb, dict):
@@ -442,8 +435,7 @@ def heartbeat_push_job(*, isaac_home: Path | None = None) -> None:
     credentials are configured.
     """
     registered = [
-        entry.get("prompt", "")
-        for entry in list_heartbeat_prompts(isaac_home=isaac_home)
+        entry.get("prompt", "") for entry in list_heartbeat_prompts(isaac_home=isaac_home)
     ]
     _, config_prompts = _profile_heartbeat_config()
     prompts = [p for p in (*config_prompts, *registered) if p]
@@ -455,9 +447,7 @@ def heartbeat_push_job(*, isaac_home: Path | None = None) -> None:
     try:
         from isaac.background.goals import due_goals_context
 
-        goals = due_goals_context(
-            isaac_home=isaac_home if isaac_home is not None else None
-        )
+        goals = due_goals_context(isaac_home=isaac_home if isaac_home is not None else None)
     except Exception:
         goals = ""
 
@@ -478,9 +468,7 @@ def heartbeat_push_job(*, isaac_home: Path | None = None) -> None:
         pass
 
 
-def register_recurring_prompts(
-    *, isaac_home: Path | None = None
-) -> list[dict[str, Any]]:
+def register_recurring_prompts(*, isaac_home: Path | None = None) -> list[dict[str, Any]]:
     """Register config-driven ``heartbeat.prompt_json`` entries.
 
     Prompts from the config that are not already in the persisted
@@ -530,9 +518,7 @@ def start_heartbeat_daemon(poll_seconds: int | None = None) -> bool:
 
     import threading
 
-    _heartbeat_daemon_thread = threading.Thread(
-        target=_loop, daemon=True, name="isaac-heartbeat"
-    )
+    _heartbeat_daemon_thread = threading.Thread(target=_loop, daemon=True, name="isaac-heartbeat")
     _heartbeat_daemon_thread.start()
     return True
 

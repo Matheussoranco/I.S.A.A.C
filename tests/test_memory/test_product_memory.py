@@ -247,6 +247,7 @@ def test_scheduler_lifecycle_is_thread_safe(monkeypatch):
 @pytest.fixture
 def maintenance(monkeypatch):
     from isaac.improvement import performance, self_critique
+    from isaac.improvement.curator import Curator
     from isaac.memory import manager
     from isaac.security import audit
 
@@ -259,6 +260,8 @@ def maintenance(monkeypatch):
         return_value=SimpleNamespace(summary="observation", improvement_note="proposal")
     )
     monkeypatch.setattr(self_critique, "build_critique", critique)
+    monkeypatch.setattr(Curator, "audit_all", lambda self: [])
+    monkeypatch.setattr(Curator, "apply", lambda self, *args, **kwargs: {})
     monkeypatch.setattr(audit, "audit", Mock())
     engine = ImprovementEngine()
     engine._curator = Mock()
@@ -302,6 +305,7 @@ def test_cycle_reentrancy_is_process_wide_and_releases_on_failure(maintenance):
         result = future.result(timeout=5)
     assert any("curation failed" in error for error in result.errors)
     engine._curator.curate_all.side_effect = None
+    engine._curator.curate_all.return_value = []
     assert engine.run_cycle().errors == []
 
 

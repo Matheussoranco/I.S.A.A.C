@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     finished_at REAL,
     stopped_reason TEXT NOT NULL DEFAULT '',
     iterations  INTEGER NOT NULL DEFAULT 0,
-    output      TEXT NOT NULL DEFAULT ''
+    output      TEXT NOT NULL DEFAULT '',
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_latency_ms REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS agent_events (
     run_id   TEXT NOT NULL REFERENCES agent_runs(run_id),
@@ -67,6 +70,14 @@ class TraceStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_runs)")}
+            for name, declaration in (
+                ("prompt_tokens", "INTEGER NOT NULL DEFAULT 0"),
+                ("completion_tokens", "INTEGER NOT NULL DEFAULT 0"),
+                ("total_latency_ms", "REAL NOT NULL DEFAULT 0"),
+            ):
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE agent_runs ADD COLUMN {name} {declaration}")
             if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
                 # Existing trace databases may contain unredacted private text.
                 conn.execute(
@@ -128,15 +139,15 @@ class TraceStore:
             )
 
     def finish_run(
-        self, 
-        run_id: str, 
-        *, 
-        stopped_reason: str, 
-        iterations: int, 
-        output: str, 
-        prompt_tokens: int = 0, 
-        completion_tokens: int = 0, 
-        total_latency_ms: float = 0.0
+        self,
+        run_id: str,
+        *,
+        stopped_reason: str,
+        iterations: int,
+        output: str,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_latency_ms: float = 0.0,
     ) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -144,14 +155,14 @@ class TraceStore:
                 "prompt_tokens=?, completion_tokens=?, total_latency_ms=? "
                 "WHERE run_id=?",
                 (
-                    time.time(), 
-                    stopped_reason, 
-                    iterations, 
-                    self._stored_text(output), 
-                    prompt_tokens, 
-                    completion_tokens, 
-                    total_latency_ms, 
-                    run_id
+                    time.time(),
+                    stopped_reason,
+                    iterations,
+                    self._stored_text(output),
+                    prompt_tokens,
+                    completion_tokens,
+                    total_latency_ms,
+                    run_id,
                 ),
             )
 

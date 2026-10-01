@@ -77,8 +77,10 @@ class DiscordGateway(Gateway):
         # DMs — message.guild is None
         if message.guild is None:
             return True
-        if self._client is not None and self._client.user is not None and (
-            self._client.user in message.mentions
+        if (
+            self._client is not None
+            and self._client.user is not None
+            and (self._client.user in message.mentions)
         ):
             return True
         return str(message.channel.id) in self._channel_ids

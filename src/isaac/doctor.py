@@ -219,7 +219,10 @@ def _check_cloud_keys() -> CheckResult:
 def _check_optional_deps() -> list[CheckResult]:
     results: list[CheckResult] = []
     for module, capability in _OPTIONAL_DEPS.items():
-        present = importlib.util.find_spec(module) is not None
+        try:
+            present = importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            present = False
         results.append(
             CheckResult(
                 f"extra:{module}",

@@ -21,8 +21,13 @@ def _isolated_home(tmp_path, monkeypatch):
     from isaac.config import settings as st
 
     dead = str(tmp_path / "no-such.env")
-    for cls in (st.Settings, st.LLMSettings, st.SandboxSettings,
-                st.UISandboxSettings, st.GraphSettings):
+    for cls in (
+        st.Settings,
+        st.LLMSettings,
+        st.SandboxSettings,
+        st.UISandboxSettings,
+        st.GraphSettings,
+    ):
         monkeypatch.setitem(cls.model_config, "env_file", dead)
     clear_settings_cache()
     yield
@@ -122,7 +127,8 @@ def test_inactive_profile_overrides_ignored():
 
 def test_invalid_override_warns_not_raises():
     profiles.save_profile_overrides(
-        "default", {"llm": {"temperature": 99.0}}  # exceeds le=2.0 constraint
+        "default",
+        {"llm": {"temperature": 99.0}},  # exceeds le=2.0 constraint
     )
     clear_settings_cache()
     with pytest.warns(UserWarning, match="profile config.yaml"):

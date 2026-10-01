@@ -21,6 +21,7 @@ import os
 import re
 import threading
 import time as _time
+from contextlib import suppress
 
 try:  # POSIX advisory locking; on Windows tick dedup falls back to best-effort create
     import fcntl as _fcntl  # type: ignore[import-not-found]
@@ -134,9 +135,8 @@ _WEEKDAY_CRON = {
 }
 
 
-from isaac.scheduler.cron_parser import schedule_from_nl
-from isaac.background.cron_locks import _acquire_lock, _release_lock
-
+from isaac.background.cron_locks import _acquire_lock, _release_lock  # noqa: E402
+from isaac.scheduler.cron_parser import schedule_from_nl  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Persistence
@@ -164,6 +164,7 @@ def save_tasks(tasks: list[CronTask]) -> None:
         json.dumps([asdict(t) for t in tasks], indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+
 
 _TASK_KEY_RE = re.compile(r"^[\w@]{1,64}$", re.UNICODE)
 
@@ -338,7 +339,7 @@ def run_agent_job(
 ) -> str:
     """Run *command* through the agent graph with optional skill / model /
     provider overrides (4.2.2-4.2.4).  Returns text output or raises."""
-    from isaac.agents.runner import run_text  # noqa: PLC0415 - lazy heavy import
+    from isaac.agents.runner import run_text
 
     result = run_text(
         command,
@@ -378,10 +379,8 @@ def reap_long_running(now: float | None = None) -> list[str]:
     killed = []
     for tid, rec in list(_running.items()):
         if now > rec["cancel_after"]:
-            try:
+            with suppress(Exception):
                 rec["future"].cancel()
-            except Exception:
-                pass
             _step(tid, "hard_interrupted(timeout)")
             killed.append(tid)
             _running.pop(tid, None)
@@ -415,7 +414,11 @@ def _execute_task(task: CronTask) -> str:
     if "{context}" in task.command:
         command = task.command.replace("{context}", context or "")
     else:
-        command = (task.command + "\n\nContext from previous jobs:\n" + context) if context else task.command
+        command = (
+            (task.command + "\n\nContext from previous jobs:\n" + context)
+            if context
+            else task.command
+        )
 
     timeout = max(int(task.timeout_seconds or 180), 1)
 

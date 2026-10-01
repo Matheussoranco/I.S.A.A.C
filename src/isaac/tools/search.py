@@ -66,7 +66,9 @@ class WebSearchTool(IsaacTool):
             try:
                 from ddgs import DDGS  # type: ignore[import-untyped]  # new name
             except ImportError:
-                from duckduckgo_search import DDGS  # type: ignore[import-untyped]  # old name
+                from duckduckgo_search import (
+                    DDGS,  # type: ignore[import-untyped,assignment]  # old name
+                )
         except ImportError:
             return ToolResult(
                 success=False,
