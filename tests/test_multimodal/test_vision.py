@@ -31,7 +31,7 @@ async def test_clipboard_capture_and_analyze():
     prompt = "Analyze this screenshot"
 
     with (
-        patch("mss.mss") as mock_mss,
+        patch("isaac.multimodal.vision.clipboard.mss") as mock_mss,
         patch(
             "isaac.multimodal.vision.vlm.VisionManager.analyze", new_callable=AsyncMock
         ) as mock_analyze,

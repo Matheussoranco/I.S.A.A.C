@@ -46,8 +46,9 @@ class MCPClient:
                     env=self.config.env,
                 )
                 read, write = await stack.enter_async_context(stdio_client(server_params))
-            self._session = await stack.enter_async_context(ClientSession(read, write))
-            await self._session.initialize()
+            session = await stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+            self._session = session
             self._exit_stack = stack
 
             logger.info(f"Connected to MCP server: {self.config.name}")
