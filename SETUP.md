@@ -6,7 +6,7 @@
 
 | Requirement       | Version   | Notes                                          |
 | ----------------- | --------- | ---------------------------------------------- |
-| Python            | ≥ 3.10    | 3.12 recommended                               |
+| Python            | ≥ 3.12    | 3.12 or 3.13                                  |
 | Docker            | ≥ 24.0    | For sandboxed code execution                   |
 | Ollama            | ≥ 0.3     | Local LLM — the **default** provider (`ollama pull qwen3.6`) |
 | Microphone + speakers | any   | Only needed for the voice REPL                 |

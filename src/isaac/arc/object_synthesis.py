@@ -424,7 +424,7 @@ def _validate_rule_code(
 
 def _safe_equal(a: Any, b: Grid) -> bool:
     try:
-        return np.array_equal(np.array(a, dtype=int), b)
+        return np.array_equal(np.asarray(a), b)
     except Exception:
         return False
 

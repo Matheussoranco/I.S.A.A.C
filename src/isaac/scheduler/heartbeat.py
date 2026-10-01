@@ -11,6 +11,7 @@ The scheduler is started once by the CLI or ``__main__`` entry point.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from datetime import UTC, datetime
 from functools import wraps
@@ -22,6 +23,116 @@ logger = logging.getLogger(__name__)
 
 _scheduler: Any | None = None
 _scheduler_lock = RLock()
+
+
+def _heartbeat_path(*, isaac_home: Path | None = None) -> Path:
+    home = isaac_home if isaac_home is not None else _get_settings().isaac_home
+    return home / "heartbeats.json"
+
+
+def _load_prompts(*, isaac_home: Path | None = None) -> list[dict[str, Any]]:
+    path = _heartbeat_path(isaac_home=isaac_home)
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.error("Failed to load heartbeat prompts: %s", exc)
+        return []
+
+
+def _save_prompts(
+    prompts: list[dict[str, Any]], *, isaac_home: Path | None = None
+) -> None:
+    path = _heartbeat_path(isaac_home=isaac_home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def register_heartbeat_prompt(
+    prompt: str, *, isaac_home: Path | None = None
+) -> dict[str, Any]:
+    """Register a recurring push-prompt for idle sessions (``/heartbeat``).
+
+    The *prompt* text is re-issued to the agent each time the heartbeat
+    job fires and the session is otherwise idle.
+    """
+    prompts = _load_prompts(isaac_home=isaac_home)
+    entry = {"prompt": prompt, "registered_at": datetime.now(UTC).isoformat()}
+    prompts.append(entry)
+    _save_prompts(prompts, isaac_home=isaac_home)
+    logger.info("Heartbeat prompt registered: %r", prompt[:60])
+    return entry
+
+
+def unregister_heartbeat_prompt(
+    index: int, *, isaac_home: Path | None = None
+) -> bool:
+    """Remove a registered heartbeat prompt by 0-based index."""
+    prompts = _load_prompts(isaac_home=isaac_home)
+    if not (0 <= index < len(prompts)):
+        return False
+    removed = prompts.pop(index)
+    _save_prompts(prompts, isaac_home=isaac_home)
+    logger.info("Heartbeat prompt removed: %r", removed.get("prompt", "")[:60])
+    return True
+
+
+def list_heartbeat_prompts(
+    *, isaac_home: Path | None = None
+) -> list[dict[str, Any]]:
+    """Return all registered heartbeat prompts (pending heartbeats)."""
+    return _load_prompts(isaac_home=isaac_home)
+
+
+def _profile_heartbeat_config() -> tuple[int, list[str]]:
+    """Read ``heartbeat.interval_min`` / ``heartbeat.prompt`` config.
+
+    Precedence: ``ISAAC_HEARTBEAT_PROMPT_JSON`` env > profile config.yaml
+    > ``heartbeat_interval_minutes`` setting default.
+    """
+    settings = _get_settings()
+    interval = int(getattr(settings, "heartbeat_interval_minutes", 30))
+    try:
+        from isaac.config.profiles import get_active_profile, load_profile_overrides
+
+        overrides = load_profile_overrides(get_active_profile())
+        hb = overrides.get("heartbeat") if isinstance(overrides, dict) else None
+        if isinstance(hb, dict):
+            interval = int(hb.get("interval_min", interval))
+    except Exception:
+        pass
+
+    prompts: list[str] = []
+    try:
+        from isaac.config.profiles import get_active_profile, load_profile_overrides
+        overrides = load_profile_overrides(get_active_profile())
+        hb = overrides.get("heartbeat") if isinstance(overrides, dict) else None
+        if isinstance(hb, dict):
+            p = hb.get("prompt")
+            if p:
+                prompts.append(p if isinstance(p, str) else str(p))
+    except Exception:
+        pass
+
+    raw = os_environ("ISAAC_HEARTBEAT_PROMPT_JSON")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                prompts.extend(str(p) for p in parsed)
+        except json.JSONDecodeError:
+            logger.warning("Invalid ISAAC_HEARTBEAT_PROMPT_JSON — ignored.")
+    return interval, prompts
+
+
+def os_environ(name: str) -> str:
+    """Indirection over ``os.environ.get`` for easy patching in tests."""
+    import os
+
+    return os.environ.get(name, "")
 
 
 def _synchronized(function: Any) -> Any:
@@ -314,3 +425,129 @@ def register_callback(
     )
     logger.info("Registered scheduler callback %r every %ds.", job_id, interval_seconds)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.3: recurring push-prompts for idle sessions + heartbeat daemon
+# ---------------------------------------------------------------------------
+
+
+def heartbeat_push_job(*, isaac_home: Path | None = None) -> None:
+    """Fire registered `/heartbeat` prompts into idle sessions.
+
+    On every tick this collects prompts from (1) the persisted
+    ``heartbeats.json`` registry and (2) the ``heartbeat.prompt_json``
+    config, and pushes each one as a context-rich message.  The local
+    channel is always logged; Telegram delivery is attempted when the
+    credentials are configured.
+    """
+    registered = [
+        entry.get("prompt", "")
+        for entry in list_heartbeat_prompts(isaac_home=isaac_home)
+    ]
+    _, config_prompts = _profile_heartbeat_config()
+    prompts = [p for p in (*config_prompts, *registered) if p]
+    if not prompts:
+        logger.debug("Heartbeat tick: no prompts registered.")
+        return
+
+    # Include due persistent goals so heartbeat actions stay aligned.
+    try:
+        from isaac.background.goals import due_goals_context
+
+        goals = due_goals_context(
+            isaac_home=isaac_home if isaac_home is not None else None
+        )
+    except Exception:
+        goals = ""
+
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    lines = [f"💓 Heartbeat tick {now} — {len(prompts)} prompt(s):"]
+    lines.extend(f"- {p}" for p in prompts)
+    if goals:
+        lines.append("")
+        lines.append(goals)
+    text = "\n".join(lines)
+    logger.info(text)
+
+    try:
+        from isaac.interfaces.telegram_gateway import send_notification
+
+        send_notification(text[:4000])
+    except Exception:
+        pass
+
+
+def register_recurring_prompts(
+    *, isaac_home: Path | None = None
+) -> list[dict[str, Any]]:
+    """Register config-driven ``heartbeat.prompt_json`` entries.
+
+    Prompts from the config that are not already in the persisted
+    registry are appended to it.  Returns the full pending list.
+    """
+    _, config_prompts = _profile_heartbeat_config()
+    existing = list_heartbeat_prompts(isaac_home=isaac_home)
+    existing_texts = {e.get("prompt", "") for e in existing}
+    for prompt in config_prompts:
+        if prompt and prompt not in existing_texts:
+            register_heartbeat_prompt(prompt, isaac_home=isaac_home)
+    return list_heartbeat_prompts(isaac_home=isaac_home)
+
+
+@_synchronized
+def start_heartbeat_daemon(poll_seconds: int | None = None) -> bool:
+    """Start a lightweight heartbeat daemon thread.
+
+    Unlike :func:`start_scheduler` (which needs APScheduler), this uses a
+    plain daemon thread so heartbeat prompts still fire when APScheduler
+    is not installed.  Safe to call multiple times.
+
+    Returns True when the daemon is running after the call.
+    """
+    global _heartbeat_daemon_thread
+    if _heartbeat_daemon_thread is not None and _heartbeat_daemon_thread.is_alive():
+        logger.debug("Heartbeat daemon already running.")
+        return True
+
+    interval, _ = _profile_heartbeat_config()
+    if poll_seconds is None:
+        poll_seconds = max(60, interval * 60)
+
+    register_recurring_prompts()
+
+    _heartbeat_stop.clear()
+
+    def _loop() -> None:
+        logger.info("Heartbeat daemon loop started (poll=%ds).", poll_seconds)
+        while not _heartbeat_stop.is_set():
+            try:
+                heartbeat_push_job()
+            except Exception as exc:
+                logger.error("Heartbeat daemon tick error: %s", exc)
+            _heartbeat_stop.wait(poll_seconds)
+        logger.info("Heartbeat daemon loop stopped.")
+
+    import threading
+
+    _heartbeat_daemon_thread = threading.Thread(
+        target=_loop, daemon=True, name="isaac-heartbeat"
+    )
+    _heartbeat_daemon_thread.start()
+    return True
+
+
+@_synchronized
+def stop_heartbeat_daemon() -> None:
+    """Signal the heartbeat daemon thread to stop."""
+    global _heartbeat_daemon_thread
+    _heartbeat_stop.set()
+    if _heartbeat_daemon_thread is not None:
+        _heartbeat_daemon_thread.join(timeout=5)
+        _heartbeat_daemon_thread = None
+    logger.info("Heartbeat daemon stopped.")
+
+
+def is_heartbeat_daemon_running() -> bool:
+    """Return True if the heartbeat daemon thread is alive."""
+    return _heartbeat_daemon_thread is not None and _heartbeat_daemon_thread.is_alive()

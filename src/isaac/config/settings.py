@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -390,6 +390,51 @@ class Settings(BaseSettings):
 _settings: Settings | None = None
 
 
+def _deep_merge(base: Any, override: Any) -> Any:
+    """Recursively merge *override* over *base* (dicts recurse, else override wins)."""
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged = dict(base)
+        for key, val in override.items():
+            merged[key] = _deep_merge(merged[key], val) if key in merged else val
+        return merged
+    return override
+
+
+def _apply_profile_overrides(settings: Settings) -> Settings:
+    """Deep-merge the active profile's config.yaml over env-loaded settings.
+
+    Precedence: profile config.yaml > env defaults loaded by pydantic > code defaults.
+    Unknown or invalid keys in the YAML are ignored with a warning, never fatal.
+    """
+    from isaac.config.profiles import get_active_profile, load_profile_overrides
+
+    overrides = load_profile_overrides(get_active_profile())
+    if not overrides:
+        return settings
+    try:
+        data = settings.model_dump(mode="python")
+    except AttributeError:  # pragma: no cover - pydantic v1 fallback
+        import json as _json
+
+        data = _json.loads(settings.json())
+    merged = _deep_merge(data, overrides)
+    try:
+        return Settings(**merged)
+    except Exception as exc:
+        warnings.warn(
+            f"Ignoring profile config.yaml overrides: {exc}",
+            UserWarning,
+            stacklevel=2,
+        )
+        return settings
+
+
+def clear_settings_cache() -> None:
+    """Drop the cached Settings singleton (tests / profile switches)."""
+    global _settings
+    _settings = None
+
+
 def get_settings() -> Settings:
     """Return the process-wide Settings singleton (created on first use).
 
@@ -399,7 +444,7 @@ def get_settings() -> Settings:
     """
     global _settings
     if _settings is None:
-        _settings = Settings()
+        _settings = _apply_profile_overrides(Settings())
         try:
             for p in _settings.allowed_paths:
                 pp = Path(p)

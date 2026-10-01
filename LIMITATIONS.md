@@ -14,7 +14,7 @@ the user's temporary directory.
 
 - The CLI commands and the public Python API (`AgentLoop`, `Orchestrator`,
   the tool registry, the memory manager) are frozen for the 1.x series.
-- 900+ unit/integration tests pass on Python 3.10–3.12; lint, format, and the
+- The unit/integration suite targets Python 3.12 and 3.13; lint, format, and the
   configured mypy check are enforced in CI.
 - The safety boundary (path confinement + credential deny-list, constitutional
   shell gating, risk-gated tool approval, sandboxed code execution) is covered
@@ -55,6 +55,13 @@ the user's temporary directory.
   that never fired in testing rather than a visible upgrade (`docs/MODELS.md`).
 
 ## Operational caveats
+
+- **Run traces omit content by default.** The SQLite trace store retains run
+  timing, status, and limited event metadata, but omits task text, tool arguments,
+  model text, and output. Opening an older trace database scrubs previously
+  stored content. Runs older than 30 days are removed on the next run.
+  Applications that explicitly enable full-content traces are responsible for
+  access control of that local database.
 
 - **Host-reach tools are powerful.** `shell` and `fs_*` operate on your real
   machine. Credential stores are hard-denied and `allowed_paths` confines

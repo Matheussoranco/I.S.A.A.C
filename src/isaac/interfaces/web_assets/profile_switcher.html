@@ -1,0 +1,31 @@
+
+<div id="profile-switcher" class="ui-panel">
+    <div class="panel-header">
+        <h2>Active Profile</h2>
+        <select id="profile-select" onchange="profileSwitcher.switch(this.value)">
+            <!-- Profiles will be loaded here -->
+        </select>
+    </div>
+</div>
+
+<script>
+const profileSwitcher = {
+    async init() {
+        const res = await fetch('/api/desktop/profile/list');
+        const data = await res.json();
+        const select = document.getElementById('profile-select');
+        select.innerHTML = data.profiles.map(p => 
+            `<option value="${p.id}" ${p.active ? 'selected' : ''}>${p.name}</option>`
+        ).join('');
+    },
+    async switch(profileId) {
+        await fetch('/api/desktop/profile/switch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({profile_id: profileId})
+        });
+        window.location.reload(); // Refresh to apply profile settings
+    }
+};
+profileSwitcher.init();
+</script>

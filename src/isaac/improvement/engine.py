@@ -28,6 +28,7 @@ class ImprovementResult:
     started_at: float
     finished_at: float
     curation_decisions: list[dict[str, Any]] = field(default_factory=list)
+    curator_summary: dict[str, int] = field(default_factory=dict)
     critique_summary: str = ""
     critique_action: str = ""
     pruned_rows: int = 0
@@ -84,7 +85,21 @@ class ImprovementEngine:
             logger.exception("Improvement: skill curation failed.")
             result.errors.append(f"curation: {exc}")
 
-        # 2. Self-critique
+        # 2. Curator — heuristic audit of stale/failing skills (no LLM in-cycle)
+        try:
+            from isaac.improvement.curator import Curator
+
+            curator = Curator(llm=None)
+            recommendations = curator.audit_all()
+            result.curator_summary = curator.apply(
+                recommendations, min_confidence=0.75, dry_run=False
+            )
+            logger.info("Improvement: curator summary %s", result.curator_summary)
+        except Exception as exc:
+            logger.exception("Improvement: curator audit failed.")
+            result.errors.append(f"curator: {exc}")
+
+        # 3. Self-critique
         try:
             from isaac.improvement.self_critique import build_critique
 

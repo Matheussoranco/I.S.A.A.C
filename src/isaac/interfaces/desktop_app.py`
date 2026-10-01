@@ -1,0 +1,226 @@
+\"\"\"
+Desktop Backend for I.S.A.A.C.
+Provides SSE streaming of agent events, file previews, and UI state sync.
+\"\"\"
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import socket
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, AsyncGenerator, Dict, List, Optional
+
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+# I.S.A.A.C core imports (simulated/placeholder for event source)
+# In a real implementation, these would connect to the actual AgentLoop event bus
+try:
+    from isaac.core.events import event_bus
+except ImportError:
+    # Fallback mock for development/testing if the event system isn't fully wired
+    class MockEventBus:
+        def __init__(self):
+            self.listeners = []
+        def subscribe(self, callback):
+            self.listeners.append(callback)
+        async def publish(self, kind, data):
+            for l in self.listeners:
+                await l(kind, data)
+    event_bus = MockEventBus()
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class DesktopState:
+    voice_enabled: bool = False
+    active_run_id: Optional[str] = None
+    # Store event queues for connected SSE clients
+    clients: List[asyncio.Queue] = field(default_factory=list)
+
+state = DesktopState()
+
+app = FastAPI(title=\"I.S.A.A.C. Desktop Backend\")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[\"*\"],
+    allow_credentials=True,
+    allow_methods=[\"*\"],
+    allow_headers=[\"*\"],
+)
+
+# --- SSE Streaming Pipeline ---
+
+async def event_listener(kind: str, data: dict):
+    \"\"\"Callback to push events from the agent loop to all connected SSE clients.\"\"\"
+    import json
+    message = f\"data: {json.dumps({'kind': kind, 'data': data})}\\n\\n\"
+    for q in state.clients:
+        await q.put(message)
+
+# Subscribe the listener to the global event bus
+# This assumes event_bus has an async subscribe method
+if asyncio.iscoroutinefunction(event_listener):
+    # If the event bus is async, we'll need to handle the subscription in the app startup
+    pass 
+
+@app.on_event(\"startup\")
+async def startup_event():
+    # Connect the desktop backend to the core event bus
+    if hasattr(event_bus, \"subscribe\"):
+        event_bus.subscribe(event_listener)
+
+@app.get(\"/api/stream\")
+async def stream_events(request: Request):
+    \"\"\"SSE endpoint for real-time agent thoughts, tool calls, and outputs.\"\"\"
+    queue = asyncio.Queue()
+    state.clients.append(queue)
+    
+    async def event_generator() -> AsyncGenerator[str, None]:
+        try:
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+                
+                # Wait for next event from the bus
+                data = await queue.get()
+                yield data
+        finally:
+            state.clients.remove(queue)
+
+    return StreamingResponse(event_generator(), media_type=\"text/event-stream\")
+
+# --- Preview Endpoints ---
+
+@app.get(\"/api/preview/file\")
+async def preview_file(path: str):
+    \"\"\"Serve a file for preview (PDF, Image, etc.).\"\"\"
+    # Security: In production, validate that 'path' is within allowed workspaces
+    try:
+        return FileResponse(path)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f\"File not found: {str(e)}\")
+
+@app.get(\"/api/preview/code\")
+async def preview_code(path: str):
+    \"\"\"Return code content for the editor preview with highlighting.\"\"\"
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=\"Code file not found\")
+    
+    return {\"path\": path, \"content\": p.read_text(errors=\"replace\")}
+
+# --- UI State Sync ---
+
+@app.post(\"/api/settings/voice\")
+async def toggle_voice(enabled: bool):
+    \"\"\"Sync the /voice on|off state with the Desktop UI.\"\"\"
+    state.voice_enabled = enabled
+    # We could also publish an event to the bus so other interfaces sync
+    await event_bus.publish(\"ui_sync\", {\"voice_enabled\": enabled})
+    return {\"status\": \"ok\", \"voice_enabled\": enabled}
+
+@app.get(\"/api/settings/voice\")
+async def get_voice_status():
+    return {\"voice_enabled\": state.voice_enabled}
+
+@app.get(\"/api/status\")
+async def get_status():
+    return {\"name\": \"I.S.A.A.C. Desktop Backend\", \"status\": \"running\"}
+
+# --- Native App Lifecycle ---
+
+@dataclass
+class NativeAppServer:
+    host: str = \"127.0.0.1\"
+    port: int = 0
+    verbose: bool = False
+
+    def __post_init__(self) -> None:
+        self.port = self.port or _free_loopback_port(self.host)
+        self._thread: threading.Thread | None = None
+        self._server: Any | None = None
+
+    @property
+    def url(self) -> str:
+        return f\"http://{self.host}:{self.port}\"
+
+    def start(self, timeout: float = 10.0) -> None:
+        import uvicorn
+        
+        # We use the 'app' defined above
+        config = uvicorn.Config(
+            app,
+            host=self.host,
+            port=self.port,
+            log_level=\"debug\" if self.verbose else \"warning\",
+            access_log=self.verbose,
+        )
+        server = uvicorn.Server(config)
+        server.install_signal_handlers = lambda: None
+        self._server = server
+        self._thread = threading.Thread(target=server.run, name=\"isaac-native-api\", daemon=True)
+        self._thread.start()
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if server.started:
+                return
+            if self._thread is not None and not self._thread.is_alive():
+                break
+            time.sleep(0.05)
+        self.stop()
+        raise RuntimeError(\"The native UI server did not start in time.\")
+
+    def stop(self) -> None:
+        server = self._server
+        if server is not None:
+            server.should_exit = True
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=5.0)
+        self._thread = None
+        self._server = None
+
+def run_desktop_app(*, verbose: bool = False) -> int:
+    \"\"\"Open I.S.A.A.C. as a native desktop window and block until it closes.\"\"\"
+    try:
+        import webview
+    except ImportError as exc:
+        raise RuntimeError(
+            \"Native desktop dependencies are missing. Run: pip install -e '.[desktop]'\"
+        ) from exc
+
+    server = NativeAppServer(verbose=verbose)
+    server.start()
+    try:
+        window = webview.create_window(
+            \"I.S.A.A.C.\",
+            server.url,
+            width=1500,
+            height=930,
+            min_size=(1080, 680),
+            background_color=\"#09090d\",
+            text_select=True,
+        )
+        if window is None:
+            raise RuntimeError(\"The native UI window could not be created.\")
+        window.events.closed += server.stop
+        webview.start(debug=verbose, private_mode=True)
+    finally:
+        server.stop()
+    return 0
+
+def _free_loopback_port(host: str) -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((host, 0))
+        return int(sock.getsockname()[1])
+
+__all__ = [\"NativeAppServer\", \"run_desktop_app\", \"app\"]

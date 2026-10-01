@@ -1,0 +1,51 @@
+
+<div id="cron-manager" class="ui-panel">
+    <div class="panel-header">
+        <h2>Cron Jobs</h2>
+        <button onclick="cronManager.refresh()">Refresh</button>
+    </div>
+    <div id="cron-list" class="ui-list">
+        <!-- Jobs will be rendered here -->
+    </div>
+</div>
+
+<script>
+const cronManager = {
+    async refresh() {
+        const res = await fetch('/api/desktop/cron/list');
+        const data = await res.json();
+        this.render(data.jobs);
+    },
+    async toggle(jobId, enabled) {
+        await fetch('/api/desktop/cron/toggle', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({job_id: jobId, enabled})
+        });
+        this.refresh();
+    },
+    async viewLogs(jobId) {
+        const res = await fetch(`/api/desktop/cron/logs/${jobId}`);
+        const data = await res.json();
+        console.log(`Logs for ${jobId}:`, data.logs);
+        alert(`Logs for ${jobId}:\n${data.logs.slice(-10).join('\n')}`);
+    },
+    render(jobs) {
+        const container = document.getElementById('cron-list');
+        container.innerHTML = jobs.map(job => `
+            <div class="ui-item">
+                <div class="item-info">
+                    <strong>${job.name}</strong>
+                    <span>${job.schedule}</span>
+                </div>
+                <div class="item-actions">
+                    <button onclick="cronManager.toggle('${job.id}', ${!job.enabled})">
+                        ${job.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button onclick="cronManager.viewLogs('${job.id}')">Logs</button>
+                </div>
+            </div>
+        `).join('');
+    }
+};
+</script>

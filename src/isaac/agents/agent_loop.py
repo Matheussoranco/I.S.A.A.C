@@ -80,9 +80,19 @@ logger = logging.getLogger(__name__)
 # How much of a tool's output to feed back to the model per call.
 _MAX_TOOL_OUTPUT = 12_000
 
-# Stop after this many *consecutive identical* tool calls — the model is stuck
-# in a loop and more iterations will not help.
-_NO_PROGRESS_LIMIT = 3
+# Phase 1.3 (Hermes-mirror) loop-guard defaults.
+# A run stalls with stopped_reason="no_progress" after this many consecutive
+# iterations in which no tool call made progress (success + fresh output) and
+# no final answer appeared.
+_NO_PROGRESS_STREAK_LIMIT = 5
+# Consecutive iterations with neither tool calls nor a final answer before the
+# run is stopped as idle.
+_IDLE_STREAK_LIMIT = 3
+# Consecutive identical (name, args) calls injected back as a steering
+# observation instead of being executed a third time.
+_REPEAT_CALL_LIMIT = 3
+# Hard cap on executed tool calls per run (independent of max_iterations).
+_DEFAULT_MAX_TOOL_CALLS = 80
 
 # Tools whose output is fetched from outside the trust boundary (web pages,
 # search results, inbound email). Their output is provenance-tagged so the
@@ -130,6 +140,8 @@ class StopReason(StrEnum):
     MAX_ITERATIONS = "max_iterations"
     BUDGET_EXHAUSTED = "budget_exhausted"
     NO_PROGRESS = "no_progress"
+    IDLE_ITERATIONS = "idle_iterations"
+    TOOL_CALL_BUDGET = "tool_call_budget"
     ERROR = "error"
     APPROVAL_DENIED = "approval_denied"
 
@@ -221,6 +233,11 @@ class AgentRunResult:
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     started_at: float = field(default_factory=time.time)
     completed_at: float = 0.0
+
+    # Loop-guard counters (Phase 1.3)
+    no_progress_streak: int = 0
+    idle_streak: int = 0
+    tool_call_count: int = 0
 
     @property
     def completed(self) -> bool:
@@ -446,6 +463,10 @@ class AgentLoop:
         task_validator: Callable[[AgentRunResult], bool] | None = None,
         structured_output_model: type[T] | None = None,
         stream_callback: StreamCallback | None = None,
+        max_tool_calls: int = _DEFAULT_MAX_TOOL_CALLS,
+        no_progress_limit: int = _NO_PROGRESS_STREAK_LIMIT,
+        idle_limit: int = _IDLE_STREAK_LIMIT,
+        repeat_call_limit: int = _REPEAT_CALL_LIMIT,
     ) -> None:
         self._task_validator = task_validator
         self._structured_output_model = structured_output_model
@@ -467,6 +488,11 @@ class AgentLoop:
         self.reflexion_retries = max(0, reflexion_retries)
         self.constrained_decoding = constrained_decoding
         self._should_stop = should_stop
+        # 0 disables the tool-call budget entirely.
+        self.max_tool_calls = max(0, max_tool_calls)
+        self.no_progress_limit = max(1, no_progress_limit)
+        self.idle_limit = max(1, idle_limit)
+        self.repeat_call_limit = max(1, repeat_call_limit)
 
     # ------------------------------------------------------------------
     # Internals
@@ -829,9 +855,24 @@ class AgentLoop:
         boundary = _active_boundary.get()
         assert boundary is not None
         boundary.check()
+        
+        start_time = time.monotonic()
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        
         llm = self._bind_tools(self._resolve_llm())
         user = task if not context else f"{task}\n\n<context>\n{context}\n</context>"
         system = self._system_prompt
+
+        # Inject persistent standing objectives (Phase 4.3)
+        try:
+            from isaac.background.goals import due_goals_context
+            goals_ctx = due_goals_context()
+            if goals_ctx:
+                system += f"\n\nStanding Objectives:\n{goals_ctx}"
+        except Exception as exc:
+            logger.debug("Failed to inject goals into system prompt: %s", exc)
+
         if self.constrained_decoding and self._tools:
             # The grammar enforces the shape; the prompt still has to explain
             # what the fields mean and list the tools.
@@ -854,12 +895,19 @@ class AgentLoop:
         final_text = ""
         reason = "max_iterations"
         iterations = 0
-        last_sig: str | None = None
-        repeat_count = 0
         health = ToolCallHealth()
         progress.health = health
         reflexion_used = 0
         pending_reflexion = False
+
+        # Phase 1.3 (Hermes-mirror) loop guards.
+        no_progress_streak = 0  # consecutive iterations with no successful state change
+        idle_streak = 0  # consecutive iterations with no tool calls and no final answer
+        tool_call_count = 0  # executed tool calls this run (bounce replays don't count)
+        seen_call_hashes: set[str] = set()  # every (name, args) hash attempted this run
+        repeat_sig: str | None = None  # signature of the previous call
+        repeat_count = 0  # consecutive occurrences of repeat_sig
+        last_outputs: dict[str, str] = {}  # per-tool last output, for progress detection
 
         if self._trace_store is not None:
             try:
@@ -988,15 +1036,52 @@ class AgentLoop:
                 if text:
                     self._emit("thought", text=text)
 
-                stuck = False
+                made_progress = False
                 for tc in tool_calls:
                     boundary.check()
                     name = tc.get("name", "")
                     args = tc.get("args") or {}
                     call_id = tc.get("id") or name
+                    try:
+                        sig = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+                    except Exception:
+                        sig = f"{name}:{args!r}"
+                    repeat_count = repeat_count + 1 if sig == repeat_sig else 1
+                    repeat_sig = sig
+                    # Hard tool-call budget: bail before executing anything else.
+                    if self.max_tool_calls and tool_call_count >= self.max_tool_calls:
+                        reason = "tool_call_budget"
+                        final_text = (
+                            f"Stopped: the tool-call budget of {self.max_tool_calls} calls "
+                            "was exhausted before a final answer was produced."
+                        )
+                        self._emit("error", message="tool_call_budget exhausted")
+                        break
+                    # Repeat-call bounce: the same (name, args) N times in a row
+                    # gets a steering observation instead of another execution.
+                    if repeat_count >= self.repeat_call_limit:
+                        self._emit(
+                            "guard",
+                            guard="repeat_call_bounce",
+                            name=name,
+                            repeat_count=repeat_count,
+                        )
+                        body = (
+                            f"[guard] repeated call to {name} with identical arguments; "
+                            "change strategy or finish"
+                        )
+                        if native_turn:
+                            messages.append(
+                                ToolMessage(content=body, tool_call_id=call_id, name=name)
+                            )
+                        else:
+                            messages.append(HumanMessage(content=f"Result of {name}:\n{body}"))
+                        continue
+                    seen_call_hashes.add(sig)
                     self._emit("tool_call", name=name, args=args)
                     rec = await self._exec_tool(name, args)
                     all_calls.append(rec)
+                    tool_call_count += 1
                     boundary.check()
                     self._emit("tool_result", name=name, success=rec.success, output=rec.output)
                     body = rec.output[:_MAX_TOOL_OUTPUT]
@@ -1004,24 +1089,43 @@ class AgentLoop:
                         messages.append(ToolMessage(content=body, tool_call_id=call_id, name=name))
                     else:
                         messages.append(HumanMessage(content=f"Result of {name}:\n{body}"))
-                    try:
-                        sig = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
-                    except Exception:
-                        sig = f"{name}:{args!r}"
-                    repeat_count = repeat_count + 1 if sig == last_sig else 1
-                    last_sig = sig
-                    if repeat_count >= _NO_PROGRESS_LIMIT:
-                        stuck = True
-                if stuck:
-                    if reason == "cancelled":
-                        break
+                    # Progress = succeeded + non-empty output + output differs
+                    # from this tool's previous output.
+                    if (
+                        rec.success
+                        and rec.output.strip()
+                        and rec.output != last_outputs.get(name)
+                    ):
+                        made_progress = True
+                    last_outputs[name] = rec.output
+                if reason == "tool_call_budget":
+                    break
+
+                # End-of-iteration streak updates.
+                if made_progress:
+                    no_progress_streak = 0
+                else:
+                    no_progress_streak += 1
+                if tool_calls:
+                    idle_streak = 0
+                else:
+                    idle_streak += 1
+
+                if no_progress_streak >= self.no_progress_limit:
                     reason = "no_progress"
                     final_text = (
-                        f"Stopped: the model repeated the identical tool call "
-                        f"'{(last_sig or '').split(':', 1)[0]}' {repeat_count} times in a row "
-                        "without making progress."
+                        f"Stopped: {no_progress_streak} consecutive iterations made no "
+                        "progress (no successful tool state change). The model is stuck."
                     )
-                    self._emit("error", message="no progress (repeated identical tool call)")
+                    self._emit("error", message="no progress (stalled iterations)")
+                    break
+                if idle_streak >= self.idle_limit:
+                    reason = "idle_iterations"
+                    final_text = (
+                        f"Stopped: {idle_streak} consecutive iterations produced neither "
+                        "tool calls nor a final answer."
+                    )
+                    self._emit("error", message="idle iterations")
                     break
             else:
                 self._emit("error", message="reached max iterations")
@@ -1051,6 +1155,9 @@ class AgentLoop:
                         stopped_reason=reason,
                         iterations=iterations,
                         output=final_text,
+                        prompt_tokens=total_prompt_tokens,
+                        completion_tokens=total_completion_tokens,
+                        total_latency_ms=(time.monotonic() - start_time) * 1000,
                     )
                 except Exception:  # pragma: no cover - tracing must never break the loop
                     logger.debug("trace finish failed", exc_info=True)
@@ -1071,6 +1178,9 @@ class AgentLoop:
             if self._structured_output_model
             else "",
             completed_at=time.time(),
+            no_progress_streak=no_progress_streak,
+            idle_streak=idle_streak,
+            tool_call_count=tool_call_count,
         )
 
         if result.completed and self._task_validator is not None:
@@ -1101,18 +1211,23 @@ class AgentLoop:
         self, task: str, context: str = "", *, attachments: list[dict] | None = None
     ) -> AsyncIterator[str]:
         """Stream the agent's response token by token (for direct response mode)."""
-
         boundary = _RunBoundary(
             self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
         )
-        stream_call: Any = boundary.acall(
-            lambda: self._astream(task, context, attachments), asynchronous=True
-        )
+        token = _active_boundary.set(boundary)
         try:
-            async for token in stream_call:
-                yield token
+            async with asyncio.timeout(
+                self.max_wall_seconds if self.max_wall_seconds > 0 else None
+            ):
+                async for chunk in self._astream(task, context, attachments):
+                    boundary.check()
+                    yield chunk
+        except TimeoutError:
+            yield "Stopped: budget_exhausted."
         except _RunStopped as exc:
             yield f"Stopped: {exc.reason}."
+        finally:
+            _active_boundary.reset(token)
 
     async def _astream(
         self,
@@ -1159,7 +1274,7 @@ def _content_text(message: Any) -> str:
     return str(content).strip()
 
 
-def build_default_agent[T](
+def build_default_agent[T: BaseModel](
     *,
     llm: Any | None = None,
     system_prompt: str | None = None,
@@ -1179,6 +1294,7 @@ def build_default_agent[T](
     should_stop: StopCallback | None = None,
     structured_output_model: type[T] | None = None,
     stream_callback: StreamCallback | None = None,
+    max_tool_calls: int = _DEFAULT_MAX_TOOL_CALLS,
 ) -> AgentLoop:
     """Construct an :class:`AgentLoop` wired with all registered built-in tools."""
     # Function body follows...
@@ -1236,6 +1352,7 @@ def build_default_agent[T](
         should_stop=should_stop,
         structured_output_model=structured_output_model,
         stream_callback=stream_callback,
+        max_tool_calls=max_tool_calls,
     )
 
 

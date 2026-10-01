@@ -1,0 +1,50 @@
+
+<div id="skills-browser" class="ui-panel">
+    <div class="panel-header">
+        <h2>Skills Catalog</h2>
+        <input type="text" id="skill-search" placeholder="Search skills..." oninput="skillsBrowser.filter()">
+    </div>
+    <div id="skills-list" class="ui-grid">
+        <!-- Skills rendered here -->
+    </div>
+</div>
+
+<script>
+const skillsBrowser = {
+    allSkills: [],
+    async refresh() {
+        const res = await fetch('/api/desktop/skills/list');
+        const data = await res.json();
+        this.allSkills = data.skills;
+        this.render(this.allSkills);
+    },
+    async toggle(skillId, enabled) {
+        await fetch('/api/desktop/skills/toggle', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({skill_id: skillId, enabled})
+        });
+        this.refresh();
+    },
+    filter() {
+        const query = document.getElementById('skill-search').value.toLowerCase();
+        const filtered = this.allSkills.filter(s => 
+            s.name.toLowerCase().includes(query) || s.description.toLowerCase().includes(query)
+        );
+        this.render(filtered);
+    },
+    render(skills) {
+        const container = document.getElementById('skills-list');
+        container.innerHTML = skills.map(s => `
+            <div class="skill-card">
+                <h3>${s.name}</h3>
+                <p>${s.description}</p>
+                <button onclick="skillsBrowser.toggle('${s.id}', ${!s.enabled})">
+                    ${s.enabled ? 'Disable' : 'Enable'}
+                </button>
+            </div>
+        `).join('');
+    }
+};
+skillsBrowser.refresh();
+</script>

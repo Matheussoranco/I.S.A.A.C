@@ -23,7 +23,9 @@ from isaac.core.state import IsaacState
 logger = logging.getLogger(__name__)
 
 
-def _build_direct_prompt(user_text: str, hypothesis: str) -> list[Any]:
+def _build_direct_prompt(
+    user_text: str, hypothesis: str, history: list[Any] | None = None
+) -> list[Any]:
     """Build a minimal prompt for direct conversational response."""
     from isaac.identity.soul import soul_system_prompt
 
@@ -47,6 +49,7 @@ def _build_direct_prompt(user_text: str, hypothesis: str) -> list[Any]:
     if hypothesis:
         messages.append(SystemMessage(content=f"Context from perception: {hypothesis[:300]}"))
 
+    messages.extend((history or [])[-10:])
     messages.append(HumanMessage(content=user_text))
     return messages
 
@@ -73,7 +76,7 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
             break
 
     hypothesis = state.get("hypothesis", "")
-    prompt = _build_direct_prompt(user_text, hypothesis)
+    prompt = _build_direct_prompt(user_text, hypothesis, messages[:-1])
 
     # Resolve the active UI (if running inside the Rich REPL)
     ui = None

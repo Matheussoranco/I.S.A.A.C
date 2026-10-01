@@ -343,16 +343,14 @@ def solve_with_llm(
         match = re.search(r"```(?:python)?\s*\n(.*?)```", content, re.DOTALL)
         code = match.group(1).strip() if match else content.strip()
 
-        # Execute the code to get the solve function
-        namespace: dict[str, Any] = {"np": np, "numpy": np}
-        exec(code, namespace)
-        solve_fn = namespace.get("solve")
+        # Execute and validate model-generated code only inside Docker.
+        from isaac.arc.sandbox_runner import run_candidate
 
-        if solve_fn is None:
-            raise ValueError("No 'solve' function found in generated code.")
-
-        # Validate on training data
-        train_ok = all(np.array_equal(solve_fn(pair.input), pair.output) for pair in task.train)
+        train_predictions = run_candidate(code, [pair.input for pair in task.train])
+        train_ok = train_predictions is not None and all(
+            pred is not None and np.array_equal(pred, pair.output)
+            for pred, pair in zip(train_predictions, task.train, strict=True)
+        )
 
         if not train_ok:
             logger.info("LLM solution failed training validation for %s.", task.id)
@@ -360,9 +358,11 @@ def solve_with_llm(
             return solve_with_dsl(task)
 
         # Run on test data
-        predictions = [solve_fn(pair.input) for pair in task.test]
+        predictions = run_candidate(code, [pair.input for pair in task.test])
+        if predictions is None or any(pred is None for pred in predictions):
+            return solve_with_dsl(task)
         correct = all(
-            np.array_equal(pred, pair.output)
+            pred is not None and np.array_equal(pred, pair.output)
             for pred, pair in zip(predictions, task.test, strict=False)
         )
 

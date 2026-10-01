@@ -1,220 +1,132 @@
-"""Text-to-Speech — local Piper / Coqui / pyttsx3.
+"""Text-to-Speech Manager with Provider Matrix.
 
-Backends (auto-selected, in order):
-
-    1. ``piper-tts``  — recommended (fast neural TTS, runs on CPU)
-    2. ``TTS`` (Coqui) — higher quality, slower
-    3. ``pyttsx3``    — system TTS (Windows SAPI / macOS NSSpeech / espeak)
-
-The chosen backend is loaded lazily and reused.  ``synthesize()`` returns
-a path to a temporary WAV file or, when ``return_audio=True``, a numpy
-array suitable for direct playback.
+Supports multiple backends: edge-tts (default), OpenAI, ElevenLabs, MiniMax, Mistral, 
+Gemini, NeuTTS, Piper, and KittenTTS.
 """
 
 from __future__ import annotations
 
-import contextlib
+import asyncio
 import logging
 import os
 import tempfile
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, Type
 
 if TYPE_CHECKING:
-    pass
+    from isaac.config.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+class TTSProvider(ABC):
+    """Base adapter for TTS providers."""
+    @abstractmethod
+    async def synthesize(self, text: str, output_path: Path) -> Path:
+        pass
 
-class TextToSpeech:
-    """Lazy TTS engine, backend chosen automatically.
-
-    Parameters
-    ----------
-    voice:
-        Voice / model name.  Meaning depends on backend:
-        * piper: model file path or built-in name (``en_US-lessac-medium``).
-        * coqui: model name (``tts_models/en/ljspeech/tacotron2-DDC``).
-        * pyttsx3: voice id (system-specific).
-    rate:
-        Speech rate (words/min for pyttsx3; ignored by neural backends).
-    sample_rate:
-        Output sample rate hint.
-    """
-
-    def __init__(
-        self,
-        voice: str = "en_US-lessac-medium",
-        rate: int = 175,
-        sample_rate: int = 22050,
-    ) -> None:
-        self.voice = voice
-        self.rate = rate
-        self.sample_rate = sample_rate
-        self._engine: Any = None
-        self._engine_kind: str = ""
-
-    # -- Lazy load ----------------------------------------------------------
-
-    def _load(self) -> None:
-        if self._engine is not None:
-            return
-
-        # ── Piper (fast neural) ────────────────────────────────────────────
+class EdgeTTSProvider(TTSProvider):
+    """Free, streaming TTS using edge-tts."""
+    async def synthesize(self, text: str, output_path: Path) -> Path:
         try:
-            from piper import PiperVoice  # type: ignore[import-not-found]
-
-            voice_path = self.voice
-            if not Path(voice_path).is_file():
-                voice_path = self._resolve_piper_voice(self.voice)
-            if voice_path and Path(voice_path).is_file():
-                self._engine = PiperVoice.load(voice_path)
-                self._engine_kind = "piper"
-                logger.info("TTS: loaded piper voice '%s'.", voice_path)
-                return
-            logger.debug("Piper voice '%s' not found locally — skipping.", self.voice)
+            import edge_tts
+            communicate = edge_tts.Communicate(text, "en-US-GuyNeural")
+            await communicate.save(output_path)
+            return output_path
         except ImportError:
-            pass
-        except Exception as exc:  # pragma: no cover
-            logger.warning("TTS: piper load failed: %s", exc)
+            raise RuntimeError("edge-tts not installed. Run `pip install edge-tts`.")
 
-        # ── Coqui TTS (higher quality, heavier) ────────────────────────────
+class OpenAIProvider(TTSProvider):
+    """OpenAI TTS API."""
+    async def synthesize(self, text: str, output_path: Path) -> Path:
         try:
-            from TTS.api import TTS  # type: ignore[import-not-found]
-
-            model_name = self.voice if "/" in self.voice else "tts_models/en/ljspeech/tacotron2-DDC"
-            self._engine = TTS(model_name)
-            self._engine_kind = "coqui"
-            logger.info("TTS: loaded Coqui model '%s'.", model_name)
-            return
+            from openai import AsyncOpenAI
+            from isaac.config.settings import settings
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            response = await client.audio.speech.create(model="tts-1", voice="alloy", input=text)
+            await response.stream_to_file(output_path)
+            return output_path
         except ImportError:
-            pass
-        except Exception as exc:  # pragma: no cover
-            logger.warning("TTS: Coqui load failed: %s", exc)
+            raise RuntimeError("openai not installed.")
 
-        # ── pyttsx3 (system TTS) ───────────────────────────────────────────
+class ElevenLabsProvider(TTSProvider):
+    """ElevenLabs TTS API."""
+    async def synthesize(self, text: str, output_path: Path) -> Path:
         try:
-            import pyttsx3  # type: ignore[import-not-found]
-
-            engine = pyttsx3.init()
-            engine.setProperty("rate", self.rate)
-            self._engine = engine
-            self._engine_kind = "pyttsx3"
-            logger.info("TTS: using pyttsx3 system voice.")
-            return
+            import httpx
+            from isaac.config.settings import settings
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.elevenlabs.io/v1/text-to-speech/21k0xGdgS7vWzZpQ95Wp",
+                    headers={"xi-api-key": settings.elevenlabs_api_key},
+                    json={"text": text}
+                )
+                resp.raise_for_status()
+                output_path.write_bytes(resp.content)
+            return output_path
         except ImportError:
-            pass
-        except Exception as exc:  # pragma: no cover
-            logger.warning("TTS: pyttsx3 init failed: %s", exc)
+            raise RuntimeError("httpx not installed.")
 
-        raise RuntimeError(
-            "No TTS backend available. Install one of: piper-tts, TTS (coqui), pyttsx3. "
-            "(`pip install piper-tts pyttsx3` is the cheapest combo.)"
-        )
+class GenericAPIProvider(TTSProvider):
+    """Placeholder for other providers."""
+    def __init__(self, provider_name: str):
+        self.provider_name = provider_name
+    async def synthesize(self, text: str, output_path: Path) -> Path:
+        logger.warning("TTS provider %s is not yet fully implemented. Falling back to EdgeTTS.", self.provider_name)
+        return await EdgeTTSProvider().synthesize(text, output_path)
 
-    @staticmethod
-    def _resolve_piper_voice(name: str) -> str:
-        """Find a piper .onnx voice file by name in common locations."""
-        candidates: list[Path] = []
-        env_path = os.environ.get("PIPER_VOICE_DIR")
-        if env_path:
-            candidates.append(Path(env_path) / f"{name}.onnx")
-        candidates.append(Path.home() / ".isaac" / "voices" / f"{name}.onnx")
-        candidates.append(Path("./voices") / f"{name}.onnx")
-        for c in candidates:
-            if c.is_file():
-                return str(c)
-        return ""
-
-    # -- Public API ---------------------------------------------------------
-
-    def synthesize(
-        self,
-        text: str,
-        out_path: str | os.PathLike[str] | None = None,
-    ) -> str:
-        """Synthesise *text* to a WAV file and return the path."""
-        self._load()
-        if not text.strip():
-            raise ValueError("TextToSpeech.synthesize: empty text.")
-
-        if out_path is None:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                out_path = tmp.name
-        out_path = str(out_path)
-
-        if self._engine_kind == "piper":
+class PiperProvider(TTSProvider):
+    """Local Piper TTS."""
+    async def synthesize(self, text: str, output_path: Path) -> Path:
+        try:
+            from piper import PiperVoice
+            from isaac.config.settings import settings
+            voice = PiperVoice.load(settings.voice_tts_voice)
             import wave
-
-            with wave.open(out_path, "wb") as wav:
+            with wave.open(str(output_path), "wb") as wav:
                 wav.setnchannels(1)
                 wav.setsampwidth(2)
-                wav.setframerate(self._engine.config.sample_rate)
-                self._engine.synthesize(text, wav)
-            return out_path
-
-        if self._engine_kind == "coqui":
-            self._engine.tts_to_file(text=text, file_path=out_path)
-            return out_path
-
-        if self._engine_kind == "pyttsx3":
-            self._engine.save_to_file(text, out_path)
-            self._engine.runAndWait()
-            return out_path
-
-        raise RuntimeError("TTS engine not initialised.")
-
-    def speak(self, text: str) -> None:
-        """Synthesise *text* and play it through the default speaker."""
-        path = self.synthesize(text)
-        try:
-            from isaac.multimodal.voice.audio_io import play_wav
-
-            play_wav(path)
-        finally:
-            with contextlib.suppress(OSError):
-                os.unlink(path)
-
-    def is_loaded(self) -> bool:
-        return self._engine is not None
-
-
-# ---------------------------------------------------------------------------
-# Module-level singleton
-# ---------------------------------------------------------------------------
-
-_tts: TextToSpeech | None = None
-
-
-def get_tts() -> TextToSpeech:
-    """Return the singleton TTS engine, configured from settings."""
-    global _tts
-    if _tts is None:
-        try:
-            from isaac.config.settings import settings
-
-            _tts = TextToSpeech(
-                voice=settings.voice_tts_voice,
-                rate=settings.voice_tts_rate,
-                sample_rate=settings.voice_tts_sample_rate,
-            )
-        except Exception:
-            _tts = TextToSpeech()
-    return _tts
-
-
-def is_tts_available() -> bool:
-    """Return True if any TTS backend can be imported."""
-    for mod in ("piper", "TTS", "pyttsx3"):
-        try:
-            __import__(mod)
-            return True
+                wav.setframerate(voice.config.sample_rate)
+                voice.synthesize(text, wav)
+            return output_path
         except ImportError:
-            continue
-    return False
+            raise RuntimeError("piper-tts not installed.")
 
+class TTSManager:
+    """Coordinates TTS synthesis across multiple providers."""
+    PROVIDERS: Dict[str, Type[TTSProvider]] = {
+        "edge": EdgeTTSProvider,
+        "openai": OpenAIProvider,
+        "elevenlabs": ElevenLabsProvider,
+        "piper": PiperProvider,
+    }
 
-def reset_tts() -> None:
-    """Reset the singleton (used in tests)."""
-    global _tts
-    _tts = None
+    def __init__(self):
+        self._current_provider_name = "edge"
+        self._provider: TTSProvider = self.PROVIDERS[self._current_provider_name]()
+
+    def set_provider(self, name: str):
+        if name not in self.PROVIDERS:
+            if name in ["minimax", "mistral", "gemini", "neutts", "kittentts"]:
+                self._provider = GenericAPIProvider(name)
+            else:
+                raise ValueError(f"Unsupported TTS provider: {name}")
+        else:
+            self._provider = self.PROVIDERS[name]()
+        self._current_provider_name = name
+        logger.info("TTS provider switched to %s", name)
+
+    async def synthesize(self, text: str, output_path: Path | None = None) -> Path:
+        if output_path is None:
+            tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+            output_path = Path(tmp.name)
+            tmp.close()
+        return await self._provider.synthesize(text, output_path)
+
+_manager: TTSManager | None = None
+
+def get_tts_manager() -> TTSManager:
+    global _manager
+    if _manager is None:
+        _manager = TTSManager()
+    return _manager

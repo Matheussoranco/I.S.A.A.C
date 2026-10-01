@@ -72,25 +72,73 @@ def _parse_llm_decision(content: str) -> dict[str, Any]:
         if cleaned.startswith("```"):
             cleaned = cleaned.split("\n", 1)[1]
             cleaned = cleaned.rsplit("```", 1)[0]
-        return json.loads(cleaned)
-    except (json.JSONDecodeError, IndexError):
+        decision = json.loads(cleaned)
+        if not isinstance(decision, dict) or not isinstance(decision.get("done"), bool):
+            raise ValueError("decision must be an object with a boolean done field")
+        if not decision["done"] and not isinstance(decision.get("action"), dict):
+            raise ValueError("unfinished decision must contain an action object")
+        if "summary" in decision and not isinstance(decision["summary"], str):
+            raise ValueError("summary must be text")
+        return decision
+    except (json.JSONDecodeError, IndexError, ValueError):
         logger.warning("ComputerUse: could not parse LLM JSON: %s", content[:300])
         return {"done": False, "action": {"type": "screenshot"}}
 
 
 def _dict_to_ui_action(d: dict[str, Any]) -> UIAction:
     """Convert a JSON dict from the LLM into a ``UIAction`` dataclass."""
+    action_type = d.get("type", "screenshot")
+    if action_type not in {
+        "screenshot",
+        "click",
+        "double_click",
+        "right_click",
+        "type",
+        "key",
+        "scroll",
+        "move",
+        "drag",
+        "wait",
+    }:
+        raise ValueError("unknown UI action type")
+
+    def bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+        value = d.get(name, default)
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ValueError(f"{name} must be an integer from {minimum} to {maximum}")
+        return value
+
+    duration = bounded_int("duration_ms", 0, 0, 5_000)
+    scroll = bounded_int("scroll_amount", 3, 1, 20)
+    coordinates = {}
+    for name in ("x", "y", "target_x", "target_y"):
+        coordinates[name] = bounded_int(name, 0, 0, 10_000) if d.get(name) is not None else None
+    if action_type in {"click", "double_click", "right_click", "move", "drag"} and (
+        coordinates["x"] is None or coordinates["y"] is None
+    ):
+        raise ValueError("pointer action requires x and y")
+    if action_type == "drag" and (
+        coordinates["target_x"] is None or coordinates["target_y"] is None
+    ):
+        raise ValueError("drag requires target_x and target_y")
+    for name, max_length in (("text", 2_000), ("key", 100), ("description", 300)):
+        value = d.get(name)
+        if value is not None and (not isinstance(value, str) or len(value) > max_length):
+            raise ValueError(f"{name} must be text of at most {max_length} characters")
+    direction = d.get("scroll_direction")
+    if direction is not None and direction not in {"up", "down", "left", "right"}:
+        raise ValueError("invalid scroll direction")
     return UIAction(
-        type=d.get("type", "screenshot"),
-        x=d.get("x"),
-        y=d.get("y"),
-        target_x=d.get("target_x"),
-        target_y=d.get("target_y"),
+        type=action_type,
+        x=coordinates["x"],
+        y=coordinates["y"],
+        target_x=coordinates["target_x"],
+        target_y=coordinates["target_y"],
         text=d.get("text"),
         key=d.get("key"),
-        scroll_direction=d.get("scroll_direction"),
-        scroll_amount=int(d.get("scroll_amount", 3)),
-        duration_ms=int(d.get("duration_ms", 0)),
+        scroll_direction=direction,
+        scroll_amount=scroll,
+        duration_ms=duration,
         description=d.get("description", ""),
     )
 
@@ -197,7 +245,11 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
         if not isinstance(action_dict, dict):
             failure_reason = "Vision model returned a malformed UI action."
             break
-        action = _dict_to_ui_action(action_dict)
+        try:
+            action = _dict_to_ui_action(action_dict)
+        except ValueError as exc:
+            failure_reason = f"Vision model returned an invalid UI action: {exc}"
+            break
         if not _approve_ui_action(state, action):
             failure_reason = (
                 f"UI action '{action.type}' was denied because approval was not granted."

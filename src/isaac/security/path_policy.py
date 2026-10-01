@@ -21,6 +21,13 @@ DENIED_DIR_NAMES = frozenset(
         ".password-store",
         ".mozilla",
         ".thunderbird",
+        "chrome",
+        "google-chrome",
+        "chromium",
+        "microsoft-edge",
+        "edge",
+        "brave-browser",
+        "opera stable",
     }
 )
 

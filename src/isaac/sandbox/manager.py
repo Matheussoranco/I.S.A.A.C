@@ -83,7 +83,7 @@ def _build_xdotool_command(action: UIAction) -> list[str]:  # type: ignore[name-
             "1",
         ]
     if t == "wait":
-        ms = action.duration_ms or 500
+        ms = min(max(action.duration_ms or 500, 1), 5_000)
         return ["sleep", str(ms / 1000)]
     # screenshot or unknown — no-op placeholder (scrot called separately)
     return ["true"]

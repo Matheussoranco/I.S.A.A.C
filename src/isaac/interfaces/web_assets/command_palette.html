@@ -1,0 +1,54 @@
+
+<div id="command-palette" class="palette-overlay" style="display:none;">
+    <div class="palette-container">
+        <input type="text" id="palette-input" placeholder="Type a command or search history..." autofocus>
+        <div id="palette-results" class="palette-results"></div>
+    </div>
+</div>
+
+<script>
+const commandPalette = {
+    isOpen: false,
+    async open() {
+        this.isOpen = true;
+        document.getElementById('command-palette').style.display = 'flex';
+        document.getElementById('palette-input').focus();
+    },
+    close() {
+        this.isOpen = false;
+        document.getElementById('command-palette').style.display = 'none';
+    },
+    async execute(cmd) {
+        await fetch('/api/desktop/command/run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({command: cmd})
+        });
+        this.close();
+    },
+    async handleInput(e) {
+        const query = e.target.value;
+        if (!query) return;
+        const res = await fetch(`/api/desktop/palette/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        this.renderResults(data.results);
+    },
+    renderResults(results) {
+        const container = document.getElementById('palette-results');
+        container.innerHTML = results.map(r => `
+            <div class="palette-item" onclick="commandPalette.execute('${r.cmd}')">
+                <span class="cmd-icon">${r.type === 'cmd' ? '⚡' : '🕒'}</span>
+                <span>${r.label}</span>
+            </div>
+        `).join('');
+    }
+};
+
+window.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        commandPalette.isOpen ? commandPalette.close() : commandPalette.open();
+    }
+});
+document.getElementById('palette-input').addEventListener('input', e => commandPalette.handleInput(e));
+</script>

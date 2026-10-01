@@ -19,6 +19,17 @@ from isaac.specialists.orchestrator import MAX_SUBTASKS, Orchestrator, SubTask
 from isaac.tools.base import IsaacTool, ToolResult
 
 
+@pytest.mark.asyncio
+async def test_public_astream_yields_model_chunks() -> None:
+    class StreamingLLM:
+        async def astream(self, _messages):
+            yield SimpleNamespace(content="hello")
+            yield SimpleNamespace(content=" world")
+
+    agent = AgentLoop([], llm=StreamingLLM())
+    assert [chunk async for chunk in agent.astream("greet")] == ["hello", " world"]
+
+
 class ScriptLLM:
     def __init__(self, *responses):
         self.responses = iter(responses)

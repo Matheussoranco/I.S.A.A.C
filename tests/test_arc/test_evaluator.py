@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -15,7 +16,9 @@ from isaac.arc.evaluator import (
     evaluate,
     load_tasks,
     solve_with_dsl,
+    solve_with_llm,
 )
+from isaac.arc.solver import _safe_equal_fn
 
 
 def _make_rotation_task() -> ArcTask:
@@ -138,3 +141,25 @@ class TestEvaluate:
         report = evaluate([], solver="dsl")
         assert report.total_tasks == 0
         assert report.accuracy == 0.0
+
+
+def test_llm_candidate_uses_sandbox_for_training_and_prediction() -> None:
+    task = _make_rotation_task()
+
+    class FakeLLM:
+        def invoke(self, _messages):
+            return type(
+                "Reply", (), {"content": "```python\nraise RuntimeError('host exec')\n```"}
+            )()
+
+    with patch(
+        "isaac.arc.sandbox_runner.run_candidate",
+        side_effect=[[task.train[0].output], [task.test[0].output]],
+    ) as runner:
+        result = solve_with_llm(task, FakeLLM())
+    assert result.correct is True
+    assert runner.call_count == 2
+
+
+def test_fractional_prediction_is_not_exact_training_match() -> None:
+    assert not _safe_equal_fn(lambda _grid: np.array([[1.9]]), np.array([[0]]), np.array([[1]]))

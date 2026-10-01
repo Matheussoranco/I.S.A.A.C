@@ -39,7 +39,7 @@ import logging
 import sys
 from typing import Any, cast
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 
 from isaac.core.state import IsaacState, make_initial_state
@@ -256,6 +256,16 @@ def build_graph() -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _prepare_turn_messages(previous: list[BaseMessage], user_input: str) -> list[BaseMessage]:
+    return compress_messages([*previous, HumanMessage(content=user_input)])
+
+
+def _retain_turn_messages(
+    submitted: list[BaseMessage], updates: list[BaseMessage]
+) -> list[BaseMessage]:
+    return [*submitted, *updates]
+
+
 def build_and_run() -> int:
     """Entry-point for ``python -m isaac``.
 
@@ -356,11 +366,9 @@ def build_and_run() -> int:
             except Exception:
                 pass
 
-            # Append the user message
-            state["messages"] = [HumanMessage(content=user_input)]
-
-            # Compress history if it's grown too large
-            state["messages"] = compress_messages(state.get("messages", []))
+            # Keep prior turns available to the graph and its direct-response path.
+            state["messages"] = _prepare_turn_messages(state.get("messages", []), user_input)
+            submitted_messages = list(state["messages"])
 
             # Run the graph with streaming progress
             try:
@@ -391,6 +399,9 @@ def build_and_run() -> int:
 
                 # Merge result back into state
                 state = cast(IsaacState, {**state, **result})
+                state["messages"] = _retain_turn_messages(
+                    submitted_messages, result.get("messages", [])
+                )
 
                 # Print final response
                 msgs = result.get("messages", [])

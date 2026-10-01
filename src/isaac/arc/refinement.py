@@ -61,34 +61,20 @@ def _diagnose_pair(
     pair_idx: int,
     input_grid: Grid,
     expected: Grid,
-    solve_fn: Any,
+    actual: Grid | None,
 ) -> PairFailure | None:
-    """Run solve_fn on input_grid and return a PairFailure if it doesn't match expected.
+    """Describe an isolated candidate prediction if it doesn't match expected.
 
     Returns None if the pair passes (no failure).
     """
-    try:
-        actual = solve_fn(input_grid.copy())
-    except Exception as exc:
+    if actual is None:
         return PairFailure(
             pair_index=pair_idx,
             input_grid=input_grid,
             expected_grid=expected,
             actual_grid=None,
-            error=str(exc)[:300],
+            error="solve() failed or returned an invalid ARC grid in the sandbox",
         )
-
-    if not isinstance(actual, np.ndarray):
-        try:
-            actual = np.array(actual, dtype=int)
-        except Exception:
-            return PairFailure(
-                pair_index=pair_idx,
-                input_grid=input_grid,
-                expected_grid=expected,
-                actual_grid=None,
-                error="solve() did not return an ndarray",
-            )
 
     if np.array_equal(actual, expected):
         return None  # Pass — no failure
@@ -162,25 +148,17 @@ def _format_failure(f: PairFailure) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _load_solve_fn(code: str) -> Any | None:
-    """Compile and return the solve() function from a code string."""
-    namespace: dict[str, Any] = {"np": np, "numpy": np}
-    try:
-        exec(code, namespace)
-        return namespace.get("solve")
-    except Exception:
-        return None
-
-
 def _training_accuracy(code: str, task: ArcTask) -> tuple[float, list[PairFailure]]:
     """Return (accuracy_0_to_1, list_of_failures) for *code* on *task*."""
-    solve_fn = _load_solve_fn(code)
-    if solve_fn is None:
-        return 0.0, []
+    from isaac.arc.sandbox_runner import run_candidate
+
+    predictions = run_candidate(code, [pair.input for pair in task.train])
+    if predictions is None:
+        predictions = [None] * len(task.train)
 
     failures: list[PairFailure] = []
-    for i, pair in enumerate(task.train):
-        f = _diagnose_pair(i, pair.input, pair.output, solve_fn)
+    for i, (pair, prediction) in enumerate(zip(task.train, predictions, strict=True)):
+        f = _diagnose_pair(i, pair.input, pair.output, prediction)
         if f is not None:
             failures.append(f)
 
@@ -431,15 +409,10 @@ def refine_and_predict(
         analogy_hint=analogy_hint,
     )
 
-    solve_fn = _load_solve_fn(result.best_code)
-    predictions: list[Grid | None] = []
-    if solve_fn is not None:
-        for pair in task.test:
-            try:
-                predictions.append(solve_fn(pair.input.copy()))
-            except Exception:
-                predictions.append(None)
-    else:
+    from isaac.arc.sandbox_runner import run_candidate
+
+    predictions = run_candidate(result.best_code, [pair.input for pair in task.test])
+    if predictions is None:
         predictions = [None] * len(task.test)
 
     return result.best_code, predictions, result.best_accuracy

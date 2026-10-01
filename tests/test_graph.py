@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from langchain_core.messages import AIMessage
+
+from isaac.core.graph import _prepare_turn_messages, _retain_turn_messages
 from isaac.core.state import ErrorEntry, PlanStep, SkillCandidate, make_initial_state
 from isaac.core.transitions import (
     after_guard,
@@ -11,6 +14,17 @@ from isaac.core.transitions import (
     after_reflection,
     after_skill_abstraction,
 )
+
+
+def test_interactive_turn_retains_prior_exchange() -> None:
+    first = _prepare_turn_messages([], "My name is Ada")
+    prior = _retain_turn_messages(first, [AIMessage(content="Hello Ada")])
+    second = _prepare_turn_messages(prior, "What is my name?")
+    assert [message.content for message in second] == [
+        "My name is Ada",
+        "Hello Ada",
+        "What is my name?",
+    ]
 
 
 class TestAfterGuard:

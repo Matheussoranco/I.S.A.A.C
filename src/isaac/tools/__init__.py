@@ -24,6 +24,16 @@ from isaac.tools.fileops import (
     FsReadTool,
     FsWriteTool,
 )
+from isaac.tools.kanban import (
+    KANBAN_TOOL_CLASSES,
+    KanbanBlockTool,
+    KanbanCommentTool,
+    KanbanCompleteTool,
+    KanbanCreateTool,
+    KanbanHeartbeatTool,
+    KanbanLinkTool,
+    KanbanShowTool,
+)
 from isaac.tools.search import WebSearchTool
 from isaac.tools.shell import ShellTool
 from isaac.tools.system import SystemInfoTool
@@ -57,6 +67,8 @@ def register_all_tools() -> ToolRegistry:
         FsMkdirTool,
         FsMoveTool,
         FsCopyTool,
+        # Kanban multi-agent queue tools
+        *KANBAN_TOOL_CLASSES,
     ):
         # graceful — tool may have missing deps
         with contextlib.suppress(Exception):
@@ -85,6 +97,14 @@ __all__ = [
     "FsMoveTool",
     "FsReadTool",
     "FsWriteTool",
+    "KANBAN_TOOL_CLASSES",
+    "KanbanBlockTool",
+    "KanbanCommentTool",
+    "KanbanCompleteTool",
+    "KanbanCreateTool",
+    "KanbanHeartbeatTool",
+    "KanbanLinkTool",
+    "KanbanShowTool",
     "ShellTool",
     "SystemInfoTool",
     "WebSearchTool",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -39,6 +40,10 @@ class TestCapabilityToken:
             tool_name="*",
             expires_at="2020-01-01T00:00:00+00:00",
         )
+        assert not t.is_valid()
+
+    def test_naive_expiry_is_invalid(self) -> None:
+        t = CapabilityToken(token_id="t", tool_name="*", expires_at="2026-09-28T12:00:00")
         assert not t.is_valid()
 
     def test_matches_wildcard(self) -> None:
@@ -120,3 +125,15 @@ class TestTokenStore:
 
         s2 = TokenStore(store_path=store_path)
         assert s2.check(token.token_id, "tool")
+
+    def test_failed_save_cannot_consume_one_use_grant(self, tmp_path: Path) -> None:
+        store_path = tmp_path / "tokens.json"
+        store = TokenStore(store_path=store_path)
+        token = store.issue("shell", max_uses=1)
+        with patch.object(store, "_save", side_effect=OSError("disk full")):
+            assert store.check(token.token_id, "shell") is False
+            assert store.consume_matching("shell") is None
+        assert token.use_count == 0
+        reopened = TokenStore(store_path=store_path)
+        assert reopened.consume_matching("shell") is not None
+        assert TokenStore(store_path=store_path).consume_matching("shell") is None

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from isaac.core.state import (
     GUIState,
     PlanStep,
@@ -18,6 +20,7 @@ from isaac.nodes.computer_use import (
     computer_use_node,
     shutdown_ui_executor,
 )
+from isaac.sandbox.manager import _build_xdotool_command
 from tests.conftest import MockLLM
 
 # ---------------------------------------------------------------------------
@@ -69,6 +72,10 @@ class TestParseDecision:
         result = _parse_llm_decision(content)
         assert result["done"] is True
 
+    def test_invalid_root_and_done_type_fail_closed(self) -> None:
+        assert _parse_llm_decision("[]")["action"]["type"] == "screenshot"
+        assert _parse_llm_decision('{"done": "false"}')["done"] is False
+
 
 class TestDictToUIAction:
     def test_click_action(self) -> None:
@@ -81,6 +88,16 @@ class TestDictToUIAction:
         action = _dict_to_ui_action({})
         assert action.type == "screenshot"
         assert action.scroll_amount == 3
+
+    def test_invalid_or_unbounded_wait_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            _dict_to_ui_action({"type": "wait", "duration_ms": 2_147_483_647})
+        with pytest.raises(ValueError):
+            _dict_to_ui_action({"type": "scroll", "scroll_amount": "bad"})
+        assert _build_xdotool_command(UIAction(type="wait", duration_ms=2_147_483_647)) == [
+            "sleep",
+            "5.0",
+        ]
 
 
 # ---------------------------------------------------------------------------

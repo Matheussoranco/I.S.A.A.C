@@ -214,8 +214,10 @@ class TestAgentLoop:
         result = AgentLoop([EchoTool()], llm=llm, max_iterations=10).run("loop forever")
         assert result.stopped_reason == "no_progress"
         assert result.success is False
-        assert len(result.tool_calls) == 3
-        assert "repeated" in result.output
+        # Two executions (the first two attempts), then the repeat-call bounce
+        # turns subsequent identical calls into steering observations.
+        assert len(result.tool_calls) == 2
+        assert result.no_progress_streak >= 3
 
     def test_wall_clock_budget_stops_loop(self) -> None:
         llm = FakeLLM([AIMessage(content="", tool_calls=[_tool_call("slow", {})])])
@@ -410,7 +412,7 @@ class TestLoopHardening:
 
         runs = store.recent_runs()
         assert len(runs) == 1
-        assert runs[0]["task"] == "echo hi"
+        assert runs[0]["task"] == "[content omitted]"
         assert runs[0]["stopped_reason"] == "final"
         kinds = [e["kind"] for e in store.run_events(runs[0]["run_id"])]
         assert "tool_call" in kinds

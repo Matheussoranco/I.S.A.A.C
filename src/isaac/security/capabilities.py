@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 import threading
 from dataclasses import asdict, dataclass
@@ -52,7 +53,7 @@ class CapabilityToken:
                 exp = datetime.fromisoformat(self.expires_at)
                 if datetime.now(UTC) > exp:
                     return False
-            except ValueError:
+            except (TypeError, ValueError):
                 return False
         return True
 
@@ -93,11 +94,19 @@ class TokenStore:
                 logger.error("Failed to load token store: %s", exc)
 
     def _save(self) -> None:
+        """Atomically persist grants before reporting an authorization change."""
+        temporary = self._path.with_name(f".{self._path.name}.{secrets.token_hex(8)}.tmp")
         try:
             data = {tid: asdict(t) for tid, t in self._tokens.items()}
-            self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            with temporary.open("w", encoding="utf-8") as stream:
+                json.dump(data, stream, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self._path)
         except Exception as exc:
             logger.error("Failed to save token store: %s", exc)
+            temporary.unlink(missing_ok=True)
+            raise
 
     def issue(
         self,
@@ -121,7 +130,11 @@ class TokenStore:
                 max_uses=max_uses,
             )
             self._tokens[token.token_id] = token
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                del self._tokens[token.token_id]
+                raise
 
         # Audit
         try:
@@ -155,7 +168,11 @@ class TokenStore:
                 return False
 
             token.use_count += 1
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                token.use_count -= 1
+                return False
 
         # Audit
         try:
@@ -188,7 +205,11 @@ class TokenStore:
             for token in self._tokens.values():
                 if token.matches(tool_name, action):
                     token.use_count += 1
-                    self._save()
+                    try:
+                        self._save()
+                    except Exception:
+                        token.use_count -= 1
+                        return None
                     consumed = token
                     break
         if consumed is not None:
@@ -217,7 +238,11 @@ class TokenStore:
                 return False
 
             token.revoked = True
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                token.revoked = False
+                return False
 
         try:
             from isaac.security.audit import audit
@@ -240,7 +265,11 @@ class TokenStore:
             for tid in to_remove:
                 del self._tokens[tid]
             if to_remove:
-                self._save()
+                try:
+                    self._save()
+                except Exception:
+                    self._load()
+                    raise
         return len(to_remove)
 
 

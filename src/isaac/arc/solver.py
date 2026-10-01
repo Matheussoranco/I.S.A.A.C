@@ -378,14 +378,18 @@ def _llm_solve_enriched(
         if "def solve" not in code:
             return None
 
-        # Validate on training data
-        namespace: dict[str, Any] = {"np": np, "numpy": np}
-        exec(code, namespace)
-        solve_fn = namespace.get("solve")
-        if solve_fn is None:
+        # Validate model-generated code inside the Docker code sandbox.
+        from isaac.arc.sandbox_runner import run_candidate
+
+        predictions = run_candidate(code, [pair.input for pair in task.train])
+        if predictions is None:
             return None
 
-        correct = sum(1 for p in task.train if _safe_equal_fn(solve_fn, p.input, p.output))
+        correct = sum(
+            1
+            for prediction, pair in zip(predictions, task.train, strict=True)
+            if prediction is not None and np.array_equal(prediction, pair.output)
+        )
         acc = correct / len(task.train) if task.train else 0.0
         return code, acc
 
@@ -397,7 +401,7 @@ def _llm_solve_enriched(
 def _safe_equal_fn(fn: Any, inp: Grid, expected: Grid) -> bool:
     try:
         result = fn(inp.copy())
-        return np.array_equal(np.array(result, dtype=int), expected)
+        return np.array_equal(np.asarray(result), expected)
     except Exception:
         return False
 
@@ -669,13 +673,18 @@ def _make_task_result(
     if best.ops and best.ops[0].get("op") == "_custom_python":
         code = best.ops[0].get("code", "")
         try:
-            namespace: dict[str, Any] = {"np": np, "numpy": np}
-            exec(code, namespace)
-            solve_fn = namespace.get("solve")
-            if solve_fn is not None:
-                predictions = [solve_fn(p.input) for p in task.test]
+            if best.method.startswith("llm"):
+                from isaac.arc.sandbox_runner import run_candidate
+
+                predictions = run_candidate(code, [pair.input for pair in task.test])
+            else:
+                namespace: dict[str, Any] = {"np": np, "numpy": np}
+                exec(code, namespace)
+                solve_fn = namespace.get("solve")
+                predictions = [solve_fn(p.input) for p in task.test] if solve_fn else None
+            if predictions is not None:
                 correct = all(
-                    np.array_equal(pred, p.output)
+                    pred is not None and np.array_equal(pred, p.output)
                     for pred, p in zip(predictions, task.test, strict=False)
                 )
                 return TaskResult(
@@ -688,6 +697,15 @@ def _make_task_result(
                 )
         except Exception:
             pass
+        if best.method.startswith("llm"):
+            return TaskResult(
+                task_id=task.id,
+                correct=False,
+                predicted=[None] * len(task.test),
+                program=code,
+                solve_time_ms=elapsed,
+                method=best.method,
+            )
 
     # DSL program path
     predictions = []

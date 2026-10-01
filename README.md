@@ -5,7 +5,7 @@
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-1.6.2-blue)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 
 A **multimodal, self-improving, local-first** autonomous agent built on
 [LangGraph](https://github.com/langchain-ai/langgraph) — Docker-sandboxed
@@ -214,7 +214,7 @@ Trigger paths:
 
 ### Prerequisites
 
-- Python ≥ 3.10
+- Python ≥ 3.12
 - Docker Engine running
 - [Ollama](https://ollama.com/download) with the default model pulled — `ollama pull qwen3.6`
 - *Optional:* an `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` if you'd rather drive a cloud model
@@ -299,7 +299,7 @@ isaac agent "Find the current stable Python release and save it to version.txt"
 # Restrict the toolbox, allow more steps, and auto-approve high-risk tools
 isaac agent "Summarise today's top Hacker News post" --tools browser,web_search -n 20
 
-# Inspect past runs (every agent run is traced to SQLite)
+# Inspect past runs (metadata-only SQLite traces by default)
 isaac trace                 # list recent runs
 isaac trace <run_id>        # replay one run's event stream
 
