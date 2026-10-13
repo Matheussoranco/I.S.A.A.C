@@ -425,6 +425,17 @@ def _execute_task(task: CronTask) -> str:
     # --- Phase 4.2: pre-run script / script-only jobs ---------------------
     script_out = ""
     if task.pre_run_script:
+        from isaac.security.constitution import review
+
+        decision = review(
+            "shell",
+            task.pre_run_script,
+            context={"cron_task": task.id},
+            use_llm=False,
+        )
+        if not decision.allow:
+            _append_log(task.id, "blocked", decision.reason)
+            return "blocked"
         try:
             _step(task.id, "pre_run_script:start")
             script_out = _run_script(task.pre_run_script, timeout=timeout)

@@ -3,7 +3,7 @@
 I.S.A.A.C. is designed as a modular framework where capabilities are decoupled from the specific LLM driving the loop.
 
 ## 1. Multi-modal (Vision/Voice)
-- **Voice**: Integration of `faster-whisper` for high-speed speech-to-text and a flexible TTS backend (Piper, Coqui, or pyttsx3). Supports "hands-free" mode via VAD (Voice Activity Detection).
+- **Voice**: Integration of `faster-whisper` for high-speed speech-to-text and a flexible TTS backend (edge-tts, OpenAI, ElevenLabs, pyttsx3 or Kokoro). Supports "hands-free" mode via VAD (Voice Activity Detection).
 - **Vision**: Integration of VLMs (Vision-Language Models) via Ollama. The agent can capture the screen or analyze local images to derive spatial and textual context.
 
 ## 2. MCP Client / Plugin SDK

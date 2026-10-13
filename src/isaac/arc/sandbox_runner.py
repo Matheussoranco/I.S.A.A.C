@@ -18,8 +18,10 @@ logger = logging.getLogger(__name__)
 def run_candidate(code: str, inputs: list[Grid]) -> list[Grid | None] | None:
     """Return bounded grid predictions, or ``None`` if the sandbox is unavailable.
 
-    Each grid's solve() failure becomes a missing prediction. No candidate code is
-    evaluated by the host interpreter, including during training validation.
+    Each grid's solve() failure becomes a missing prediction. No LLM-authored
+    candidate code is evaluated by the host interpreter, including during training
+    validation. Programs rendered from the solver's own object-rule templates are
+    trusted and run in-process.
     """
     marker = f"ISAAC_ARC_RESULT_{secrets.token_hex(16)}:"
     payload = json.dumps([grid.tolist() for grid in inputs])

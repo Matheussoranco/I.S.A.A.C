@@ -31,9 +31,18 @@ Usage
 
 from __future__ import annotations
 
+import ast
 import logging
-import re
 from typing import Any
+
+from isaac.reasoning.constraint_parser import (
+    FUNCTIONS,
+    MAX_CONSTRAINTS,
+    MAX_VARIABLES,
+    evaluate_constraint,
+    parse_constraint,
+    validate_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +86,7 @@ class TheoremProver:
             return {"satisfiable": None, "model": {}, "error": "z3-solver not installed"}
 
         try:
-            return self._solve(constraints, variables or {}, timeout_ms)
+            return self._solve(constraints, {} if variables is None else variables, timeout_ms)
         except Exception as exc:
             logger.warning("TheoremProver.check_sat failed: %s", exc)
             return {"satisfiable": None, "model": {}, "error": str(exc)}
@@ -90,16 +99,29 @@ class TheoremProver:
     ) -> dict[str, Any]:
         import z3  # type: ignore[import-untyped]
 
+        if not isinstance(constraints, list) or len(constraints) > MAX_CONSTRAINTS:
+            raise ValueError("Constraints must be a list of at most 2048 expressions")
+        if type(timeout_ms) is not int or not 1 <= timeout_ms <= 60000:
+            raise ValueError("Solver timeout must be between 1 and 60000 ms")
+        trees = [parse_constraint(c) for c in constraints]
+        if not isinstance(var_decls, dict) or len(var_decls) > MAX_VARIABLES:
+            raise ValueError("At most 1024 variable declarations are supported")
+
         solver = z3.Solver()
         solver.set("timeout", timeout_ms)
 
         # Auto-detect variables if not provided
         if not var_decls:
             var_decls = self._auto_detect_vars(constraints)
+        if len(var_decls) > MAX_VARIABLES:
+            raise ValueError("At most 1024 variables are supported")
 
         # Create Z3 variables
         env: dict[str, Any] = {}
         for name, sort in var_decls.items():
+            validate_name(name)
+            if not isinstance(sort, str):
+                raise ValueError("Variable sort must be Int, Real or Bool")
             sort_lower = sort.lower()
             if sort_lower == "int":
                 env[name] = z3.Int(name)
@@ -108,23 +130,14 @@ class TheoremProver:
             elif sort_lower == "bool":
                 env[name] = z3.Bool(name)
             else:
-                env[name] = z3.Int(name)
+                raise ValueError(f"Unsupported variable sort: {sort}")
 
-        # Add constraints
-        local_env = {
-            **env,
-            "And": z3.And,
-            "Or": z3.Or,
-            "Not": z3.Not,
-            "Implies": z3.Implies,
-            "If": z3.If,
-        }
-        for c in constraints:
+        # Parse every constraint before solving; a rejected expression invalidates the problem.
+        for index, tree in enumerate(trees):
             try:
-                expr = eval(c, {"__builtins__": {}}, local_env)
-                solver.add(expr)
+                solver.add(evaluate_constraint(tree, env, z3))
             except Exception as exc:
-                logger.debug("Could not parse constraint %r: %s", c, exc)
+                raise ValueError(f"Constraint {index + 1} is invalid: {exc}") from exc
 
         result = solver.check()
 
@@ -160,6 +173,14 @@ class TheoremProver:
         if not _z3_available():
             return {"verified": None, "counterexample": {}, "error": "z3-solver not installed"}
 
+        # An inconsistent model proves anything vacuously; it is not a code proof.
+        premise = self.check_sat([*preconditions, code_logic], variables, timeout_ms)
+        if premise["satisfiable"] is not True:
+            return {
+                "verified": None,
+                "counterexample": {},
+                "error": premise.get("error") or "Preconditions and code model are inconsistent",
+            }
         # Build negated check: pre ∧ code ∧ ¬post
         negated = [*preconditions, code_logic, f"not ({postcondition})"]
         result = self.check_sat(negated, variables, timeout_ms)
@@ -210,31 +231,14 @@ class TheoremProver:
         return {"satisfiable": result["satisfiable"], "grid": {}, "error": result.get("error", "")}
 
     def _auto_detect_vars(self, constraints: list[str]) -> dict[str, str]:
-        """Heuristically detect variable names from constraint strings."""
-        ident_re = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b")
-        keywords = {
-            "and",
-            "or",
-            "not",
-            "if",
-            "else",
-            "True",
-            "False",
-            "And",
-            "Or",
-            "Not",
-            "Implies",
-            "If",
-            "in",
-            "is",
-        }
+        """Detect symbolic names from syntax; function names are not variables."""
         names: set[str] = set()
-        for c in constraints:
-            for m in ident_re.finditer(c):
-                name = m.group(1)
-                if name not in keywords and not name[0].isupper():
-                    names.add(name)
-        return {n: "Int" for n in names}
+        for constraint in constraints:
+            for node in ast.walk(parse_constraint(constraint)):
+                if isinstance(node, ast.Name) and node.id not in FUNCTIONS:
+                    validate_name(node.id)
+                    names.add(node.id)
+        return {name: "Int" for name in sorted(names)}
 
     @staticmethod
     def _z3_to_python(val: Any) -> Any:
@@ -292,14 +296,31 @@ def verify_code_property(
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
 
         spec = json.loads(raw)
+        if (
+            not isinstance(spec, dict)
+            or not {"preconditions", "postcondition", "code_logic", "variables"} <= spec.keys()
+        ):
+            raise ValueError("Formalization is missing required fields")
+        if not isinstance(spec["preconditions"], list) or not isinstance(spec["variables"], dict):
+            raise ValueError("Invalid formalization field types")
         prover = TheoremProver()
-        return prover.verify_property(
+        model_result = prover.verify_property(
             preconditions=spec.get("preconditions", []),
             postcondition=spec.get("postcondition", "True"),
             code_logic=spec.get("code_logic", ""),
             variables=spec.get("variables"),
             timeout_ms=timeout_ms,
         )
+        # The solver proves only the generated model. No checked translation
+        # currently connects arbitrary Python code to the LLM's formalization.
+        return {
+            "verified": None,
+            "counterexample": model_result["counterexample"],
+            "model_verified": model_result["verified"],
+            "formalization": spec,
+            "error": model_result["error"]
+            or "LLM formalization requires review against the source code",
+        }
     except Exception as exc:
         logger.warning("verify_code_property failed: %s", exc)
         return {"verified": None, "error": str(exc)}

@@ -82,6 +82,24 @@ class LogicExpert(Expert):
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
             spec = json.loads(raw)
+            if not isinstance(spec, dict) or not {"variables", "constraints"} <= spec.keys():
+                raise ValueError("Formalization is missing required fields")
+            if (
+                not isinstance(spec["variables"], dict)
+                or not isinstance(spec["constraints"], list)
+                or not spec["constraints"]
+            ):
+                raise ValueError("Formalization must include variables and nonempty constraints")
+            import ast
+
+            from isaac.reasoning.constraint_parser import FUNCTIONS, parse_constraint
+
+            if not any(
+                isinstance(node, ast.Name) and node.id not in FUNCTIONS
+                for expression in spec["constraints"]
+                for node in ast.walk(parse_constraint(expression))
+            ):
+                raise ValueError("Formalization contains no symbolic problem")
             result = prover.check_sat(
                 spec.get("constraints", []),
                 spec.get("variables"),

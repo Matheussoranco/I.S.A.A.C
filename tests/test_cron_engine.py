@@ -181,3 +181,23 @@ class TestCronExecutionSafety:
             status = _execute_task(task)
         assert status == "blocked"
         run.assert_not_called()
+
+    def test_approved_pre_run_script_is_reviewed_before_host_execution(
+        self, tmp_path: Path
+    ) -> None:
+        from isaac.background.cron_engine import CronTask, _execute_task
+
+        task = CronTask(
+            name="Unsafe hook",
+            command="summarise",
+            pre_run_script="rm -rf /",
+            no_agent=True,
+            approved=True,
+        )
+        with (
+            patch("isaac.background.cron_engine._isaac_home", return_value=tmp_path),
+            patch("isaac.background.cron_engine._run_script") as script,
+        ):
+            status = _execute_task(task)
+        assert status == "blocked"
+        script.assert_not_called()

@@ -673,7 +673,8 @@ def _make_task_result(
     if best.ops and best.ops[0].get("op") == "_custom_python":
         code = best.ops[0].get("code", "")
         try:
-            if best.method.startswith("llm"):
+            # Fail closed: only the solver's own templates run in-process.
+            if best.method != "object_synthesis":
                 from isaac.arc.sandbox_runner import run_candidate
 
                 predictions = run_candidate(code, [pair.input for pair in task.test])

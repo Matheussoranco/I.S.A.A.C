@@ -30,7 +30,7 @@ self-curation, and a hardened security stack.
 | **Local-first LLMs** | Ollama + `qwen3.6` **by default** — zero API keys, nothing leaves the machine. llama.cpp and any OpenAI-compatible endpoint are first-class too; cloud (OpenAI/Anthropic) stays fully supported but strictly opt-in. |
 | **Capable on small models** | Grammar/JSON-constrained tool calling (Ollama `format`, llama.cpp GBNF) plus salvage + Reflexion retry for malformed calls. Runs agents on models with *no* native tool support: `gemma3:1b` goes from 0/20 to 20/20 well-formed calls. Measured in [`docs/MODELS.md`](docs/MODELS.md). |
 | **Test-time compute** | Self-consistency and best-of-N with cheap local verifiers on hard steps, escalating and exiting early exactly as the ARC solver does. |
-| **Voice I/O** | Whisper (STT) ↔ Piper / Coqui / pyttsx3 (TTS) with VAD-driven hands-free mode. |
+| **Voice I/O** | Whisper (STT) ↔ edge-tts / OpenAI / ElevenLabs / pyttsx3 / Kokoro (TTS) with VAD-driven hands-free mode. |
 | **Vision** | Local VLMs via Ollama (`llava`, `qwen2.5-vl`). Image / screen-capture input. |
 | **Self-improving** | Per-node telemetry, A/B prompt evolution, skill auto-curation, periodic self-critique. |
 | **Sandboxed code** | Ephemeral Docker containers, no network, dropped capabilities, seccomp profile. |
@@ -82,13 +82,13 @@ START ─► Guard ─► Perception ─► (DirectResponse | Explorer)
 | **SkillAbstraction** | Generalise successful code into reusable Library entries |
 | **AwaitApproval** | Pause for human approval on high-risk tools |
 
-### Multimodal subsystem (new in 0.3.0)
+### Multimodal subsystem
 
 ```
 src/isaac/multimodal/
 ├── voice/
 │   ├── stt.py            ← Whisper (faster-whisper / openai-whisper)
-│   ├── tts.py            ← Piper / Coqui / pyttsx3 auto-selection
+│   ├── tts.py            ← edge-tts / OpenAI / ElevenLabs provider selection
 │   └── audio_io.py       ← Mic capture, VAD, playback
 ├── vision/
 │   ├── vision_lm.py      ← Image+text VLM wrapper
@@ -96,7 +96,7 @@ src/isaac/multimodal/
 └── input.py              ← Unified text + image + audio → HumanMessage
 ```
 
-### Self-improvement engine (new in 0.3.0)
+### Self-improvement engine
 
 ```
 src/isaac/improvement/

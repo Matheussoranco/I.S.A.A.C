@@ -25,8 +25,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB = Path.home() / ".isaac" / "meta_learner-v2.db"
-
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS task_outcomes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +63,11 @@ class MetaLearner:
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._lock = threading.RLock()
-        self._db = Path(db_path) if db_path else _DEFAULT_DB
+        if db_path is None:
+            from isaac.config.settings import get_settings
+
+            db_path = get_settings().isaac_home / "meta_learner-v2.db"
+        self._db = Path(db_path)
         self._db.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

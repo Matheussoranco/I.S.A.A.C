@@ -56,7 +56,11 @@ class SemanticMemory:
     """
 
     def __init__(self, db_path: Path | None = None) -> None:
-        self._db_path = db_path or (Path.home() / ".isaac" / "memory" / "semantic.db")
+        if db_path is None:
+            from isaac.config.settings import get_settings
+
+            db_path = get_settings().isaac_home / "memory" / "semantic.db"
+        self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._graph: nx.DiGraph = nx.DiGraph()
         self._conn: sqlite3.Connection | None = None

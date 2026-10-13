@@ -52,7 +52,9 @@ class CuratorRecommendation:
 
 def patches_dir() -> Path:
     """Directory where suggested improvement patches are written."""
-    path = Path.home() / ".isaac" / "curator" / "patches"
+    from isaac.config.settings import get_settings
+
+    path = get_settings().isaac_home / "curator" / "patches"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

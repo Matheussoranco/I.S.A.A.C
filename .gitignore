@@ -59,3 +59,7 @@ combined.md
 index.md
 inbox/
 fizzbuzz.py
+
+# Scratch output and editor backups
+work/
+*.bak

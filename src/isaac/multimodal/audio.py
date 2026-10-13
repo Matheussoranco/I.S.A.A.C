@@ -16,7 +16,10 @@ Usage
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -116,7 +119,8 @@ def speak(
     Returns
     -------
     Path | None
-        Path to the saved audio file if ``output_path`` was given, else ``None``.
+        Path to the saved audio file. Kokoro/OpenAI allocate a temporary output
+        when no path is supplied; pyttsx3 plays directly and returns ``None``.
     """
     if engine == "auto":
         for _engine in ("pyttsx3", "kokoro", "openai"):
@@ -173,6 +177,28 @@ def _speak_pyttsx3(
         return None
 
 
+def _reserve_audio_file(suffix: str) -> Path:
+    """Reserve a private file before exposing its name to an audio library."""
+    descriptor, filename = tempfile.mkstemp(suffix=suffix)
+    os.close(descriptor)
+    return Path(filename)
+
+
+@contextmanager
+def _audio_destination(output_path: str | Path | None, suffix: str) -> Iterator[Path]:
+    owned = output_path is None
+    path = _reserve_audio_file(suffix) if output_path is None else Path(output_path)
+    try:
+        yield path
+    except BaseException:
+        if owned:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove failed audio output %s", path)
+        raise
+
+
 def _speak_kokoro(
     text: str, output_path: str | Path | None, voice: str, speed: float
 ) -> Path | None:
@@ -183,14 +209,13 @@ def _speak_kokoro(
     pipeline = kokoro.KPipeline(lang_code="en-us")
     voice_name = voice if voice != "default" else "af_heart"
 
-    out_path = Path(output_path) if output_path else Path(tempfile.mktemp(suffix=".wav"))
-    samples = []
-    for _gs, _ps, audio in pipeline(text, voice=voice_name, speed=speed):
-        samples.append(audio)
-
-    audio_np = np.concatenate(samples) if samples else np.array([], dtype=np.float32)
-    sf.write(str(out_path), audio_np, 24000)
-    return out_path
+    with _audio_destination(output_path, ".wav") as out_path:
+        samples = []
+        for _gs, _ps, audio in pipeline(text, voice=voice_name, speed=speed):
+            samples.append(audio)
+        audio_np = np.concatenate(samples) if samples else np.array([], dtype=np.float32)
+        sf.write(str(out_path), audio_np, 24000)
+        return out_path
 
 
 def _speak_openai(
@@ -200,16 +225,15 @@ def _speak_openai(
 
     client = openai.OpenAI()
     oai_voice = voice if voice in ("alloy", "echo", "fable", "onyx", "nova", "shimmer") else "nova"
-    out_path = Path(output_path) if output_path else Path(tempfile.mktemp(suffix=".mp3"))
-
-    response = client.audio.speech.create(
-        model="tts-1",
-        voice=oai_voice,
-        input=text,
-        speed=speed,  # type: ignore[arg-type]
-    )
-    response.stream_to_file(str(out_path))
-    return out_path
+    with _audio_destination(output_path, ".mp3") as out_path:
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice=oai_voice,
+            input=text,
+            speed=speed,  # type: ignore[arg-type]
+        )
+        response.stream_to_file(str(out_path))
+        return out_path
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +266,7 @@ def record_microphone(
     )
     sd.wait()
 
-    out = Path(tempfile.mktemp(suffix=".wav"))
-    sf.write(str(out), audio, sample_rate)
-    logger.info("Saved recording to %s", out)
-    return out
+    with _audio_destination(None, ".wav") as out:
+        sf.write(str(out), audio, sample_rate)
+        logger.info("Saved recording to %s", out)
+        return out
