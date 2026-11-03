@@ -121,9 +121,9 @@ class MemoryManager:
         """
         result = RecallResult()
 
-        # Episodic: recent experience
+        # Episodic: query-relevant and recent experience
         try:
-            result.episodic_context = self.episodic.summarise_recent(k, session_id=session_id)
+            result.episodic_context = self.episodic.recall_context(query, k, session_id)
         except Exception:
             logger.warning("MemoryManager: episodic recall failed.", exc_info=True)
             result.episodic_context = "No episodic context available."

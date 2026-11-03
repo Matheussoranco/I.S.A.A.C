@@ -78,9 +78,13 @@ def run_voice_repl(hands_free: bool = False) -> int:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     # -- Capability check ---------------------------------------------------
+    from isaac.config.settings import get_settings
     from isaac.multimodal.voice import is_stt_available, is_tts_available
     from isaac.multimodal.voice.audio_io import is_audio_available
 
+    if not get_settings().voice_enabled:
+        _print("Voice REPL: voice subsystem is disabled (ISAAC_VOICE_ENABLED=false).", color="31")
+        return 2
     if not is_audio_available():
         _print(
             "Voice REPL: no audio device backend (install: pip install sounddevice soundfile).",
@@ -213,8 +217,9 @@ def run_voice_repl(hands_free: bool = False) -> int:
             except Exception:
                 pass
 
-            state["messages"] = [HumanMessage(content=user_text)]
-            state["messages"] = compress_messages(state.get("messages", []))
+            state["messages"] = compress_messages(
+                [*state.get("messages", []), HumanMessage(content=user_text)]
+            )
 
             # Run the cognitive graph
             try:

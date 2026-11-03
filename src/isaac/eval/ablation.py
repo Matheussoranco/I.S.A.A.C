@@ -212,11 +212,7 @@ class AblationReport:
     def verdict(self) -> str:
         """``positive`` / ``negative`` / ``flat`` — computed, never chosen."""
         d = self.delta
-        # One task flipping on one trial is the smallest change the suite can
-        # even represent; anything at or below that is indistinguishable from
-        # noise no matter which direction it points.
-        resolution = 1.0 / (len(self.task_ids) or 1)
-        if abs(d) < resolution or self.permutation_p() > 0.05:
+        if self.permutation_p() > 0.05:
             return "flat"
         return "positive" if d > 0 else "negative"
 

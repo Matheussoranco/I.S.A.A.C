@@ -118,7 +118,7 @@ def run_check(spec: dict, answer: str, workspace: Path) -> CheckOutcome:
             return CheckOutcome(kind, m is not None, rel)
 
         return CheckOutcome(kind or "unknown", False, f"unknown checker type {kind!r}")
-    except (KeyError, ValueError, TypeError, re.error) as exc:
+    except (KeyError, ValueError, TypeError, OSError, re.error) as exc:
         return CheckOutcome(kind or "unknown", False, f"malformed spec: {exc}")
 
 

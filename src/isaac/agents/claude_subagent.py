@@ -92,6 +92,8 @@ class ClaudeSubAgent:
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
 
+            from isaac.agents.agent_loop import _content_text
+
             llm = self._resolve_chat_model()
             # Some providers reject bind kwargs; ignore if so.
             with contextlib.suppress(Exception):  # pragma: no cover
@@ -100,7 +102,7 @@ class ClaudeSubAgent:
             response = llm.invoke(
                 [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
             )
-            content = _message_text(response)
+            content = _content_text(response)
             usage = getattr(response, "usage_metadata", None) or {}
             duration_ms = (time.monotonic() - start) * 1000
 
@@ -216,7 +218,22 @@ class ParallelSubAgentPool:
     """Run multiple sub-agents concurrently using ThreadPoolExecutor."""
 
     def __init__(self, max_workers: int = 4) -> None:
+        if max_workers < 1:
+            raise ValueError("max_workers must be at least 1")
         self.max_workers = max_workers
+
+    @staticmethod
+    def _error(task: Any, message: str) -> dict[str, Any]:
+        subtask = task.get("subtask", "") if isinstance(task, dict) else ""
+        role = task.get("role", "coder") if isinstance(task, dict) else "coder"
+        return {
+            "role": role,
+            "subtask": subtask,
+            "result": "",
+            "error": message,
+            "duration_ms": 0.0,
+            "success": False,
+        }
 
     def run_all(self, tasks: list[dict[str, Any]], agentic: bool = False) -> list[dict[str, Any]]:
         """Execute a list of {subtask, role, context} dicts in parallel.
@@ -237,12 +254,28 @@ class ParallelSubAgentPool:
         """
         import concurrent.futures
 
-        def _run_one(task: dict[str, Any]) -> dict[str, Any]:
-            agent = ClaudeSubAgent(role=task.get("role", "coder"))
-            if agentic:
-                return agent.run_agentic(task["subtask"], context=task.get("context", ""))
-            return agent.run(task["subtask"], context=task.get("context", ""))
+        def _run_one(task: Any) -> dict[str, Any]:
+            if not isinstance(task, dict):
+                return self._error(task, "task must be an object")
+            subtask = task.get("subtask")
+            if not isinstance(subtask, str) or not subtask.strip():
+                return self._error(task, "task is missing a non-empty 'subtask'")
+            role = task.get("role", "coder")
+            if role not in _ROLE_PROMPTS:
+                return self._error(task, f"unknown sub-agent role: {role!r}")
+            context = task.get("context", "")
+            if not isinstance(context, str):
+                return self._error(task, "'context' must be a string")
+            agent = ClaudeSubAgent(role=role)
+            try:
+                if agentic:
+                    return agent.run_agentic(subtask, context=context)
+                return agent.run(subtask, context=context)
+            except Exception as exc:
+                return self._error(task, str(exc))
 
+        if not tasks:
+            return []
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             futures = [pool.submit(_run_one, t) for t in tasks]
             return [f.result() for f in futures]

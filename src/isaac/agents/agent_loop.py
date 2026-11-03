@@ -85,9 +85,6 @@ _MAX_TOOL_OUTPUT = 12_000
 # iterations in which no tool call made progress (success + fresh output) and
 # no final answer appeared.
 _NO_PROGRESS_STREAK_LIMIT = 5
-# Consecutive iterations with neither tool calls nor a final answer before the
-# run is stopped as idle.
-_IDLE_STREAK_LIMIT = 3
 # Consecutive identical (name, args) calls injected back as a steering
 # observation instead of being executed a third time.
 _REPEAT_CALL_LIMIT = 3
@@ -140,7 +137,6 @@ class StopReason(StrEnum):
     MAX_ITERATIONS = "max_iterations"
     BUDGET_EXHAUSTED = "budget_exhausted"
     NO_PROGRESS = "no_progress"
-    IDLE_ITERATIONS = "idle_iterations"
     TOOL_CALL_BUDGET = "tool_call_budget"
     ERROR = "error"
     APPROVAL_DENIED = "approval_denied"
@@ -236,7 +232,6 @@ class AgentRunResult:
 
     # Loop-guard counters (Phase 1.3)
     no_progress_streak: int = 0
-    idle_streak: int = 0
     tool_call_count: int = 0
 
     @property
@@ -245,7 +240,8 @@ class AgentRunResult:
 
     @property
     def success(self) -> bool:
-        return self.completed and self.verified_success is True
+        """Operational success: the run completed and was not rejected by a validator."""
+        return self.completed and self.verified_success is not False
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
@@ -465,7 +461,6 @@ class AgentLoop:
         stream_callback: StreamCallback | None = None,
         max_tool_calls: int = _DEFAULT_MAX_TOOL_CALLS,
         no_progress_limit: int = _NO_PROGRESS_STREAK_LIMIT,
-        idle_limit: int = _IDLE_STREAK_LIMIT,
         repeat_call_limit: int = _REPEAT_CALL_LIMIT,
     ) -> None:
         self._task_validator = task_validator
@@ -491,7 +486,6 @@ class AgentLoop:
         # 0 disables the tool-call budget entirely.
         self.max_tool_calls = max(0, max_tool_calls)
         self.no_progress_limit = max(1, no_progress_limit)
-        self.idle_limit = max(1, idle_limit)
         self.repeat_call_limit = max(1, repeat_call_limit)
 
     # ------------------------------------------------------------------
@@ -512,8 +506,7 @@ class AgentLoop:
             logger.debug("on_event callback raised for kind=%s", kind, exc_info=True)
 
     def _emit_stream(self, token: str) -> None:
-        """Emit a streaming token."""
-        if self._stream_callback:
+        if self._stream_callback is not None:
             try:
                 self._stream_callback(token)
             except Exception:
@@ -714,9 +707,9 @@ class AgentLoop:
         )
 
     def _compact_messages(self, messages: list[Any]) -> None:
-        """Stub older tool outputs in place when the transcript exceeds the
-        context budget, keeping the most recent messages verbatim."""
-        from langchain_core.messages import ToolMessage
+        """Stub older tool outputs and tool observations in place when the
+        transcript exceeds the context budget, keeping recent messages verbatim."""
+        from langchain_core.messages import HumanMessage, ToolMessage
 
         if not self.context_budget_chars:
             return
@@ -726,16 +719,24 @@ class AgentLoop:
         head = messages[:-_COMPACT_KEEP_RECENT] if len(messages) > _COMPACT_KEEP_RECENT else []
         for m in head:
             content = getattr(m, "content", None)
-            if (
-                isinstance(m, ToolMessage)
-                and isinstance(content, str)
-                and len(content) > _COMPACT_STUB_CHARS
+            if not isinstance(content, str) or len(content) <= _COMPACT_STUB_CHARS:
+                continue
+            if not isinstance(m, ToolMessage) and not (
+                isinstance(m, HumanMessage) and content.startswith("Result of ")
             ):
-                trimmed = len(content) - _COMPACT_STUB_CHARS
-                m.content = (
-                    content[:_COMPACT_STUB_CHARS]
-                    + f"\n...[compacted: {trimmed} chars trimmed to fit the context budget]"
-                )
+                continue
+            trimmed = len(content) - _COMPACT_STUB_CHARS
+            m.content = (
+                content[:_COMPACT_STUB_CHARS]
+                + f"\n...[compacted: {trimmed} chars trimmed to fit the context budget]"
+            )
+
+    @staticmethod
+    async def _sleep_within_budget(boundary: _RunBoundary, delay: float) -> None:
+        remaining = boundary.remaining()
+        if remaining > 0:
+            delay = min(delay, remaining)
+        await asyncio.sleep(delay)
 
     async def _invoke_with_retry(self, llm: Any, messages: list[Any]) -> Any:
         """Call the LLM, retrying transient failures with exponential backoff."""
@@ -758,7 +759,7 @@ class AgentLoop:
                         exc,
                         delay,
                     )
-                    await asyncio.sleep(delay)
+                    await self._sleep_within_budget(boundary, delay)
         assert last_exc is not None
         raise last_exc
 
@@ -768,17 +769,21 @@ class AgentLoop:
         last_exc: Exception | None = None
         for attempt in range(self.llm_retries + 1):
             boundary.check()
+            emitted = False
             try:
                 async for chunk in llm.astream(list(messages)):
                     boundary.check()
                     if hasattr(chunk, "content") and chunk.content:
+                        emitted = True
+                        self._emit_stream(chunk.content)
                         yield chunk.content
                 return
-                yield  # Make it a proper async generator
             except _RunStopped:
                 raise
             except Exception as exc:
                 last_exc = exc
+                if emitted:
+                    raise
                 if attempt < self.llm_retries:
                     delay = min(2.0**attempt, 8.0)
                     logger.warning(
@@ -788,7 +793,7 @@ class AgentLoop:
                         exc,
                         delay,
                     )
-                    await asyncio.sleep(delay)
+                    await self._sleep_within_budget(boundary, delay)
         assert last_exc is not None
         raise last_exc
 
@@ -910,9 +915,7 @@ class AgentLoop:
 
         # Phase 1.3 (Hermes-mirror) loop guards.
         no_progress_streak = 0  # consecutive iterations with no successful state change
-        idle_streak = 0  # consecutive iterations with no tool calls and no final answer
         tool_call_count = 0  # executed tool calls this run (bounce replays don't count)
-        seen_call_hashes: set[str] = set()  # every (name, args) hash attempted this run
         repeat_sig: str | None = None  # signature of the previous call
         repeat_count = 0  # consecutive occurrences of repeat_sig
         last_outputs: dict[str, str] = {}  # per-tool last output, for progress detection
@@ -937,6 +940,10 @@ class AgentLoop:
                     break
 
                 messages.append(ai)
+                usage = getattr(ai, "usage_metadata", None)
+                if isinstance(usage, dict):
+                    total_prompt_tokens += int(usage.get("input_tokens") or 0)
+                    total_completion_tokens += int(usage.get("output_tokens") or 0)
                 tool_calls = list(getattr(ai, "tool_calls", None) or [])
                 text = _content_text(ai)
 
@@ -1078,7 +1085,6 @@ class AgentLoop:
                         else:
                             messages.append(HumanMessage(content=f"Result of {name}:\n{body}"))
                         continue
-                    seen_call_hashes.add(sig)
                     self._emit("tool_call", name=name, args=args)
                     rec = await self._exec_tool(name, args)
                     all_calls.append(rec)
@@ -1103,10 +1109,6 @@ class AgentLoop:
                     no_progress_streak = 0
                 else:
                     no_progress_streak += 1
-                if tool_calls:
-                    idle_streak = 0
-                else:
-                    idle_streak += 1
 
                 if no_progress_streak >= self.no_progress_limit:
                     reason = "no_progress"
@@ -1115,14 +1117,6 @@ class AgentLoop:
                         "progress (no successful tool state change). The model is stuck."
                     )
                     self._emit("error", message="no progress (stalled iterations)")
-                    break
-                if idle_streak >= self.idle_limit:
-                    reason = "idle_iterations"
-                    final_text = (
-                        f"Stopped: {idle_streak} consecutive iterations produced neither "
-                        "tool calls nor a final answer."
-                    )
-                    self._emit("error", message="idle iterations")
                     break
             else:
                 self._emit("error", message="reached max iterations")
@@ -1176,7 +1170,6 @@ class AgentLoop:
             else "",
             completed_at=time.time(),
             no_progress_streak=no_progress_streak,
-            idle_streak=idle_streak,
             tool_call_count=tool_call_count,
         )
 
@@ -1293,8 +1286,6 @@ def build_default_agent[T: BaseModel](
     stream_callback: StreamCallback | None = None,
     max_tool_calls: int = _DEFAULT_MAX_TOOL_CALLS,
 ) -> AgentLoop:
-    """Construct an :class:`AgentLoop` wired with all registered built-in tools."""
-    # Function body follows...
     """Construct an :class:`AgentLoop` wired with all registered built-in tools.
 
     Parameters

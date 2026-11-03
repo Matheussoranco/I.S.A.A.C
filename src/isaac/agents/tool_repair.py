@@ -115,14 +115,61 @@ def repair_json(raw: str) -> Any | None:
     patched = text
     # Smart quotes → straight quotes.
     patched = patched.translate(_SMART_QUOTES)
-    # Trailing commas before a closing brace/bracket.
-    patched = re.sub(r",\s*([}\]])", r"\1", patched)
-    # Bare keys: {name: "x"} → {"name": "x"}.
-    patched = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)", r'\1"\2"\3', patched)
+    patched = _repair_loose_json(patched)
     try:
         return json.loads(patched)
     except Exception:
         return None
+
+
+def _repair_loose_json(text: str) -> str:
+    """Drop trailing commas and quote bare keys outside string literals."""
+    out: list[str] = []
+    index = 0
+    in_string = False
+    quote = ""
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            out.append(char)
+            if char == "\\" and index + 1 < len(text):
+                out.append(text[index + 1])
+                index += 2
+                continue
+            if char == quote:
+                in_string = False
+            index += 1
+            continue
+        if char in "\"'":
+            in_string = True
+            quote = char
+            out.append(char)
+            index += 1
+            continue
+        if char == ",":
+            lookahead = index + 1
+            while lookahead < len(text) and text[lookahead].isspace():
+                lookahead += 1
+            if lookahead < len(text) and text[lookahead] in "}]":
+                index += 1
+                continue
+            out.append(char)
+            index += 1
+            continue
+        if char in "{,":
+            out.append(char)
+            index += 1
+            while index < len(text) and text[index].isspace():
+                out.append(text[index])
+                index += 1
+            match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)(\s*:)", text[index:])
+            if match:
+                out.append(f'"{match.group(1)}"{match.group(2)}')
+                index += match.end()
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
 
 
 def _extract_balanced(text: str) -> list[str]:
@@ -207,7 +254,9 @@ def _normalise(obj: Any, known: set[str] | None) -> dict[str, Any] | None:
     if isinstance(args, str):
         # Arguments double-encoded as a JSON string (common with Ollama shims).
         parsed = repair_json(args)
-        args = parsed if isinstance(parsed, dict) else {}
+        if not isinstance(parsed, dict):
+            return None
+        args = parsed
     elif not isinstance(args, dict):
         # No argument key at all: treat any non-name keys as the arguments.
         leftover = {

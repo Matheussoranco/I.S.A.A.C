@@ -35,4 +35,4 @@ async def test_browser_automation_actions(monkeypatch):
     # 3. Screenshot
     shot_result = await tool.execute(action="screenshot")
     assert shot_result.success is True
-    assert "screenshot" in shot_result.output
+    assert "screenshot" in shot_result.output.lower()

@@ -6,6 +6,8 @@ import logging
 import shutil
 import socket
 import tempfile
+import uuid
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -118,7 +120,8 @@ class BrowserTool(IsaacTool):
             raise ValueError("URLs containing credentials are not allowed")
         try:
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            addresses = socket.getaddrinfo(parsed.hostname, port)
+            loop = asyncio.get_running_loop()
+            addresses = await loop.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
         except (OSError, ValueError) as exc:
             raise ValueError(f"Could not resolve URL host: {parsed.hostname}") from exc
         for address in addresses:
@@ -153,11 +156,17 @@ class BrowserTool(IsaacTool):
         context, playwright, profile = self._context, self._pw, self._profile
         self._context = self._pw = self._page = self._profile = None
         if context is not None:
-            await context.close()
+            try:
+                await context.close()
+            except Exception:
+                logger.debug("Browser context close failed", exc_info=True)
         if playwright is not None:
-            await playwright.stop()
+            try:
+                await playwright.stop()
+            except Exception:
+                logger.debug("Playwright stop failed", exc_info=True)
         if profile is not None:
-            shutil.rmtree(profile, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, profile, True)
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         action = (kwargs.get("action") or "").strip()
@@ -223,15 +232,29 @@ class BrowserTool(IsaacTool):
             return ToolResult(success=True, output=content)
 
         if action == "screenshot":
-            path = f"screenshot_{int(asyncio.get_event_loop().time())}.png"
-            await page.screenshot(path=path)
+            path = self._artifact_path(".png")
+            await page.screenshot(path=str(path))
             return ToolResult(
-                success=True, output=f"Screenshot saved to {path}", metadata={"path": path}
+                success=True, output=f"Screenshot saved to {path}", metadata={"path": str(path)}
             )
 
         if action == "pdf":
-            path = f"page_{int(asyncio.get_event_loop().time())}.pdf"
-            await page.pdf(path=path)
-            return ToolResult(success=True, output=f"PDF saved to {path}", metadata={"path": path})
+            if self.engine != "chromium":
+                return ToolResult(
+                    success=False, error="PDF capture requires the chromium browser engine."
+                )
+            path = self._artifact_path(".pdf")
+            await page.pdf(path=str(path))
+            return ToolResult(
+                success=True, output=f"PDF saved to {path}", metadata={"path": str(path)}
+            )
 
         return ToolResult(success=False, error=f"Unknown action: {action}")
+
+    @staticmethod
+    def _artifact_path(suffix: str) -> Path:
+        from isaac.config.settings import get_settings
+
+        root = get_settings().isaac_home / "browser" / "artifacts"
+        root.mkdir(parents=True, exist_ok=True)
+        return root / f"{uuid.uuid4().hex}{suffix}"

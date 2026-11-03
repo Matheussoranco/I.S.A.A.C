@@ -117,7 +117,7 @@ class TestComputerUseNode:
         import isaac.nodes.computer_use as cu_mod
 
         with (
-            patch.object(cu_mod, "_get_ui_executor", return_value=mock_exec),
+            patch.object(cu_mod, "get_ui_executor", return_value=mock_exec),
             patch("isaac.llm.provider.get_llm", return_value=mock_llm),
             patch("isaac.config.settings.settings") as ms,
         ):
@@ -145,7 +145,7 @@ class TestComputerUseNode:
         import isaac.nodes.computer_use as cu_mod
 
         with (
-            patch.object(cu_mod, "_get_ui_executor", return_value=mock_exec),
+            patch.object(cu_mod, "get_ui_executor", return_value=mock_exec),
             patch("isaac.llm.provider.get_llm", return_value=mock_llm),
             patch("isaac.config.settings.settings") as ms,
         ):
@@ -168,7 +168,7 @@ class TestComputerUseNode:
         import isaac.nodes.computer_use as cu_mod
 
         with (
-            patch.object(cu_mod, "_get_ui_executor", return_value=_make_mock_executor()),
+            patch.object(cu_mod, "get_ui_executor", return_value=_make_mock_executor()),
             patch("isaac.llm.provider.get_llm", return_value=MockLLM()),
             patch("isaac.config.settings.settings") as ms,
         ):
@@ -188,7 +188,7 @@ class TestComputerUseNode:
         import isaac.nodes.computer_use as cu_mod
 
         with (
-            patch.object(cu_mod, "_get_ui_executor", return_value=mock_exec),
+            patch.object(cu_mod, "get_ui_executor", return_value=mock_exec),
             patch("isaac.llm.provider.get_llm", return_value=MockLLM('{"done": false}')),
             patch("isaac.config.settings.settings") as ms,
         ):
@@ -223,7 +223,7 @@ class TestComputerUseNode:
         import isaac.nodes.computer_use as cu_mod
 
         with (
-            patch.object(cu_mod, "_get_ui_executor", return_value=mock_exec),
+            patch.object(cu_mod, "get_ui_executor", return_value=mock_exec),
             patch("isaac.llm.provider.get_llm", return_value=SequentialMockLLM()),
             patch("isaac.config.settings.settings") as ms,
         ):
@@ -231,10 +231,10 @@ class TestComputerUseNode:
             result = computer_use_node(state)
 
         assert result["plan"][0].status == "done"
-        buf = json.loads(result.get("code_buffer", "{}"))
-        # Both screenshot keys should be present (may be empty string if no results yet)
-        assert "screenshot_before" in buf
-        assert "screenshot_after" in buf
+        candidate = json.loads(result["skill_candidate"].code)
+        assert [action["type"] for action in candidate["actions"]] == ["click"]
+        assert "screenshot_before" in candidate
+        assert "screenshot_after" in candidate
 
     def test_side_effecting_action_is_denied_without_approval_callback(self) -> None:
         state = make_initial_state()
@@ -244,7 +244,7 @@ class TestComputerUseNode:
         import isaac.nodes.computer_use as cu_mod
 
         with (
-            patch.object(cu_mod, "_get_ui_executor", return_value=mock_exec),
+            patch.object(cu_mod, "get_ui_executor", return_value=mock_exec),
             patch(
                 "isaac.llm.provider.get_llm",
                 return_value=MockLLM(

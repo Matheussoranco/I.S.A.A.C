@@ -99,6 +99,8 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
                 mode = cast(Literal["code", "ui", "hybrid"], raw_mode)
             else:
                 mode = "code"
+            if any(existing.id == step_id for existing in steps):
+                raise ValueError(f"duplicate planner step id: {step_id}")
             steps.append(
                 PlanStep(
                     id=step_id,
@@ -136,8 +138,6 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
     activation_limit = None if settings.parallel_synthesis_enabled else 1
     activated = dag.activate_ready(limit=activation_limit)
 
-    # Expose DAG context string in the state for Synthesis/Reflection to use
-    dag_context = dag.to_context_string()
     critical_path = dag.critical_path()
 
     logger.info(
@@ -155,5 +155,4 @@ def planner_node(state: IsaacState) -> dict[str, Any]:
         "plan": all_steps,
         "iteration": iteration,
         "current_phase": "planner",
-        "dag_context": dag_context,
     }

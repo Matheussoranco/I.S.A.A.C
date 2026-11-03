@@ -61,8 +61,17 @@ async def run_all(gateways: list[Gateway]) -> None:
 
     tasks = [asyncio.create_task(_run(g), name=f"gateway:{g.name}") for g in gateways]
     try:
-        await asyncio.gather(*tasks)
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        for task in done:
+            if task.cancelled():
+                continue
+            exc = task.exception()
+            if exc is not None:
+                raise exc
     finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         for g in gateways:
             try:
                 await g.stop()

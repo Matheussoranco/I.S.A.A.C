@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from isaac.core.state import SkillCandidate
-from isaac.memory.skill_library import SkillLibrary
+from isaac.memory.skill_library import PromotionOutcome, SkillLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -151,16 +151,18 @@ class ProceduralMemory:
 
     # -- Write --------------------------------------------------------------
 
-    def commit(self, candidate: SkillCandidate) -> None:
+    def commit(self, candidate: SkillCandidate) -> PromotionOutcome:
         """Commit a skill candidate with version tracking.
 
-        If the skill already exists, creates a new version.
+        If the skill already exists, creates a new version.  Rejected
+        candidates leave no version behind.
         """
-        name = candidate.name.strip().replace(" ", "_").lower()
-        now = datetime.now(tz=UTC).isoformat()
+        outcome = self._base_lib.commit(candidate)
+        if not outcome.promoted:
+            return outcome
 
-        # Commit to base library
-        self._base_lib.commit(candidate)
+        name = outcome.skill_name
+        now = datetime.now(tz=UTC).isoformat()
 
         # Track version
         if name in self._records:
@@ -199,6 +201,7 @@ class ProceduralMemory:
             name,
             self._records[name].current_version,
         )
+        return outcome
 
     def record_invocation(self, name: str, success: bool) -> None:
         """Record a skill invocation and update success rate.
@@ -234,6 +237,17 @@ class ProceduralMemory:
             self._save_records()
             logger.info("ProceduralMemory: deprecated skill '%s'.", name)
 
+    def restore(self, name: str) -> None:
+        """Clear the deprecated flag, making the skill active again."""
+        record = self._records.get(name)
+        if record is None:
+            return
+        record.deprecated = False
+        if record.versions:
+            record.versions[-1].deprecated = False
+        self._save_records()
+        logger.info("ProceduralMemory: restored skill '%s'.", name)
+
     # -- Read ---------------------------------------------------------------
 
     def get_record(self, name: str) -> SkillRecord | None:
@@ -250,6 +264,10 @@ class ProceduralMemory:
     def list_active(self) -> list[str]:
         """List all non-deprecated skill names."""
         return [name for name, record in self._records.items() if not record.deprecated]
+
+    def list_all(self) -> list[str]:
+        """List every tracked skill name (deprecated ones included)."""
+        return sorted(self._records)
 
     def search(self, query: str, top_k: int = 5) -> list[str]:
         """Semantic search via the base library's ChromaDB integration."""

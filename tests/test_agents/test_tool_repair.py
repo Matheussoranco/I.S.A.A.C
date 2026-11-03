@@ -38,6 +38,17 @@ class TestRepairJson:
     def test_unparseable_returns_none(self) -> None:
         assert repair_json("this is not json at all") is None
 
+    def test_quoted_values_are_not_rewritten(self) -> None:
+        assert repair_json('{"ok": true, "text": "a, b: c",}') == {
+            "ok": True,
+            "text": "a, b: c",
+        }
+        assert repair_json('{name: "x, y: z",}') == {"name": "x, y: z"}
+
+    def test_malformed_argument_string_is_rejected(self) -> None:
+        call = '{"name": "web_search", "arguments": "not-json"}'
+        assert salvage_tool_calls(call, KNOWN) == []
+
     def test_empty_returns_none(self) -> None:
         assert repair_json("   ") is None
 

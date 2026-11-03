@@ -18,22 +18,25 @@ unwanted files to an archive folder, which is reversible.
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import shutil
 from datetime import datetime
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
 from isaac.security.file_mutation import copy_file, write_text
 from isaac.security.path_policy import is_sensitive_path
-from isaac.security.workspace import allowed_roots, resolve_allowed
+from isaac.security.workspace import allowed_roots, resolve_allowed, resolve_allowed_link
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
 _MAX_READ_CHARS = 50_000
 _MAX_LIST_ENTRIES = 2_000
+_MAX_LIST_SCAN = _MAX_LIST_ENTRIES * 5
 
 
 def _allowed_roots() -> list[Path]:
@@ -107,11 +110,11 @@ class FsListTool(IsaacTool):
         pattern = str(kwargs.get("pattern", "") or "")
         try:
             it = target.rglob(pattern or "*") if recursive else target.glob(pattern or "*")
-            lines: list[str] = []
-            for child in sorted(it):
-                if len(lines) >= _MAX_LIST_ENTRIES:
-                    lines.append(f"... truncated at {_MAX_LIST_ENTRIES} entries ...")
-                    break
+            entries: list[tuple[str, str]] = []
+            scanned = 0
+            truncated = False
+            for child in islice(it, _MAX_LIST_SCAN):
+                scanned += 1
                 if is_sensitive_path(child) or _resolve(str(child)) is None:
                     continue
                 try:
@@ -119,10 +122,19 @@ class FsListTool(IsaacTool):
                     kind = "dir " if child.is_dir() else "file"
                     size = "" if child.is_dir() else f"{st.st_size:>10}B"
                     mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
-                    rel = child.relative_to(target)
-                    lines.append(f"[{kind}] {size:>12}  {mtime}  {rel}")
+                    rel = str(child.relative_to(target))
+                    entries.append((rel, f"[{kind}] {size:>12}  {mtime}  {rel}"))
                 except OSError:
                     continue
+                if len(entries) >= _MAX_LIST_ENTRIES:
+                    truncated = True
+                    break
+            if scanned >= _MAX_LIST_SCAN:
+                truncated = True
+            entries.sort(key=lambda item: item[0])
+            lines = [line for _, line in entries]
+            if truncated:
+                lines.append(f"... truncated at {_MAX_LIST_ENTRIES} entries ...")
             return ToolResult(success=True, output="\n".join(lines) or "(empty)")
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
@@ -198,8 +210,13 @@ class FsReadTool(IsaacTool):
         if not target.is_file():
             return ToolResult(success=False, error=f"File not found: {path_str}")
         try:
-            content = target.read_text(encoding="utf-8", errors="replace")
-            limit = int(kwargs.get("max_chars", _MAX_READ_CHARS))
+            try:
+                limit = int(kwargs.get("max_chars", _MAX_READ_CHARS))
+            except (TypeError, ValueError):
+                limit = _MAX_READ_CHARS
+            limit = max(0, min(limit, _MAX_READ_CHARS))
+            with target.open("r", encoding="utf-8", errors="replace") as handle:
+                content = handle.read(limit + 1)
             if len(content) > limit:
                 content = content[:limit] + f"\n\n... truncated at {limit} chars ..."
             return ToolResult(success=True, output=content)
@@ -317,43 +334,74 @@ class FsMoveTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         src_str, dest_str = str(kwargs.get("src", "")), str(kwargs.get("dest", ""))
-        src, dest = _resolve(src_str), _resolve(dest_str)
+        src = resolve_allowed_link(src_str)
+        dest = resolve_allowed_link(dest_str)
         if src is None:
             return _denied(src_str)
         if dest is None:
             return _denied(dest_str)
-        if not src.exists():
+        if not os.path.lexists(src):
             return ToolResult(success=False, error=f"Source does not exist: {src_str}")
-        if src.is_dir():
+        overwrite = bool(kwargs.get("overwrite", False))
+        source_is_link = src.is_symlink()
+        if not source_is_link and src.is_dir():
             protected = _has_sensitive_descendant(src)
             if protected is not None:
                 return ToolResult(
                     success=False,
                     error=f"Recursive move refused: protected descendant '{protected}'.",
                 )
-        if dest.exists() and not bool(kwargs.get("overwrite", False)):
+            real_src = src.resolve()
+            real_dest = dest.resolve()
+            if any(
+                candidate == real_src or candidate.is_relative_to(real_src)
+                for candidate in (dest, real_dest)
+            ):
+                return ToolResult(
+                    success=False,
+                    error="Destination cannot be the source or one of its descendants.",
+                )
+        if os.path.lexists(dest) and not overwrite:
             return ToolResult(
                 success=False,
                 error=f"Destination already exists: {dest_str} (set overwrite=true to replace).",
             )
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if dest.is_dir():
+            if os.path.lexists(dest) and dest.is_dir() and not dest.is_symlink():
                 return ToolResult(
                     success=False,
                     error="Destination must be the exact new path, not an existing directory.",
                 )
             if src == dest:
                 return ToolResult(success=False, error="Source and destination are identical.")
-            if src.is_dir():
-                if dest.exists():
+            if source_is_link:
+                try:
+                    os.replace(src, dest)
+                except OSError as exc:
+                    if exc.errno != errno.EXDEV:
+                        raise
+                    if os.path.lexists(dest):
+                        dest.unlink()
+                    shutil.move(str(src), str(dest))
+            elif src.is_dir():
+                if os.path.lexists(dest):
                     return ToolResult(
                         success=False, error="Directory replacement is not supported."
                     )
-                src.rename(dest)
-            elif kwargs.get("overwrite"):
-                # Atomic replace: failure leaves the original destination intact.
-                os.replace(src, dest)
+                try:
+                    src.rename(dest)
+                except OSError as exc:
+                    if exc.errno != errno.EXDEV:
+                        raise
+                    shutil.move(str(src), str(dest))
+            elif overwrite:
+                try:
+                    os.replace(src, dest)
+                except OSError as exc:
+                    if exc.errno != errno.EXDEV:
+                        raise
+                    shutil.move(str(src), str(dest))
             else:
                 copy_file(src, dest)
                 src.unlink()
@@ -402,6 +450,11 @@ class FsCopyTool(IsaacTool):
                 return ToolResult(
                     success=False,
                     error=f"Recursive copy refused: protected descendant '{protected}'.",
+                )
+            if dest == src or dest.is_relative_to(src):
+                return ToolResult(
+                    success=False,
+                    error="Destination cannot be inside the source directory.",
                 )
             if dest.exists() and dest.is_dir():
                 existing_protected = _has_sensitive_descendant(dest)

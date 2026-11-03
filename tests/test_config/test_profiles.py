@@ -70,6 +70,15 @@ def test_load_overrides_missing_file_returns_empty():
     assert profiles.load_profile_overrides("ghost") == {}
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["../evil", "..", ".", "/etc/passwd", "a/b", "a\\b", ".hidden", "x" * 65, "a:b"],
+)
+def test_profile_names_cannot_escape_the_profiles_directory(name):
+    with pytest.raises(ValueError):
+        profiles.profile_dir(name)
+
+
 def test_load_overrides_invalid_yaml_returns_empty():
     path = profiles.profile_config_path("bad")
     path.write_text("[unclosed bracket", encoding="utf-8")

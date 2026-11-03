@@ -330,16 +330,20 @@ if TYPE_CHECKING or typer is not None:
     @app.command()
     def transcribe(
         audio_file: str = typer.Argument(..., help="Path to audio file (.wav/.mp3/etc.)"),
-        model: str = typer.Option("base", "--model", "-m", help="Whisper model size."),
-        language: str | None = typer.Option(
-            None, "--lang", "-l", help="Language code (e.g. 'en')."
-        ),
+        model: str = typer.Option("", "--model", "-m", help="Whisper model size."),
+        language: str = typer.Option("", "--lang", "-l", help="Language code (e.g. 'en')."),
     ) -> None:
         """Transcribe an audio file to text using local Whisper (faster-whisper)."""
         _setup_logging()
+        from isaac.config.settings import get_settings
         from isaac.multimodal.audio import transcribe as do_transcribe
 
-        text = do_transcribe(audio_file, model=model, language=language)  # type: ignore[arg-type]
+        settings = get_settings()
+        text = do_transcribe(
+            audio_file,
+            model=model or settings.voice_stt_model,  # type: ignore[arg-type]
+            language=language or settings.voice_stt_language or None,
+        )
         typer.echo(text)
 
     @app.command()
@@ -349,14 +353,22 @@ if TYPE_CHECKING or typer is not None:
             None, "--out", "-o", help="Save to file instead of playing."
         ),
         engine: str = typer.Option(
-            "auto", "--engine", "-e", help="TTS engine: pyttsx3/kokoro/openai/auto."
+            "", "--engine", "-e", help="TTS engine: pyttsx3/kokoro/openai/auto."
         ),
+        voice: str = typer.Option("", "--voice", help="Voice name (engine-specific)."),
     ) -> None:
         """Convert text to speech using local TTS (pyttsx3/kokoro/openai)."""
         _setup_logging()
+        from isaac.config.settings import get_settings
         from isaac.multimodal.audio import speak as do_speak
 
-        result = do_speak(text, output_path=output, engine=engine)  # type: ignore[arg-type]
+        settings = get_settings()
+        result = do_speak(
+            text,
+            output_path=output,
+            engine=engine or settings.tts_engine,  # type: ignore[arg-type]
+            voice=voice or settings.tts_voice,
+        )
         if result:
             typer.echo(f"Saved to: {result}")
 
@@ -477,6 +489,7 @@ if TYPE_CHECKING or typer is not None:
             "--approve-unattended",
             help="Explicitly authorize this task to execute without a live approval prompt.",
         ),
+        foreground: bool = typer.Option(False, "--foreground", hidden=True),
     ) -> None:
         """Manage background cron tasks."""
         _setup_logging()
@@ -487,7 +500,7 @@ if TYPE_CHECKING or typer is not None:
             pause_task,
             remove_task,
             resume_task,
-            start_cron_daemon,
+            run_cron_daemon,
             stop_cron_daemon,
         )
 
@@ -534,8 +547,43 @@ if TYPE_CHECKING or typer is not None:
             ok = resume_task(task_id)
             typer.echo("Resumed." if ok else "Task not found.")
         elif action == "start":
-            start_cron_daemon()
-            typer.echo("Cron daemon started.")
+            if foreground:
+                run_cron_daemon()
+                return
+            if is_cron_running():
+                typer.echo("Cron daemon is already running.")
+                return
+            import os
+            import subprocess
+            import sys
+            import time
+
+            argv = [sys.executable, "-m", "isaac", "cron", "start", "--foreground"]
+            if os.name == "nt":
+                proc = subprocess.Popen(
+                    argv,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    creationflags=(
+                        subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                    ),
+                )
+            else:
+                proc = subprocess.Popen(
+                    argv,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    start_new_session=True,
+                )
+            time.sleep(0.4)
+            if is_cron_running():
+                typer.echo(f"Cron daemon started (PID {proc.pid}).")
+            else:
+                typer.echo(f"Cron daemon failed to start (exit code {proc.poll()}).")
         elif action == "stop":
             stop_cron_daemon()
             typer.echo("Cron daemon stopped.")
@@ -548,6 +596,70 @@ if TYPE_CHECKING or typer is not None:
             )
         else:
             typer.echo(f"Unknown action: {action}")
+
+    @app.command()
+    def goal(
+        action: str = typer.Argument(
+            "list", help="Action: set, list, show, complete, pause, resume, progress."
+        ),
+        text: str = typer.Option("", "--text", "-t", help="Goal text (for set)."),
+        goal_id: str = typer.Option("", "--id", help="Goal id or unique prefix."),
+        due: str = typer.Option("", "--due", help="ISO due date (for set)."),
+        note: str = typer.Option("", "--note", help="Progress note (for progress)."),
+    ) -> None:
+        """Manage persistent goals that persist across sessions."""
+        _setup_logging()
+        from isaac.background.goals import (
+            add_goal,
+            complete_goal,
+            get_goal,
+            list_goals,
+            mark_goal_progress,
+            pause_goal,
+            resume_goal,
+        )
+
+        if action in {"set", "add"}:
+            if not text.strip():
+                typer.echo("Provide --text.")
+                raise typer.Exit(1)
+            created = add_goal(text, due=due)
+            typer.echo(f"Created goal {created.id}: {created.text}")
+            return
+        if action == "list":
+            goals = list_goals()
+            if not goals:
+                typer.echo("No goals.")
+                return
+            for item in goals:
+                typer.echo(f"  {item.id}  [{item.status}]  {item.text}  (progress={item.progress})")
+            return
+        if not goal_id:
+            typer.echo("Provide --id.")
+            raise typer.Exit(1)
+        if action == "show":
+            found = get_goal(goal_id)
+            if found is None:
+                typer.echo("Goal not found.")
+                raise typer.Exit(1)
+            typer.echo(f"{found.id}  [{found.status}]  {found.text}")
+            if found.due:
+                typer.echo(f"due: {found.due}")
+            if found.notes:
+                typer.echo(found.notes)
+            return
+        if action == "complete":
+            updated = complete_goal(goal_id)
+        elif action == "pause":
+            updated = pause_goal(goal_id)
+        elif action == "resume":
+            updated = resume_goal(goal_id)
+        elif action == "progress":
+            updated = mark_goal_progress(goal_id, note)
+        else:
+            typer.echo(f"Unknown action: {action}")
+            raise typer.Exit(1)
+        typer.echo("Updated." if updated else "Goal not found.")
 
     @app.command()
     def connectors() -> None:
@@ -1877,13 +1989,21 @@ def main() -> int:
 
 def run_command(command: str) -> str:
     """Run a CLI command and return captured output for the desktop API."""
+    import os
     import shlex
 
     from typer.testing import CliRunner
 
     if app is None:
         raise RuntimeError("The CLI requires Typer to execute commands.")
-    result = CliRunner().invoke(app, shlex.split(command))
+    parts = shlex.split(command, posix=os.name != "nt")
+    args = [
+        part[1:-1] if len(part) > 1 and part[0] == part[-1] and part[0] in {"'", '"'} else part
+        for part in parts
+    ]
+    if not args:
+        raise ValueError("Empty command.")
+    result = CliRunner().invoke(app, args)
     if result.exception is not None:
         raise result.exception
     return result.output

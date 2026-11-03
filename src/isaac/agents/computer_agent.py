@@ -8,6 +8,7 @@ publishes every resulting frame, and stops cleanly on cancellation or budget.
 from __future__ import annotations
 
 import base64
+import contextlib
 import time
 from collections.abc import Callable
 from typing import Any
@@ -57,6 +58,8 @@ class ComputerAgentRunner:
         records: list[ToolCallRecord] = []
         response: Any | None = None
         frame: ScreenFrame | None = None
+        client: Any | None = None
+        owns_client = self._client is None
 
         try:
             client = self._get_client()
@@ -71,10 +74,10 @@ class ComputerAgentRunner:
             for cycle in range(1, self.max_cycles + 1):
                 stop_reason = self._stop_reason(started)
                 if stop_reason:
-                    return self._stopped(stop_reason, cycle - 1, records, response)
+                    return self._stopped(stop_reason, cycle - 1, records)
 
-                computer_call = _first_computer_call(response)
-                if computer_call is None:
+                computer_calls = _computer_calls(response)
+                if not computer_calls:
                     output = _response_text(response) or "Tarefa concluída."
                     self._emit("final", text=output)
                     return AgentRunResult(
@@ -85,7 +88,9 @@ class ComputerAgentRunner:
                     )
 
                 actions = [
-                    _as_dict(action) for action in (_get(computer_call, "actions", []) or [])
+                    _as_dict(action)
+                    for call in computer_calls
+                    for action in (_get(call, "actions", []) or [])
                 ]
                 self._emit("iteration", n=cycle)
                 self._emit(
@@ -112,12 +117,11 @@ class ComputerAgentRunner:
                 backend = self._backend or get_desktop_backend()
                 if frame is None:
                     frame = backend.capture()
-                    publish_desktop_frame(frame, self._on_event, action="screenshot")
 
                 batch_started = time.perf_counter()
                 for action in actions:
                     if self._should_stop():
-                        return self._stopped("cancelled", cycle - 1, records, response)
+                        return self._stopped("cancelled", cycle - 1, records)
                     backend.perform_computer_action(action, frame)
                     self._emit_cursor(action, frame)
 
@@ -131,7 +135,7 @@ class ComputerAgentRunner:
                 records.append(
                     ToolCallRecord(
                         name="computer_batch",
-                        args={"actions": actions},
+                        args={"actions": actions, "calls": len(computer_calls)},
                         output=f"Executed {len(actions)} computer action(s).",
                         success=True,
                         duration_ms=duration_ms,
@@ -145,6 +149,13 @@ class ComputerAgentRunner:
                     duration_ms=duration_ms,
                 )
 
+                screenshot = {
+                    "type": "computer_screenshot",
+                    "image_url": (
+                        "data:image/png;base64," + base64.b64encode(frame.png).decode("ascii")
+                    ),
+                    "detail": "original",
+                }
                 response = client.responses.create(
                     model=self.model,
                     tools=[{"type": "computer"}, {"type": "web_search"}],
@@ -152,16 +163,11 @@ class ComputerAgentRunner:
                     input=[
                         {
                             "type": "computer_call_output",
-                            "call_id": _get(computer_call, "call_id"),
-                            "output": {
-                                "type": "computer_screenshot",
-                                "image_url": (
-                                    "data:image/png;base64,"
-                                    + base64.b64encode(frame.png).decode("ascii")
-                                ),
-                                "detail": "original",
-                            },
+                            "call_id": _get(call, "call_id"),
+                            "output": screenshot,
                         }
+                        for call in computer_calls
+                        if _get(call, "call_id")
                     ],
                 )
 
@@ -181,6 +187,12 @@ class ComputerAgentRunner:
                 tool_calls=records,
                 stopped_reason="error",
             )
+        finally:
+            if owns_client and client is not None:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    with contextlib.suppress(Exception):
+                        close()
 
     def _get_client(self) -> Any:
         if self._client is not None:
@@ -214,7 +226,6 @@ class ComputerAgentRunner:
         reason: str,
         iterations: int,
         records: list[ToolCallRecord],
-        response: Any,
     ) -> AgentRunResult:
         text = {
             "cancelled": "Tarefa cancelada.",
@@ -231,22 +242,21 @@ class ComputerAgentRunner:
     def _emit_cursor(self, action: dict[str, Any], frame: ScreenFrame) -> None:
         if self._on_event is None or "x" not in action or "y" not in action:
             return
-        self._on_event(
+        self._emit(
             "desktop_cursor",
-            {
-                "x": frame.left + int(action["x"]),
-                "y": frame.top + int(action["y"]),
-                "left": frame.left,
-                "top": frame.top,
-                "width": frame.width,
-                "height": frame.height,
-                "action": action.get("type", "move"),
-            },
+            x=frame.left + int(action["x"]),
+            y=frame.top + int(action["y"]),
+            left=frame.left,
+            top=frame.top,
+            width=frame.width,
+            height=frame.height,
+            action=action.get("type", "move"),
         )
 
     def _emit(self, kind: str, **data: Any) -> None:
         if self._on_event is not None:
-            self._on_event(kind, data)
+            with contextlib.suppress(Exception):
+                self._on_event(kind, data)
 
 
 def _computer_prompt(task: str, context: str) -> str:
@@ -261,11 +271,12 @@ def _computer_prompt(task: str, context: str) -> str:
     )
 
 
-def _first_computer_call(response: Any) -> Any | None:
-    for item in _get(response, "output", []) or []:
-        if _get(item, "type") == "computer_call":
-            return item
-    return None
+def _computer_calls(response: Any) -> list[Any]:
+    return [
+        item
+        for item in (_get(response, "output", []) or [])
+        if _get(item, "type") == "computer_call"
+    ]
 
 
 def _response_text(response: Any) -> str:

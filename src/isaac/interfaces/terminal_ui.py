@@ -18,6 +18,7 @@ Enhanced with:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any
 
 from rich.box import HEAVY, MINIMAL, ROUNDED
@@ -102,6 +103,7 @@ class TerminalUI:
         self._streaming = False
         self._live: Live | None = None
         self._stream_buffer: list[str] = []
+        self._stream_render: Callable[[], Panel] | None = None
 
     # ------------------------------------------------------------------
     # Banner
@@ -568,19 +570,22 @@ class TerminalUI:
 
         live = Live(render(), console=self.console, refresh_per_second=15, transient=False)
         self._live = live
+        self._stream_render = render
         return live
 
     def update_stream(self, token: str) -> None:
         """Update the streaming display with a new token."""
         if self._live is not None:
             self._stream_buffer.append(token)
-            self._live.update(self._live.renderable)
+            if self._stream_render is not None:
+                self._live.update(self._stream_render())
 
     def stop_streaming(self, elapsed: float | None = None) -> None:
         """Stop the streaming display."""
         if self._live is not None:
             self._live.stop()
             self._live = None
+        self._stream_render = None
         self.end_stream(elapsed)
 
 

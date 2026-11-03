@@ -23,6 +23,29 @@ def test_failed_owned_output_removed_and_explicit_output_preserved(tmp_path, mon
     assert explicit.read_bytes() == b"original"
 
 
+class _FakeOpenAIClient:
+    def __init__(self, response):
+        self.audio = SimpleNamespace(
+            speech=SimpleNamespace(create=lambda **kwargs: response),
+            transcriptions=SimpleNamespace(create=lambda **kwargs: "transcript"),
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+
+def _stub_openai(monkeypatch, response) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setitem(
+        sys.modules,
+        "openai",
+        SimpleNamespace(OpenAI=lambda **kwargs: _FakeOpenAIClient(response)),
+    )
+
+
 def test_openai_writer_receives_existing_file_and_success_survives(tmp_path, monkeypatch):
     monkeypatch.setattr(audio.tempfile, "tempdir", str(tmp_path))
 
@@ -30,12 +53,7 @@ def test_openai_writer_receives_existing_file_and_success_survives(tmp_path, mon
         assert Path(path).is_file()
         Path(path).write_bytes(b"audio")
 
-    client = SimpleNamespace(
-        audio=SimpleNamespace(
-            speech=SimpleNamespace(create=lambda **kwargs: SimpleNamespace(stream_to_file=write))
-        )
-    )
-    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda: client))
+    _stub_openai(monkeypatch, SimpleNamespace(write_to_file=write))
     result = audio.speak("hello", engine="openai")
     assert result.read_bytes() == b"audio"
 
@@ -51,14 +69,39 @@ def test_auto_fallback_does_not_leave_failed_temp(tmp_path, monkeypatch):
 
     monkeypatch.setattr(audio, "_speak_pyttsx3", unavailable)
     monkeypatch.setitem(sys.modules, "kokoro", SimpleNamespace(KPipeline=lambda **kwargs: fail))
-    writer = SimpleNamespace(stream_to_file=lambda path: Path(path).write_bytes(b"fallback"))
-    client = SimpleNamespace(
-        audio=SimpleNamespace(speech=SimpleNamespace(create=lambda **kwargs: writer))
-    )
-    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda: client))
+    response = SimpleNamespace(write_to_file=lambda path: Path(path).write_bytes(b"fallback"))
+    _stub_openai(monkeypatch, response)
     result = audio.speak("hello")
     assert result.read_bytes() == b"fallback"
     assert list(tmp_path.iterdir()) == [result]
+
+
+def test_openai_engine_requires_credential(tmp_path, monkeypatch):
+    from isaac.config.settings import get_settings
+
+    monkeypatch.setattr(audio.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(get_settings(), "openai_api_key", "")
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        audio.speak("hello", engine="openai")
+
+
+def test_transcribe_requires_an_available_backend(tmp_path, monkeypatch):
+    from isaac.config.settings import get_settings
+    from isaac.multimodal import audio as audio_module
+
+    def _unavailable(*args):
+        raise ImportError("faster-whisper is not installed")
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(get_settings(), "openai_api_key", "")
+    monkeypatch.setattr(audio_module, "_transcribe_faster_whisper", _unavailable)
+    target = tmp_path / "voice.wav"
+    target.write_bytes(b"RIFF")
+
+    with pytest.raises(RuntimeError, match="No speech-to-text backend available"):
+        audio.transcribe(target)
 
 
 def test_microphone_mock_writes_a_readable_wav(tmp_path, monkeypatch):

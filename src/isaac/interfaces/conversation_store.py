@@ -78,6 +78,22 @@ class ConversationStore:
                 (title, now, conversation_id),
             )
 
+    def search(self, query: str, limit: int = 20) -> builtins.list[dict[str, Any]]:
+        """Search message text across every stored conversation."""
+        text = query.strip()
+        if not text:
+            return []
+        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        with self._lock, self._connect() as db:
+            rows = db.execute(
+                "SELECT c.id, c.title, m.role, m.content, m.created_at "
+                "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
+                "WHERE m.content LIKE ? ESCAPE '\\' "
+                "ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
+                (f"%{escaped}%", max(1, min(200, int(limit)))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def _initialize(self) -> None:
         with self._lock, self._connect() as db:
             db.executescript(

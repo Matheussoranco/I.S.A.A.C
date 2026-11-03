@@ -173,31 +173,6 @@ class ErrorEntry:
     attempt: int = 0
 
 
-@dataclass
-class PendingApproval:
-    """A tool invocation waiting for human approval before execution.
-
-    Created when a tool with ``requires_approval=True`` (risk ≥ 4) is
-    attempted.  The graph pauses at the AwaitApproval node until the
-    operator resolves the approval.
-    """
-
-    tool_name: str
-    """Name of the tool awaiting approval."""
-    tool_args: dict[str, Any] = field(default_factory=dict)
-    """Keyword arguments the tool was called with."""
-    reason: str = ""
-    """Why the agent wants to invoke this tool."""
-    risk_level: int = 0
-    """Risk level (1–5) of the tool."""
-    approved: bool | None = None
-    """``None`` = pending, ``True`` = approved, ``False`` = rejected."""
-    resolved_by: str = ""
-    """Who resolved — e.g. ``telegram:<user_id>`` or ``cli``."""
-    created_at: str = ""
-    """ISO-8601 timestamp of when the approval was created."""
-
-
 # ---------------------------------------------------------------------------
 # Reducers
 # ---------------------------------------------------------------------------
@@ -217,7 +192,7 @@ def _replace(left: Any, right: Any) -> Any:
 # Type aliases
 # ---------------------------------------------------------------------------
 
-TaskMode = Literal["code", "computer_use", "hybrid"]
+TaskMode = Literal["direct", "code", "computer_use", "hybrid"]
 
 
 # ---------------------------------------------------------------------------
@@ -247,8 +222,8 @@ class IsaacState(TypedDict, total=False):
     Computer-Use extensions
     -----------------------
     * ``task_mode``  — latest-wins (Perception detects from input modality).
-    * ``ui_actions`` — append-only (Synthesis / ComputerUse append pending actions).
-    * ``ui_results`` — append-only (ComputerUse appends after each execution).
+    * ``ui_actions`` — latest-wins (Synthesis emits the pending action list).
+    * ``ui_results`` — latest-wins (ComputerUse emits results for this step).
     * ``ui_cycle``   — latest-wins (screenshot→action loop counter).
     """
 
@@ -264,10 +239,14 @@ class IsaacState(TypedDict, total=False):
     iteration: Annotated[int, _replace]
     current_phase: Annotated[str, _replace]
 
+    # ── Perception / clarification ──────────────────────────────────────────
+    perception_confidence: Annotated[float, _replace]
+    needs_clarification: Annotated[bool, _replace]
+
     # ── Computer-Use ────────────────────────────────────────────────────────
     task_mode: Annotated[TaskMode, _replace]
-    ui_actions: Annotated[list[UIAction], _append_list]
-    ui_results: Annotated[list[UIActionResult], _append_list]
+    ui_actions: Annotated[list[UIAction], _replace]
+    ui_results: Annotated[list[UIActionResult], _replace]
     ui_cycle: Annotated[int, _replace]
     # Callable is intentionally kept out of prompts and is only used by local
     # graph hosts to approve side-effecting computer-use actions.
@@ -280,9 +259,6 @@ class IsaacState(TypedDict, total=False):
     session_id: Annotated[str, _replace]
     """Unique identifier for this cognitive session, set once at startup.
     Used to isolate episodic memory recalls across concurrent server sessions."""
-    # ── Approval Workflow ──────────────────────────────────────────────────
-    pending_approvals: Annotated[list[PendingApproval], _append_list]
-
     # ── Connector execution context ────────────────────────────────────────
     connector_results: Annotated[list[dict[str, Any]], _append_list]
 
@@ -312,13 +288,15 @@ def make_initial_state() -> IsaacState:
         errors=[],
         iteration=0,
         current_phase="init",
+        verified_success=None,
+        perception_confidence=1.0,
+        needs_clarification=False,
         task_mode="code",
         ui_actions=[],
         ui_results=[],
         ui_cycle=0,
         guard_blocked=False,
         session_id="",
-        pending_approvals=[],
         connector_results=[],
         multimodal_done=False,
         parallel_done=False,

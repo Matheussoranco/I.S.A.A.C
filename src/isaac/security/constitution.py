@@ -311,21 +311,38 @@ def review(
 
     if use_llm:
         critic = _llm_critic(action_kind, action, ctx, load_constitution())
-        if critic is not None:
-            critic_score = float(critic.get("score", 0.5))
+        if isinstance(critic, dict):
+            try:
+                critic_score = float(critic.get("score", 0.5))
+            except (TypeError, ValueError):
+                critic_score = 0.5
+            critic_score = min(max(critic_score, 0.0), 1.0)
             score = (score + critic_score) / 2.0
-            for v in critic.get("violations", []):
-                violations.append(ConstitutionViolation(rule=str(v), severity="medium"))
+            raw_violations = critic.get("violations")
+            if isinstance(raw_violations, list):
+                for v in raw_violations:
+                    violations.append(ConstitutionViolation(rule=str(v), severity="medium"))
             if bool(critic.get("requires_approval", False)):
                 must_approve = True
             rationale_parts.append(f"LLM rationale: {critic.get('rationale', '')}")
 
-    allow = score >= threshold and not any(v.severity in ("critical",) for v in violations)
+    hard_block = any(v.severity in ("critical", "high") for v in violations)
+    allow = score >= threshold and not hard_block
+    if hard_block:
+        reason = "High-severity rule violated: " + ", ".join(
+            v.rule for v in violations if v.severity in ("critical", "high")
+        )
+    elif must_approve:
+        reason = "Action requires human approval before execution."
+    elif not allow:
+        reason = "Score below threshold."
+    else:
+        reason = ""
     decision = ReviewDecision(
         allow=allow,
         score=score,
         violations=violations,
-        reason="" if allow else "Score below threshold or unresolved violations.",
+        reason=reason,
         requires_approval=must_approve,
         rationale=" | ".join(rationale_parts) or "no concerns",
     )

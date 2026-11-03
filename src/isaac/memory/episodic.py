@@ -9,7 +9,10 @@ cross-session recall.  Persistent directory: ``~/.isaac/memory/episodic``.
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -98,26 +101,60 @@ class EpisodicMemory:
         # Persist to ChromaDB
         if self._collection is not None:
             try:
+                now = time.time()
                 doc = (
                     f"task: {episode.task} | "
                     f"hypothesis: {episode.hypothesis} | "
                     f"result: {episode.result_summary} | "
                     f"success: {episode.success}"
                 )
-                ep_id = f"ep_{len(self._episodes)}_{hash(episode.task) % 100000}"
+                payload = json.dumps(
+                    {
+                        "task": episode.task,
+                        "hypothesis": episode.hypothesis,
+                        "code": episode.code,
+                        "result_summary": episode.result_summary,
+                        "success": episode.success,
+                        "node": episode.node,
+                        "iteration": episode.iteration,
+                        "session_id": episode.session_id,
+                        "metadata": episode.metadata,
+                        "recorded_at": now,
+                    },
+                    default=str,
+                )
                 self._collection.add(
-                    ids=[ep_id],
+                    ids=[f"ep_{uuid.uuid4().hex}"],
                     documents=[doc],
                     metadatas=[
                         {
                             "success": str(episode.success),
                             "node": episode.node,
                             "iteration": episode.iteration,
+                            "session_id": episode.session_id,
+                            "recorded_at": now,
+                            "payload": payload,
                         }
                     ],
                 )
+                if self._collection.count() > self._max * 2:
+                    self._prune_persistent()
             except Exception:
                 logger.debug("ChromaDB episode persist failed.", exc_info=True)
+
+    def _prune_persistent(self) -> None:
+        """Drop the oldest persisted episodes once the collection overgrows."""
+        if self._collection is None:
+            return
+        data = self._collection.get(include=["metadatas"])
+        rows = list(zip(data.get("ids") or [], data.get("metadatas") or [], strict=False))
+        excess = len(rows) - self._max
+        if excess <= 0:
+            return
+        rows.sort(key=lambda row: float((row[1] or {}).get("recorded_at", 0.0)))
+        stale = [ep_id for ep_id, _ in rows[:excess]]
+        if stale:
+            self._collection.delete(ids=stale)
 
     def store_episode(
         self,
@@ -152,18 +189,46 @@ class EpisodicMemory:
 
         Falls back to keyword search if ChromaDB is unavailable.
         """
+        k = max(1, k)
         if self._collection is not None and self._collection.count() > 0:
             try:
                 results = self._collection.query(
                     query_texts=[query],
                     n_results=min(k, self._collection.count()),
                 )
-                # Map back to Episode objects from in-memory store
-                if results and results.get("documents"):
-                    return self.search(query)[:k]
+                metadatas = (results or {}).get("metadatas") or []
+                episodes = [
+                    episode
+                    for meta in (metadatas[0] if metadatas else [])
+                    if isinstance(meta, dict)
+                    and (episode := self._decode(meta.get("payload"))) is not None
+                ]
+                if episodes:
+                    return episodes[:k]
             except Exception:
                 logger.debug("ChromaDB recall failed — using keyword fallback.", exc_info=True)
         return self.search(query)[:k]
+
+    @staticmethod
+    def _decode(payload: Any) -> Episode | None:
+        if not isinstance(payload, str) or not payload:
+            return None
+        try:
+            data = json.loads(payload)
+            return Episode(
+                task=str(data.get("task", "")),
+                hypothesis=str(data.get("hypothesis", "")),
+                code=str(data.get("code", "")),
+                result_summary=str(data.get("result_summary", "")),
+                success=bool(data.get("success", False)),
+                node=str(data.get("node", "")),
+                iteration=int(data.get("iteration", 0)),
+                session_id=str(data.get("session_id", "")),
+                metadata=dict(data.get("metadata") or {}),
+            )
+        except (TypeError, ValueError):
+            logger.debug("Ignoring malformed persisted episode.", exc_info=True)
+            return None
 
     # -- read --
 
@@ -201,7 +266,15 @@ class EpisodicMemory:
             pool = [ep for ep in self._episodes if ep.session_id == session_id]
         else:
             pool = self._episodes
-        episodes = pool[-n:]
+        return self._format(pool[-n:])
+
+    def recall_context(self, query: str, k: int = 5, session_id: str = "") -> str:
+        """Summarise query-relevant episodes, falling back to recent history."""
+        relevant = self.recall_relevant(query, k)
+        return self._format(relevant) if relevant else self.summarise_recent(k, session_id)
+
+    @staticmethod
+    def _format(episodes: list[Episode]) -> str:
         if not episodes:
             return "No prior episodes."
         lines: list[str] = []
@@ -211,8 +284,15 @@ class EpisodicMemory:
         return "\n".join(lines)
 
     def clear(self) -> None:
-        """Discard all stored episodes."""
+        """Discard all stored episodes, including persisted ones."""
         self._episodes.clear()
+        if self._collection is not None:
+            try:
+                ids = self._collection.get(include=[]).get("ids") or []
+                if ids:
+                    self._collection.delete(ids=ids)
+            except Exception:
+                logger.debug("ChromaDB clear failed.", exc_info=True)
 
     @property
     def size(self) -> int:
@@ -231,7 +311,10 @@ def get_episodic_memory() -> EpisodicMemory:
     """Return the session-scoped episodic memory singleton."""
     global _episodic_memory
     if _episodic_memory is None:
-        _episodic_memory = EpisodicMemory()
+        from isaac.config.settings import get_settings
+
+        persist_dir = get_settings().isaac_home / "memory" / "episodic"
+        _episodic_memory = EpisodicMemory(persist_dir=persist_dir)
     return _episodic_memory
 
 

@@ -132,10 +132,8 @@ def _arc_synthesis(
 
             ops_json = _json.dumps(result.program)
             code = (
-                f"import numpy as np\n"
-                f"import sys, json\n"
-                f"sys.path.insert(0, '/app/src')\n"
-                f"from isaac.arc.dsl import apply_program\n\n"
+                "import numpy as np\n"
+                "from isaac_arc.dsl import apply_program\n\n"
                 f"test_inputs = {[p.input.tolist() for p in test_pairs]!r}\n"
                 f"ops = {ops_json}\n"
                 f"for i, inp in enumerate(test_inputs):\n"
@@ -146,9 +144,7 @@ def _arc_synthesis(
             )
         else:
             code = (
-                "import sys\n"
-                "print('ARC solver could not find a solution within compute budget.')\n"
-                "sys.exit(1)\n"
+                "raise SystemExit('ARC solver could not find a solution within compute budget.')\n"
             )
 
         logger.info(

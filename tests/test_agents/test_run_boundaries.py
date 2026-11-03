@@ -30,6 +30,46 @@ async def test_public_astream_yields_model_chunks() -> None:
     assert [chunk async for chunk in agent.astream("greet")] == ["hello", " world"]
 
 
+@pytest.mark.asyncio
+async def test_stream_retry_after_partial_output_does_not_duplicate_tokens() -> None:
+    class BrokenStreamLLM:
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        async def astream(self, _messages):
+            self.attempts += 1
+            yield SimpleNamespace(content="A")
+            if self.attempts == 1:
+                raise RuntimeError("connection dropped")
+
+    llm = BrokenStreamLLM()
+    agent = AgentLoop([], llm=llm, llm_retries=2)
+
+    received = []
+    with pytest.raises(RuntimeError):
+        async for chunk in agent.astream("greet"):
+            received.append(chunk)
+
+    assert received == ["A"]
+    assert llm.attempts == 1
+
+
+def test_retry_backoff_is_clamped_to_the_wall_budget() -> None:
+    class AlwaysFails:
+        def bind_tools(self, schemas):
+            return self
+
+        def invoke(self, messages):
+            raise RuntimeError("retryable")
+
+    started = time.monotonic()
+    result = AgentLoop([], llm=AlwaysFails(), llm_retries=5, max_wall_seconds=0.1).run("act")
+    elapsed = time.monotonic() - started
+
+    assert result.stopped_reason == "budget_exhausted"
+    assert elapsed < 0.6
+
+
 class ScriptLLM:
     def __init__(self, *responses):
         self.responses = iter(responses)

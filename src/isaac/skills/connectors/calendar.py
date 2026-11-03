@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -110,7 +110,7 @@ class CalendarConnector(BaseConnector):
         event.add("description", description)
         uid = f"{uuid.uuid4()}@isaac"
         event.add("uid", uid)
-        event.add("dtstamp", datetime.utcnow())
+        event.add("dtstamp", datetime.now(UTC))
 
         cal.add_component(event)
 

@@ -117,14 +117,24 @@ def _reflect_ui(
 
         raw_candidate = parsed.get("skill_candidate", {})
         candidate_info = raw_candidate if isinstance(raw_candidate, dict) else {}
-        updates["skill_candidate"] = SkillCandidate(
-            name=candidate_info.get("name", "ui_skill"),
-            code=state.get("code_buffer", ""),  # JSON-encoded UIAction trace
-            task_context=step_desc,
-            success_count=1,
-            skill_type="ui",
-            tags=candidate_info.get("tags", ["ui"]),
-        )
+        existing = state.get("skill_candidate")
+        if isinstance(existing, SkillCandidate) and existing.code:
+            existing.name = str(candidate_info.get("name", existing.name))
+            tags = list(existing.tags)
+            for tag in candidate_info.get("tags", []):
+                if tag not in tags:
+                    tags.append(tag)
+            existing.tags = tags
+            updates["skill_candidate"] = existing
+        else:
+            updates["skill_candidate"] = SkillCandidate(
+                name=candidate_info.get("name", "ui_skill"),
+                code=state.get("code_buffer", ""),
+                task_context=step_desc,
+                success_count=1,
+                skill_type="ui",
+                tags=candidate_info.get("tags", ["ui"]),
+            )
         episodic.record(
             Episode(
                 task=step_desc,
@@ -151,6 +161,7 @@ def _reflect_ui(
         )
         updates["errors"] = [new_error]
         updates["hypothesis"] = parsed.get("revised_hypothesis", state.get("hypothesis", ""))
+        updates["skill_candidate"] = None
         if active_step:
             active_step.status = "failed"
         updates["plan"] = plan
@@ -210,7 +221,9 @@ def _reflect_code(
             active_step.status = "done"
         updates["plan"] = plan
 
-        candidate_info = parsed.get("skill_candidate", {})
+        candidate_info = parsed.get("skill_candidate")
+        if not isinstance(candidate_info, dict):
+            candidate_info = {}
         updates["skill_candidate"] = SkillCandidate(
             name=candidate_info.get("name", "unnamed_skill"),
             code=code,
@@ -293,6 +306,7 @@ def _reflect_code(
         )
         updates["errors"] = [new_error]
         updates["hypothesis"] = parsed.get("revised_hypothesis", state.get("hypothesis", ""))
+        updates["skill_candidate"] = None
         if active_step:
             active_step.status = "failed"
         updates["plan"] = plan

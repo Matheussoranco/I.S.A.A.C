@@ -6,7 +6,7 @@ global :class:`ToolRegistry`.
 
 from __future__ import annotations
 
-import contextlib
+import logging
 
 from isaac.tools.base import ToolRegistry, get_tool_registry
 from isaac.tools.browser import BrowserTool
@@ -37,6 +37,8 @@ from isaac.tools.kanban import (
 from isaac.tools.search import WebSearchTool
 from isaac.tools.shell import ShellTool
 from isaac.tools.system import SystemInfoTool
+
+logger = logging.getLogger(__name__)
 
 
 def register_all_tools() -> ToolRegistry:
@@ -70,9 +72,10 @@ def register_all_tools() -> ToolRegistry:
         # Kanban multi-agent queue tools
         *KANBAN_TOOL_CLASSES,
     ):
-        # graceful — tool may have missing deps
-        with contextlib.suppress(Exception):
+        try:
             registry.register(tool_cls())
+        except Exception as exc:
+            logger.warning("Could not register tool %s: %s", tool_cls.__name__, exc)
     return registry
 
 

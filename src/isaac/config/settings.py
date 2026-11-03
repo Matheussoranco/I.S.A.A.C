@@ -30,6 +30,21 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 
 
+def default_isaac_home() -> Path:
+    """Root data directory, honouring ``ISAAC_HOME`` (and its legacy alias)."""
+    override = (os.environ.get("ISAAC_HOME") or os.environ.get("ISAAC_ISAAC_HOME") or "").strip()
+    return Path(override).expanduser() if override else Path.home() / ".isaac"
+
+
+def parse_id_list(value: object) -> list[str]:
+    """Normalise a comma-separated string or iterable of IDs into strings."""
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return []
+
+
 class LLMSettings(BaseSettings):
     """LLM provider configuration.
 
@@ -180,13 +195,17 @@ class Settings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     ui_sandbox: UISandboxSettings = Field(default_factory=UISandboxSettings)
     graph: GraphSettings = Field(default_factory=GraphSettings)
-    skills_dir: Path = Field(default_factory=lambda: Path.home() / ".isaac" / "skills")
+    skills_dir: Path = Field(default_factory=lambda: default_isaac_home() / "skills")
     """Persistent skill library directory (absolute, anchored to isaac_home)."""
 
     # API keys (read from env without prefix).  Optional: only consulted when
     # a cloud provider is explicitly selected or configured as a fallback.
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    gemini_api_key: str = ""
+    elevenlabs_api_key: str = ""
+    api_key: str = ""
+    """Bearer token required by the local OpenAI-compatible API proxy."""
 
     # Ollama-first LLM routing (the default backend)
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
@@ -224,6 +243,8 @@ class Settings(BaseSettings):
     """Default vision-language model tag (Ollama by default)."""
     vision_strong_model: str = ""
     """Optional larger VLM for hard visual reasoning."""
+    vision_cloud_provider: str = "gpt-4o"
+    """Cloud fallback VLM when the local one fails: ``gpt-4o``, ``claude``, ``gemini``."""
 
     # ── Voice (STT / TTS) ──────────────────────────────────────────────
     voice_enabled: bool = True
@@ -235,8 +256,10 @@ class Settings(BaseSettings):
     voice_stt_compute_type: str = "int8"
     voice_tts_voice: str = "en_US-lessac-medium"
     """Piper voice file name (looked up under PIPER_VOICE_DIR or ~/.isaac/voices)."""
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    """ElevenLabs voice ID used by the ``elevenlabs`` TTS provider."""
     voice_tts_rate: int = 175
-    voice_tts_sample_rate: int = 22050
+    """Base speech rate in words/min for the pyttsx3 engine."""
 
     # ── Self-improvement engine ────────────────────────────────────────
     improvement_enabled: bool = False
@@ -260,7 +283,7 @@ class Settings(BaseSettings):
     """PromptInjectionGuard threshold (0.0–1.0). Above this → sanitize/reject."""
 
     # Isaac workspace
-    isaac_home: Path = Path.home() / ".isaac"
+    isaac_home: Path = Field(default_factory=default_isaac_home)
     """Root directory for Isaac persistent data (memory, audit, workspace)."""
 
     # ── Identity & Soul ─────────────────────────────────────────────────
@@ -279,7 +302,7 @@ class Settings(BaseSettings):
 
     # ── Connectors ──────────────────────────────────────────────────────
     allowed_paths: list[str] = Field(
-        default_factory=lambda: [str(Path.home() / ".isaac" / "workspace")]
+        default_factory=lambda: [str(default_isaac_home() / "workspace")]
     )
     """Directories accessible by the FileSystemConnector.
 
@@ -303,6 +326,8 @@ class Settings(BaseSettings):
     """Deprecated compatibility flag; no host child processes are launched."""
     connector_audit_log: str = ""
     """Path for connector audit log (default: ~/.isaac/connector_audit.log)."""
+    searx_url: str = ""
+    """Self-hosted Searx base URL used as the web-search fallback."""
 
     # Connector env-vars (optional — loaded from environment)
     github_token: str = ""
@@ -330,12 +355,10 @@ class Settings(BaseSettings):
     """Whether to auto-start the cron daemon on boot."""
 
     # ── Multimodal ──────────────────────────────────────────────────────
-    whisper_model: str = "base"
-    """faster-whisper model size: tiny/base/small/medium/large-v3."""
     tts_engine: str = "auto"
-    """TTS engine: pyttsx3 / kokoro / openai / auto."""
+    """Default TTS engine for the ``isaac speak`` command: pyttsx3/kokoro/openai/auto."""
     tts_voice: str = "default"
-    """Voice ID for TTS (engine-specific)."""
+    """Default voice ID for ``isaac speak`` (engine-specific)."""
 
     # ── MCP Server ──────────────────────────────────────────────────────
     mcp_enabled: bool = True
@@ -448,14 +471,11 @@ def get_settings() -> Settings:
         try:
             for p in _settings.allowed_paths:
                 pp = Path(p)
-                # Only auto-create paths under ~/.isaac (the safe default);
-                # never mkdir arbitrary user-supplied roots as a side effect.
                 try:
-                    if pp.resolve().is_relative_to(Path.home() / ".isaac"):
+                    if pp.resolve().is_relative_to(_settings.isaac_home):
                         pp.mkdir(parents=True, exist_ok=True)
                 except Exception:
-                    # resolve() strictness / py<3.9 compat: fall back to prefix check
-                    if str(pp).startswith(str(Path.home() / ".isaac")):
+                    if str(pp).startswith(str(_settings.isaac_home)):
                         pp.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
@@ -499,6 +519,8 @@ LEGACY_ENV_FALLBACK: dict[str, list[str]] = {
     "ISAAC_SHELL_PASS_SECRETS": ["SHELL_PASS_SECRETS"],
     "ISAAC_OPENAI_API_KEY": ["OPENAI_API_KEY"],
     "ISAAC_ANTHROPIC_API_KEY": ["ANTHROPIC_API_KEY"],
+    "ISAAC_GEMINI_API_KEY": ["GEMINI_API_KEY"],
+    "ISAAC_ELEVENLABS_API_KEY": ["ELEVENLABS_API_KEY"],
 }
 
 _warned_legacy: set[str] = set()

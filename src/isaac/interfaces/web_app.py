@@ -86,6 +86,8 @@ class UISession:
             return
 
     def request_approval(self, name: str, args: dict[str, Any], risk: int) -> bool:
+        if self.cancelled.is_set():
+            return False
         request_id = uuid.uuid4().hex
         waiter = _ApprovalWaiter()
         with self.approval_lock:
@@ -103,6 +105,8 @@ class UISession:
         waiter.ready.wait(_APPROVAL_TIMEOUT_SECONDS)
         with self.approval_lock:
             self.approvals.pop(request_id, None)
+        if self.cancelled.is_set():
+            return False
         return waiter.approved if waiter.ready.is_set() else False
 
     def resolve_approval(self, request_id: str, decision: str) -> bool:
@@ -110,7 +114,7 @@ class UISession:
             waiter = self.approvals.get(request_id)
             if waiter is None:
                 return False
-            waiter.approved = decision == "approve_once"
+            waiter.approved = decision == "approve_once" and not self.cancelled.is_set()
             waiter.ready.set()
             return True
 
@@ -378,6 +382,10 @@ def _create_app(
         finally:
             session.cancelled.set()
             session.release_approvals()
+            if session.run_task is not None and not session.run_task.done():
+                session.run_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await session.run_task
             sender.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await sender
@@ -535,14 +543,26 @@ def _clean_mode(value: Any) -> str:
     return "computer" if str(value or "").lower().strip() == "computer" else "agent"
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
 def _same_origin_websocket(websocket: WebSocket) -> bool:
+    if not _loopback_host(websocket):
+        return False
     origin = websocket.headers.get("origin")
     if not origin:
         return True
     return _same_origin(websocket)
 
 
+def _loopback_host(request: Request | WebSocket) -> bool:
+    hostname = (request.url.hostname or "").strip().lower().rstrip(".")
+    return hostname in _LOOPBACK_HOSTS
+
+
 def _same_origin(request: Request | WebSocket) -> bool:
+    if not _loopback_host(request):
+        return False
     origin = request.headers.get("origin", "")
     parsed = urlparse(origin)
     scheme = "https" if request.url.scheme in {"https", "wss"} else "http"
@@ -582,6 +602,8 @@ async def _bounded_json(request: Request) -> dict:
 def _synthesize_audio(text: str) -> bytes:
     from isaac.multimodal.voice.tts import TextToSpeech
 
+    if not get_settings().voice_enabled:
+        raise RuntimeError("Voice subsystem is disabled (ISAAC_VOICE_ENABLED=false).")
     with tempfile.TemporaryDirectory(prefix="isaac-speech-") as directory:
         path = Path(directory) / "speech.wav"
         TextToSpeech().synthesize(text, out_path=path)

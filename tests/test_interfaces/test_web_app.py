@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from isaac.agents.agent_loop import AgentRunResult
 from isaac.interfaces import web_app as web_app_module
@@ -81,10 +83,62 @@ def test_agent_ui_uses_masculine_copy(tmp_path) -> None:
     assert "Pronta para ajudar" not in app_js.text
 
 
+def test_websocket_rejects_non_loopback_host(tmp_path) -> None:
+    client = TestClient(_app(tmp_path))
+
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/ws", headers={"host": "evil.example"}) as websocket,
+    ):
+        websocket.receive_json()
+
+
+def test_websocket_rejects_cross_origin(tmp_path) -> None:
+    client = TestClient(_app(tmp_path))
+
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(
+            "/ws",
+            headers={"host": "127.0.0.1", "origin": "http://evil.example"},
+        ) as websocket,
+    ):
+        websocket.receive_json()
+
+
+def test_speak_endpoint_returns_wav(tmp_path, monkeypatch) -> None:
+    class _FakeTTS:
+        def synthesize(self, text: str, out_path: Path | None = None) -> Path:
+            assert out_path is not None
+            out_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+            return out_path
+
+    monkeypatch.setattr("isaac.multimodal.voice.tts.TextToSpeech", _FakeTTS)
+    client = TestClient(_app(tmp_path))
+
+    response = client.post("/api/speak", json={"text": "hello"}, headers={"x-test-client": "1"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.content.startswith(b"RIFF")
+
+
+def test_speak_endpoint_respects_voice_disabled(tmp_path, monkeypatch) -> None:
+    from isaac.config.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "voice_enabled", False)
+    client = TestClient(_app(tmp_path))
+
+    response = client.post("/api/speak", json={"text": "hello"}, headers={"x-test-client": "1"})
+
+    assert response.status_code == 503
+    assert "disabled" in response.json()["detail"]
+
+
 def test_websocket_runs_agent_and_streams_completion(tmp_path) -> None:
     client = TestClient(_app(tmp_path))
 
-    with client.websocket_connect("/ws") as websocket:
+    with client.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as websocket:
         assert websocket.receive_json()["type"] == "connected"
         assert websocket.receive_json()["type"] == "conversation_list"
         assert websocket.receive_json()["type"] == "history_loaded"
@@ -99,13 +153,13 @@ def test_websocket_runs_agent_and_streams_completion(tmp_path) -> None:
     assert completed["type"] == "run_complete"
     assert completed["data"]["output"] == "hello back"
     assert completed["data"]["completed"] is True
-    assert completed["data"]["success"] is False
+    assert completed["data"]["success"] is True
 
 
 def test_websocket_configures_model_without_exposing_credentials(tmp_path) -> None:
     client = TestClient(_app(tmp_path))
 
-    with client.websocket_connect("/ws") as websocket:
+    with client.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as websocket:
         for _ in range(3):
             websocket.receive_json()
         websocket.send_json(
@@ -139,7 +193,7 @@ def test_websocket_persists_completed_conversation(tmp_path) -> None:
         )
     )
 
-    with client.websocket_connect("/ws") as websocket:
+    with client.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as websocket:
         websocket.receive_json()
         listed = websocket.receive_json()
         websocket.receive_json()
@@ -174,7 +228,7 @@ def test_computer_mode_uses_first_party_runner(tmp_path) -> None:
         )
     )
 
-    with client.websocket_connect("/ws") as websocket:
+    with client.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as websocket:
         for _ in range(3):
             websocket.receive_json()
         websocket.send_json(

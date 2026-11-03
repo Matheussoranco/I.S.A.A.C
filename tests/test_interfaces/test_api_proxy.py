@@ -4,11 +4,11 @@ import httpx
 import pytest
 
 from isaac.agents.agent_loop import AgentRunResult
-from isaac.config.settings import settings
+from isaac.config.settings import get_settings
 from isaac.interfaces import api_proxy
 
 BASE_URL = "http://test/v1"
-API_KEY = getattr(settings, "ISAAC_API_KEY", "test-key")
+API_KEY = "test-key"
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +17,7 @@ def mock_agent(monkeypatch):
         return AgentRunResult(output="Stubbed response", iterations=1)
 
     monkeypatch.setattr(api_proxy, "build_default_agent", lambda: SimpleNamespace(arun=arun))
+    monkeypatch.setattr(get_settings(), "api_key", API_KEY)
 
 
 @pytest.fixture
@@ -35,6 +36,30 @@ async def test_api_auth_failure(client):
             json={"model": "isaac-strong", "messages": [{"role": "user", "content": "Hello"}]},
         )
         assert resp.status_code == 403
+
+
+def test_messages_flatten_content_parts_and_preserve_context() -> None:
+    task, context = api_proxy.openai_messages_to_task(
+        [
+            {"role": "system", "content": "Be brief."},
+            {"role": "assistant", "content": "Earlier answer"},
+            {"role": "user", "content": [{"type": "text", "text": "First"}]},
+            {"role": "user", "content": [{"type": "input_text", "text": "Second"}]},
+        ]
+    )
+
+    assert task == "Second"
+    assert "System: Be brief." in context
+    assert "Assistant: Earlier answer" in context
+    assert "User: First" in context
+
+
+@pytest.mark.asyncio
+async def test_api_fails_closed_without_server_key(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "api_key", "")
+    async with client:
+        resp = await client.get(f"{BASE_URL}/models", headers={"Authorization": "Bearer any-value"})
+        assert resp.status_code == 503
 
 
 @pytest.mark.asyncio

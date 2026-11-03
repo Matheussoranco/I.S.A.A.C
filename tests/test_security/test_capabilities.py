@@ -117,6 +117,14 @@ class TestTokenStore:
         removed = store.cleanup_expired()
         assert removed >= 1
 
+    def test_revocation_is_observed_by_running_store(self, tmp_path: Path) -> None:
+        store_path = tmp_path / "tokens.json"
+        running = TokenStore(store_path=store_path)
+        token = running.issue("tool")
+        operator = TokenStore(store_path=store_path)
+        assert operator.revoke(token.token_id)
+        assert running.check(token.token_id, "tool") is False
+
     def test_persistence(self, tmp_path: Path) -> None:
         store_path = tmp_path / "tokens.json"
         s1 = TokenStore(store_path=store_path)

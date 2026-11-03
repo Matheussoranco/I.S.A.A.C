@@ -233,6 +233,9 @@ def after_planner(state: IsaacState) -> str:
 
     plan = state.get("plan", [])
     active = [s for s in plan if s.status == "active"]
+    if not active:
+        logger.warning("Transition: Planner → END (no active steps — plan is blocked or complete).")
+        return END
 
     wm = state.get("world_model")
     parallel_eligible = wm.resources.get("_parallel_eligible", True) if wm else True

@@ -82,16 +82,35 @@ class TokenStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._tokens: dict[str, CapabilityToken] = {}
         self._lock = threading.RLock()
+        self._mtime_ns: int | None = None
         self._load()
 
     def _load(self) -> None:
-        if self._path.exists():
-            try:
-                data = json.loads(self._path.read_text(encoding="utf-8"))
-                for tid, tdata in data.items():
-                    self._tokens[tid] = CapabilityToken(**tdata)
-            except Exception as exc:
-                logger.error("Failed to load token store: %s", exc)
+        try:
+            self._mtime_ns = self._path.stat().st_mtime_ns
+        except FileNotFoundError:
+            self._mtime_ns = None
+            self._tokens.clear()
+            return
+        except OSError:
+            return
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+            self._tokens = {tid: CapabilityToken(**tdata) for tid, tdata in data.items()}
+        except Exception as exc:
+            logger.error("Failed to load token store: %s", exc)
+            self._tokens.clear()
+
+    def _refresh(self) -> None:
+        """Pick up grants and revocations written by another process."""
+        try:
+            mtime_ns = self._path.stat().st_mtime_ns
+        except FileNotFoundError:
+            mtime_ns = None
+        except OSError:
+            return
+        if mtime_ns != self._mtime_ns:
+            self._load()
 
     def _save(self) -> None:
         """Atomically persist grants before reporting an authorization change."""
@@ -103,6 +122,10 @@ class TokenStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, self._path)
+            try:
+                self._mtime_ns = self._path.stat().st_mtime_ns
+            except OSError:
+                self._mtime_ns = None
         except Exception as exc:
             logger.error("Failed to save token store: %s", exc)
             temporary.unlink(missing_ok=True)
@@ -119,6 +142,7 @@ class TokenStore:
     ) -> CapabilityToken:
         """Issue a new capability token."""
         with self._lock:
+            self._refresh()
             now = datetime.now(UTC)
             token = CapabilityToken(
                 token_id=secrets.token_hex(16),
@@ -160,6 +184,7 @@ class TokenStore:
     def check(self, token_id: str, tool_name: str, action: str = "*") -> bool:
         """Validate a token for a tool/action.  Increments use_count if valid."""
         with self._lock:
+            self._refresh()
             token = self._tokens.get(token_id)
             if token is None:
                 return False
@@ -168,10 +193,14 @@ class TokenStore:
                 return False
 
             token.use_count += 1
+            exhausted = token.max_uses > 0 and token.use_count >= token.max_uses
             try:
+                if exhausted:
+                    del self._tokens[token.token_id]
                 self._save()
             except Exception:
                 token.use_count -= 1
+                self._tokens.setdefault(token.token_id, token)
                 return False
 
         # Audit
@@ -202,13 +231,18 @@ class TokenStore:
         """
         consumed: CapabilityToken | None = None
         with self._lock:
-            for token in self._tokens.values():
+            self._refresh()
+            for tid, token in list(self._tokens.items()):
                 if token.matches(tool_name, action):
                     token.use_count += 1
+                    exhausted = token.max_uses > 0 and token.use_count >= token.max_uses
                     try:
+                        if exhausted:
+                            del self._tokens[tid]
                         self._save()
                     except Exception:
                         token.use_count -= 1
+                        self._tokens.setdefault(tid, token)
                         return None
                     consumed = token
                     break
@@ -233,6 +267,7 @@ class TokenStore:
     def revoke(self, token_id: str, *, revoked_by: str = "system") -> bool:
         """Revoke a token. Returns True if found and revoked."""
         with self._lock:
+            self._refresh()
             token = self._tokens.get(token_id)
             if token is None:
                 return False
@@ -256,11 +291,13 @@ class TokenStore:
     def list_active(self) -> list[CapabilityToken]:
         """Return all active (non-revoked, non-expired) tokens."""
         with self._lock:
+            self._refresh()
             return [t for t in self._tokens.values() if t.is_valid()]
 
     def cleanup_expired(self) -> int:
         """Remove expired or revoked tokens. Returns count removed."""
         with self._lock:
+            self._refresh()
             to_remove = [tid for tid, t in self._tokens.items() if not t.is_valid()]
             for tid in to_remove:
                 del self._tokens[tid]

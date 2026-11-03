@@ -9,6 +9,7 @@ Persistence: SQLite at ``~/.isaac/memory/semantic.db``.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 from dataclasses import dataclass
@@ -19,6 +20,12 @@ from typing import Any
 import networkx as nx  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
+
+
+def _fact_id(subject: str, predicate: str, object: str) -> str:
+    """Stable, collision-free Chroma document ID for a knowledge triple."""
+    raw = "\x1f".join((subject, predicate, object)).encode("utf-8", "surrogatepass")
+    return hashlib.sha256(raw).hexdigest()
 
 
 @dataclass
@@ -62,7 +69,7 @@ class SemanticMemory:
             db_path = get_settings().isaac_home / "memory" / "semantic.db"
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._graph: nx.DiGraph = nx.DiGraph()
+        self._graph: nx.MultiDiGraph = nx.MultiDiGraph()
         self._conn: sqlite3.Connection | None = None
 
         # ChromaDB — optional; if unavailable we fall back to exact-match only
@@ -118,6 +125,7 @@ class SemanticMemory:
             self._graph.add_edge(
                 subj,
                 obj,
+                key=pred,
                 predicate=pred,
                 confidence=conf,
                 timestamp=ts,
@@ -156,6 +164,7 @@ class SemanticMemory:
         self._graph.add_edge(
             subject,
             object,
+            key=predicate,
             predicate=predicate,
             confidence=confidence,
             timestamp=ts,
@@ -170,9 +179,9 @@ class SemanticMemory:
             )
             self._conn.commit()
 
-        if hasattr(self, "_chroma_collection") and self._chroma_collection is not None:
+        if self._chroma_collection is not None:
             fact_str = f"{subject} {predicate} {object}"
-            fact_id = f"{subject}_{predicate}_{object}".replace(" ", "_").replace("/", "_")
+            fact_id = _fact_id(subject, predicate, object)
             self._chroma_collection.upsert(
                 documents=[fact_str],
                 metadatas=[
@@ -192,23 +201,22 @@ class SemanticMemory:
 
         Uses the underlying Chroma database to retrieve related knowledge graph facts.
         """
-        if not hasattr(self, "_chroma_collection") or self._chroma_collection is None:
-            logger.warning("Chroma collection not initialized. Cannot perform semantic search.")
+        if self._chroma_collection is None:
+            logger.debug("Chroma collection not initialized — semantic search unavailable.")
             return []
 
         results = self._chroma_collection.query(query_texts=[query], n_results=top_k)
 
-        matches = []
-        if results and "metadatas" in results and results["metadatas"]:
-            metadata_batch = results["metadatas"][0]
-            for meta in metadata_batch:
-                matches.append(
-                    Fact(
-                        subject=str(meta.get("subject", "")),
-                        predicate=str(meta.get("predicate", "")),
-                        object=str(meta.get("object", "")),
-                    )
+        matches: list[Fact] = []
+        if results and results.get("metadatas"):
+            for meta in results["metadatas"][0]:
+                fact = self.get_fact(
+                    str(meta.get("subject", "")),
+                    str(meta.get("predicate", "")),
+                    str(meta.get("object", "")),
                 )
+                if fact is not None:
+                    matches.append(fact)
 
         return matches
 
@@ -225,8 +233,7 @@ class SemanticMemory:
         All parameters are optional.  ``None`` means "match any".
         """
         results: list[Fact] = []
-        for u, v, data in self._graph.edges(data=True):
-            edge_pred = data.get("predicate", "")
+        for u, v, edge_pred, data in self._graph.edges(keys=True, data=True):
             if subject is not None and u != subject:
                 continue
             if predicate is not None and edge_pred != predicate:
@@ -244,6 +251,24 @@ class SemanticMemory:
                 )
             )
         return results
+
+    def get_fact(self, subject: str, predicate: str, object: str) -> Fact | None:
+        """Return a single fact by exact triple, or ``None``."""
+        data = self._graph.get_edge_data(subject, object, key=predicate)
+        if data is None:
+            return None
+        return Fact(
+            subject=subject,
+            predicate=predicate,
+            object=object,
+            confidence=data.get("confidence", 1.0),
+            timestamp=data.get("timestamp", ""),
+            source=data.get("source", ""),
+        )
+
+    def all_facts(self) -> list[Fact]:
+        """Return every stored fact."""
+        return self.query_facts()
 
     def infer_transitive(
         self,
@@ -267,8 +292,8 @@ class SemanticMemory:
                 continue
             visited.add(current)
 
-            for _u, v, data in self._graph.out_edges(current, data=True):
-                if data.get("predicate") == predicate:
+            for _u, v, key, data in self._graph.out_edges(current, keys=True, data=True):
+                if key == predicate:
                     results.append(
                         Fact(
                             subject=current,
@@ -288,22 +313,22 @@ class SemanticMemory:
         results: list[Fact] = []
 
         # As subject
-        for _u, v, data in self._graph.out_edges(entity, data=True):
+        for _u, v, key, data in self._graph.out_edges(entity, keys=True, data=True):
             results.append(
                 Fact(
                     subject=entity,
-                    predicate=data.get("predicate", ""),
+                    predicate=key,
                     object=v,
                     confidence=data.get("confidence", 1.0),
                 )
             )
 
         # As object
-        for u, _v, data in self._graph.in_edges(entity, data=True):
+        for u, _v, key, data in self._graph.in_edges(entity, keys=True, data=True):
             results.append(
                 Fact(
                     subject=u,
-                    predicate=data.get("predicate", ""),
+                    predicate=key,
                     object=entity,
                     confidence=data.get("confidence", 1.0),
                 )
@@ -320,17 +345,78 @@ class SemanticMemory:
         existing = self.query_facts(subject=subject, predicate=predicate)
         return any(fact.object != object and fact.confidence >= 0.8 for fact in existing)
 
+    def decay_and_prune(
+        self,
+        *,
+        decay: float = 0.98,
+        prune_below: float = 0.15,
+        exclude: set[tuple[str, str, str]] | None = None,
+    ) -> int:
+        """Decay confidence of stale facts and prune those below ``prune_below``.
+
+        Facts in ``exclude`` (``(subject, predicate, object)`` triples touched
+        during this pass) keep their confidence.  Changes are persisted to
+        SQLite and ChromaDB.  Returns the number of pruned facts.
+        """
+        excluded = exclude or set()
+        updates: list[tuple[float, str, str, str]] = []
+        deletions: list[tuple[str, str, str]] = []
+
+        for subject, obj, predicate, data in list(self._graph.edges(keys=True, data=True)):
+            if (subject, predicate, obj) in excluded:
+                continue
+            new_conf = float(data.get("confidence", 0.5)) * decay
+            if new_conf < prune_below:
+                deletions.append((subject, predicate, obj))
+            else:
+                data["confidence"] = new_conf
+                updates.append((new_conf, subject, predicate, obj))
+
+        for subject, predicate, obj in deletions:
+            self._graph.remove_edge(subject, obj, key=predicate)
+
+        if self._conn is not None:
+            self._conn.executemany(
+                "UPDATE facts SET confidence = ? "
+                "WHERE subject = ? AND predicate = ? AND object = ?",
+                updates,
+            )
+            self._conn.executemany(
+                "DELETE FROM facts WHERE subject = ? AND predicate = ? AND object = ?",
+                deletions,
+            )
+            self._conn.commit()
+
+        if self._chroma_collection is not None and deletions:
+            ids = [_fact_id(s, p, o) for s, p, o in deletions]
+            try:
+                self._chroma_collection.delete(ids=ids)
+            except Exception as exc:
+                logger.debug("SemanticMemory: failed to prune Chroma facts: %s", exc)
+
+        if deletions:
+            logger.debug("SemanticMemory: pruned %d low-confidence facts.", len(deletions))
+        return len(deletions)
+
     def to_context_string(self, max_facts: int = 50) -> str:
         """Compact string representation for LLM prompts."""
-        facts = list(self._graph.edges(data=True))[:max_facts]
+        facts = self.all_facts()[:max_facts]
         if not facts:
             return "No knowledge available."
-        lines: list[str] = []
-        for u, v, data in facts:
-            pred = data.get("predicate", "related_to")
-            conf = data.get("confidence", 1.0)
-            lines.append(f"  ({u}) --[{pred}]--> ({v}) [conf={conf:.2f}]")
-        return "\n".join(lines)
+        return "\n".join(
+            f"  ({f.subject}) --[{f.predicate}]--> ({f.object}) [conf={f.confidence:.2f}]"
+            for f in facts
+        )
+
+    def graph_snapshot(self) -> dict[str, Any]:
+        """Return nodes and predicate-keyed edges for dashboards and tooling."""
+        return {
+            "nodes": [str(node) for node in self._graph.nodes],
+            "edges": [
+                {"subject": str(subject), "object": str(obj), "predicate": str(key)}
+                for subject, obj, key in self._graph.edges(keys=True)
+            ],
+        }
 
     @property
     def size(self) -> int:

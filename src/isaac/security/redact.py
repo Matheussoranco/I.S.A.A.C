@@ -31,15 +31,27 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.DOTALL,
         ),
     ),
-    # Explicit assignments: password=..., api_key: ..., secret = "..."
+    # Explicit assignments: password=..., "api_key": "...", db_password=...
     (
         "credential-assignment",
         re.compile(
-            r"(?i)\b(password|passwd|api[_-]?key|access[_-]?token|auth[_-]?token|secret"
-            r"|client[_-]?secret)\b(\s*[=:]\s*)(['\"]?)[^\s'\"]{6,}\3"
+            r"(?i)(?P<keyquote>[\"']?)"
+            r"(?P<name>\b(?:[A-Za-z0-9]+[_-])*(?:password|passwd|api[_-]?key"
+            r"|access[_-]?token|auth[_-]?token|secret|client[_-]?secret)\b)"
+            r"(?P=keyquote)(?P<sep>\s*[=:]\s*)"
+            r"(?:(?P<quote>[\"'])(?P<quoted>.*?)(?P=quote)"
+            r"|(?P<plain>[^\s\"',;}]{6,}))"
         ),
     ),
 ]
+
+
+def _redact_assignment(match: re.Match[str]) -> str:
+    quote = match.group("quote") or ""
+    return (
+        f"{match.group('keyquote')}{match.group('name')}{match.group('keyquote')}"
+        f"{match.group('sep')}{quote}[REDACTED:credential-assignment]{quote}"
+    )
 
 
 def redact_secrets(text: str) -> str:
@@ -48,7 +60,7 @@ def redact_secrets(text: str) -> str:
         return text
     for kind, pattern in _PATTERNS:
         if kind == "credential-assignment":
-            text = pattern.sub(rf"\1\2[REDACTED:{kind}]", text)
+            text = pattern.sub(_redact_assignment, text)
         else:
             text = pattern.sub(f"[REDACTED:{kind}]", text)
     return text

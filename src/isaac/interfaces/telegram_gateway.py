@@ -6,8 +6,6 @@ Commands
 /status   — current agent status
 /tasks    — show pending plan steps
 /memory   — show recent memory context
-/approve  — approve the pending approval
-/reject   — reject the pending approval
 
 Only whitelisted user IDs (``TELEGRAM_ALLOWED_USERS``) can interact.
 All other users receive a "not authorised" reply.
@@ -26,44 +24,54 @@ logger = logging.getLogger(__name__)
 # Module-level reference to the running Application — filled by ``start_bot``.
 _application: Any | None = None
 
-# Shared approval queue — approval node writes, Telegram handler resolves.
-_pending_approvals: list[Any] = []
 
+def send_message_to_all(text: str) -> int:
+    """Send *text* to every allowed Telegram user; return the delivery count.
 
-def set_pending_approvals(approvals: list[Any]) -> None:
-    """Set the pending approvals list so Telegram handlers can resolve them."""
-    global _pending_approvals
-    _pending_approvals = approvals
+    Raises :class:`RuntimeError` when Telegram is not configured or every
+    recipient failed, so background jobs can record a real delivery failure.
+    """
+    from isaac.config.settings import get_settings, parse_id_list
+
+    settings = get_settings()
+    token = settings.telegram_bot_token
+    recipients = parse_id_list(settings.telegram_allowed_users)
+    if not token or not recipients:
+        raise RuntimeError(
+            "Telegram is not configured. Set ISAAC_TELEGRAM_BOT_TOKEN and "
+            "ISAAC_TELEGRAM_ALLOWED_USERS."
+        )
+
+    import json
+    import urllib.request
+
+    sent = 0
+    errors: list[str] = []
+    for user_id in recipients:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = json.dumps({"chat_id": user_id, "text": text[:4096]}).encode()
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8", "replace"))
+            if not isinstance(payload, dict) or payload.get("ok") is not True:
+                raise RuntimeError("Telegram did not confirm delivery")
+            sent += 1
+        except Exception as exc:
+            errors.append(f"{user_id}: {exc}")
+    if sent == 0:
+        raise RuntimeError("Telegram delivery failed: " + "; ".join(errors))
+    return sent
 
 
 def send_notification(text: str) -> None:
     """Send a message to all allowed Telegram users (best-effort, fire-and-forget)."""
     try:
-        from isaac.config.settings import get_settings
-
-        settings = get_settings()
-        token = settings.telegram_bot_token
-        allowed = settings.telegram_allowed_users
-
-        if not token or not allowed:
-            return
-
-        import json
-        import urllib.parse
-        import urllib.request
-
-        for user_id in allowed:
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            data = json.dumps({"chat_id": user_id, "text": text}).encode()
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            try:
-                urllib.request.urlopen(req, timeout=5)
-            except Exception as exc:
-                logger.debug("Failed to send Telegram notification to %s: %s", user_id, exc)
+        send_message_to_all(text)
     except Exception as exc:
         logger.debug("Telegram notification error: %s", exc)
 
@@ -81,10 +89,12 @@ class TelegramGateway(Gateway):
         return "telegram"
 
     async def send_message(self, channel_id: str, text: str) -> None:
-        """Send a message to a Telegram chat."""
+        """Send a message to a Telegram chat, splitting long replies."""
         if self._application is None:
             raise RuntimeError("Telegram gateway is not running.")
-        await self._application.bot.send_message(chat_id=channel_id, text=text)
+        chunks = [text[i : i + 4000] for i in range(0, len(text), 4000)] or [""]
+        for chunk in chunks:
+            await self._application.bot.send_message(chat_id=channel_id, text=chunk)
 
     async def start(self) -> None:
         """Start the Telegram bot polling loop until stopped."""
@@ -96,17 +106,18 @@ class TelegramGateway(Gateway):
                 Application,
                 CommandHandler,
                 ContextTypes,
+                MessageHandler,
                 filters,
             )
         except ImportError:
             logger.warning("python-telegram-bot not installed — Telegram gateway disabled.")
             return
 
-        from isaac.config.settings import get_settings
+        from isaac.config.settings import get_settings, parse_id_list
 
         settings = get_settings()
         token = settings.telegram_bot_token
-        allowed_users = set(settings.telegram_allowed_users)
+        allowed_users = set(parse_id_list(settings.telegram_allowed_users))
 
         if not token:
             logger.info("TELEGRAM_BOT_TOKEN not set — Telegram gateway disabled.")
@@ -129,17 +140,12 @@ class TelegramGateway(Gateway):
         async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             assert update.effective_message is not None
             await update.effective_message.reply_text(
-                "🤖 I.S.A.A.C. Telegram Gateway\n\n"
-                "Commands: /status /tasks /memory /approve /reject"
+                "🤖 I.S.A.A.C. Telegram Gateway\n\nCommands: /status /tasks /memory"
             )
 
         async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             assert update.effective_message is not None
-            text = (
-                "📊 Status\n"
-                f"Pending approvals: {len(_pending_approvals)}\n"
-                "Use /tasks to see current plan."
-            )
+            text = "📊 Online. Use /tasks to see the current plan."
             await update.effective_message.reply_text(text)
 
         async def cmd_tasks(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -168,41 +174,16 @@ class TelegramGateway(Gateway):
             except Exception as exc:
                 await update.effective_message.reply_text(f"Error: {exc}")
 
-        async def cmd_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-            assert update.effective_message is not None
-            resolved = 0
-            for a in _pending_approvals:
-                if a.approved is None:
-                    a.approved = True
-                    uid = update.effective_user.id if update.effective_user else "unknown"
-                    a.resolved_by = f"telegram:{uid}"
-                    resolved += 1
-            if resolved:
-                await update.effective_message.reply_text(
-                    f"✅ Approved {resolved} pending action(s)."
-                )
-            else:
-                await update.effective_message.reply_text("No pending approvals.")
-
-        async def cmd_reject(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-            assert update.effective_message is not None
-            resolved = 0
-            for a in _pending_approvals:
-                if a.approved is None:
-                    a.approved = False
-                    uid = update.effective_user.id if update.effective_user else "unknown"
-                    a.resolved_by = f"telegram:{uid}"
-                    resolved += 1
-            if resolved:
-                await update.effective_message.reply_text(
-                    f"❌ Rejected {resolved} pending action(s)."
-                )
-            else:
-                await update.effective_message.reply_text("No pending approvals.")
-
         async def cmd_unauthorized(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             assert update.effective_message is not None
             await update.effective_message.reply_text("⛔ Not authorised.")
+
+        async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+            message = update.effective_message
+            user = message.from_user if message else None
+            if message is None or not message.text or user is None:
+                return
+            await self._handle_incoming(str(message.chat_id), str(user.id), message.text)
 
         # ── Build application ─────────────────────────────────
 
@@ -213,11 +194,16 @@ class TelegramGateway(Gateway):
         app.add_handler(CommandHandler("status", cmd_status, filters=allowed_filter))
         app.add_handler(CommandHandler("tasks", cmd_tasks, filters=allowed_filter))
         app.add_handler(CommandHandler("memory", cmd_memory, filters=allowed_filter))
-        app.add_handler(CommandHandler("approve", cmd_approve, filters=allowed_filter))
-        app.add_handler(CommandHandler("reject", cmd_reject, filters=allowed_filter))
+        app.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND & allowed_filter, handle_message)
+        )
 
         # Catch-all for non-authorised users
         app.add_handler(CommandHandler("start", cmd_unauthorized))
+        app.add_handler(MessageHandler(filters.COMMAND & ~allowed_filter, cmd_unauthorized))
+        app.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND & ~allowed_filter, cmd_unauthorized)
+        )
 
         self._application = app
         _application = app

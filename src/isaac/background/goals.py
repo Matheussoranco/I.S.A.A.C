@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -108,6 +109,21 @@ def _connect(isaac_home: Path | None = None) -> sqlite3.Connection:
     return con
 
 
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _resolve_goal_id(con: sqlite3.Connection, goal_id: str) -> str | None:
+    row = con.execute("SELECT id FROM goals WHERE id = ?", (goal_id,)).fetchone()
+    if row is not None:
+        return str(row[0])
+    rows = con.execute(
+        "SELECT id FROM goals WHERE id LIKE ? ESCAPE '\\'",
+        (_escape_like(goal_id) + "%",),
+    ).fetchall()
+    return str(rows[0][0]) if len(rows) == 1 else None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -133,7 +149,7 @@ def add_goal(
         completed_at="",
         progress=0,
     )
-    with _connect(isaac_home) as con:
+    with closing(_connect(isaac_home)) as con, con:
         con.execute(
             f"INSERT INTO goals ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
@@ -153,15 +169,11 @@ def add_goal(
 
 
 def _get_goal(goal_id: str, isaac_home: Path | None = None) -> Goal | None:
-    with _connect(isaac_home) as con:
-        cursor = con.execute(f"SELECT {_COLUMNS} FROM goals WHERE id = ?", (goal_id,))
-        row = cursor.fetchone()
-        if row is None:
-            rows = con.execute(
-                f"SELECT {_COLUMNS} FROM goals WHERE id LIKE ?", (f"{goal_id}%",)
-            ).fetchall()
-            if len(rows) == 1:
-                row = rows[0]
+    with closing(_connect(isaac_home)) as con:
+        resolved = _resolve_goal_id(con, goal_id)
+        if resolved is None:
+            return None
+        row = con.execute(f"SELECT {_COLUMNS} FROM goals WHERE id = ?", (resolved,)).fetchone()
     return _row_to_goal(row) if row else None
 
 
@@ -172,7 +184,7 @@ def get_goal(goal_id: str, *, isaac_home: Path | None = None) -> Goal | None:
 
 def list_goals(*, status: str | None = None, isaac_home: Path | None = None) -> list[Goal]:
     """List goals, optionally filtered by status."""
-    with _connect(isaac_home) as con:
+    with closing(_connect(isaac_home)) as con:
         if status:
             rows = con.execute(
                 f"SELECT {_COLUMNS} FROM goals WHERE status = ? ORDER BY created_at",
@@ -183,64 +195,72 @@ def list_goals(*, status: str | None = None, isaac_home: Path | None = None) -> 
     return [_row_to_goal(r) for r in rows]
 
 
+def _set_status(
+    goal_id: str,
+    status: str,
+    *,
+    isaac_home: Path | None = None,
+    completed: bool = False,
+) -> bool:
+    now = _now()
+    with closing(_connect(isaac_home)) as con, con:
+        resolved = _resolve_goal_id(con, goal_id)
+        if resolved is None:
+            return False
+        if completed:
+            cur = con.execute(
+                "UPDATE goals SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+                (status, now, now, resolved),
+            )
+        else:
+            cur = con.execute(
+                "UPDATE goals SET status = ?, updated_at = ? WHERE id = ?",
+                (status, now, resolved),
+            )
+    return cur.rowcount == 1
+
+
 def complete_goal(goal_id: str, *, isaac_home: Path | None = None) -> bool:
     """Mark a goal completed. Returns True if found."""
-    goal = _get_goal(goal_id, isaac_home)
-    if goal is None:
-        return False
-    now = _now()
-    with _connect(isaac_home) as con:
-        con.execute(
-            "UPDATE goals SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
-            (_COMPLETED, now, now, goal.id),
-        )
-    logger.info("Goal completed: %s", goal.id)
-    return True
+    return _set_status(goal_id, _COMPLETED, isaac_home=isaac_home, completed=True)
 
 
 def pause_goal(goal_id: str, *, isaac_home: Path | None = None) -> bool:
     """Pause a goal (temporarily exclude it from the agent context)."""
-    goal = _get_goal(goal_id, isaac_home)
-    if goal is None:
-        return False
-    with _connect(isaac_home) as con:
-        con.execute(
-            "UPDATE goals SET status = ?, updated_at = ? WHERE id = ?",
-            (_PAUSED, _now(), goal.id),
-        )
-    logger.info("Goal paused: %s", goal.id)
-    return True
+    return _set_status(goal_id, _PAUSED, isaac_home=isaac_home)
 
 
 def resume_goal(goal_id: str, *, isaac_home: Path | None = None) -> bool:
     """Resume a paused goal."""
-    goal = _get_goal(goal_id, isaac_home)
-    if goal is None:
-        return False
-    with _connect(isaac_home) as con:
-        con.execute(
-            "UPDATE goals SET status = ?, updated_at = ? WHERE id = ?",
-            (_ACTIVE, _now(), goal.id),
-        )
-    logger.info("Goal resumed: %s", goal.id)
-    return True
+    return _set_status(goal_id, _ACTIVE, isaac_home=isaac_home)
 
 
 def mark_goal_progress(goal_id: str, note: str = "", *, isaac_home: Path | None = None) -> bool:
-    """Increment the progress counter (and optionally append a note)."""
-    goal = _get_goal(goal_id, isaac_home)
-    if goal is None:
-        return False
-    notes = goal.notes
-    if note:
-        notes = (notes + "\n" if notes else "") + f"[{_now()}] {note}"
-    with _connect(isaac_home) as con:
-        con.execute(
-            "UPDATE goals SET progress = ?, notes = ?, updated_at = ? WHERE id = ?",
-            (goal.progress + 1, notes, _now(), goal.id),
+    """Increment the progress counter (and optionally append a note) atomically."""
+    now = _now()
+    stamped = f"[{now}] {note}" if note else ""
+    with closing(_connect(isaac_home)) as con, con:
+        resolved = _resolve_goal_id(con, goal_id)
+        if resolved is None:
+            return False
+        cur = con.execute(
+            """
+            UPDATE goals
+            SET progress = progress + 1,
+                notes = CASE
+                    WHEN ? = '' THEN notes
+                    WHEN notes = '' THEN ?
+                    ELSE notes || char(10) || ?
+                END,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (stamped, stamped, stamped, now, resolved),
         )
-    logger.info("Goal progress marked: %s (%d)", goal.id, goal.progress + 1)
-    return True
+    if cur.rowcount == 1:
+        logger.info("Goal progress marked: %s", resolved)
+        return True
+    return False
 
 
 def due_goals(*, isaac_home: Path | None = None) -> list[Goal]:

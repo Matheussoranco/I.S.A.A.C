@@ -150,9 +150,14 @@ class LLMRouter:
 
     def _build_fallback_model(self) -> BaseChatModel:
         """Build a model using the configured API fallback provider."""
-        from isaac.llm.provider import get_llm
+        from isaac.config.settings import get_settings
+        from isaac.llm.provider import build_llm_for_profile
 
-        return get_llm("strong")
+        cfg = get_settings().llm
+        return build_llm_for_profile(
+            self._fallback_provider,
+            cfg.strong_model or cfg.model_name,
+        )
 
     # -- Public API ---------------------------------------------------------
 

@@ -144,8 +144,15 @@ class PromptInjectionGuard:
         if not flagged:
             return 0.0, []
 
-        # Scale score based on number and severity of matches
-        score = min(len(flagged) * 0.3, 1.0)
+        severity = {
+            "instruction_override": 0.8,
+            "role_override": 0.8,
+            "jailbreak_dan": 0.8,
+            "system_prompt_leak": 0.7,
+            "prompt_delimiter": 0.5,
+            "encoding_trick": 0.4,
+        }
+        score = min(sum(severity.get(name, 0.3) for name in flagged), 1.0)
         return score, flagged
 
     def _llm_analysis(self, text: str) -> GuardResult:
@@ -178,14 +185,33 @@ class PromptInjectionGuard:
                 cleaned = cleaned.split("\n", 1)[1]
                 cleaned = cleaned.rsplit("```", 1)[0]
             parsed = json.loads(cleaned)
+            if not isinstance(parsed, dict):
+                raise ValueError("guard response must be a JSON object")
+
+            try:
+                score = float(parsed.get("suspicion_score", 0.0))
+            except (TypeError, ValueError):
+                score = 0.0
+            score = min(1.0, max(0.0, score))
+
+            raw_flags = parsed.get("flagged_patterns", [])
+            if isinstance(raw_flags, str):
+                flagged_patterns = [raw_flags]
+            elif isinstance(raw_flags, list):
+                flagged_patterns = [str(item) for item in raw_flags if isinstance(item, str)]
+            else:
+                flagged_patterns = []
+
+            explanation = parsed.get("explanation", "")
+            sanitized_input = parsed.get("sanitized_input", text)
 
             return GuardResult(
-                suspicion_score=float(parsed.get("suspicion_score", 0.0)),
-                flagged_patterns=parsed.get("flagged_patterns", []),
-                explanation=parsed.get("explanation", ""),
-                sanitized_input=parsed.get("sanitized_input", text),
+                suspicion_score=score,
+                flagged_patterns=flagged_patterns,
+                explanation=explanation if isinstance(explanation, str) else "",
+                sanitized_input=sanitized_input if isinstance(sanitized_input, str) else text,
             )
-        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError, AttributeError) as exc:
             logger.warning("Guard: failed to parse LLM response: %s", exc)
             return GuardResult(
                 suspicion_score=0.0,
@@ -307,8 +333,8 @@ def guard_node(state: IsaacState) -> dict[str, Any]:
                 "blocked": result.blocked,
             },
         )
-    except ImportError:
-        pass  # Audit module not yet available
+    except Exception:
+        logger.debug("Guard: audit logging failed.", exc_info=True)
 
     if result.blocked:
         from langchain_core.messages import AIMessage

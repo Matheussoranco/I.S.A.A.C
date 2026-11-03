@@ -7,6 +7,7 @@ wrapper for the LLM-driven code generation → execution loop.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import replace
 from typing import Any
@@ -57,7 +58,10 @@ class CodeTool(IsaacTool):
         """
         code: str = kwargs.get("code", "")
         task: str = kwargs.get("task", "")
-        timeout: int = int(kwargs.get("timeout", 30))
+        try:
+            timeout = int(kwargs.get("timeout", 30))
+        except (TypeError, ValueError, OverflowError):
+            return ToolResult(success=False, error="Invalid timeout: expected seconds as int.")
 
         # If code is provided directly, skip generation
         if not code and not task:
@@ -94,11 +98,10 @@ class CodeTool(IsaacTool):
                 ),
                 HumanMessage(content=f"Task: {task}"),
             ]
-            response = llm.invoke(messages)
-            code_text = response.content
-            if isinstance(code_text, list):
-                code_text = "\n".join(str(c) for c in code_text)
-            code_text = str(code_text).strip()
+            response = await asyncio.to_thread(llm.invoke, messages)
+            from isaac.agents.agent_loop import _content_text
+
+            code_text = _content_text(response)
 
             # Strip markdown fences if LLM included them
             if code_text.startswith("```"):
@@ -118,12 +121,15 @@ class CodeTool(IsaacTool):
             from isaac.sandbox.security import default_policy
 
             policy = replace(default_policy(), timeout_seconds=max(1, min(timeout, 600)))
-            executor = CodeExecutor(policy=policy)
-            try:
-                result = executor.execute(code)
-            finally:
-                executor.close()
 
+            def _run() -> Any:
+                executor = CodeExecutor(policy=policy)
+                try:
+                    return executor.execute(code)
+                finally:
+                    executor.close()
+
+            result = await asyncio.to_thread(_run)
             return ToolResult(
                 success=result.exit_code == 0,
                 output=result.stdout,

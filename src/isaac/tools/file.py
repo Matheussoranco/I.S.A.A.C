@@ -8,6 +8,8 @@ human approval.
 from __future__ import annotations
 
 import logging
+import os
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,8 @@ from isaac.security.workspace import current_workspace
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
+
+_MAX_LIST_ENTRIES = 2_000
 
 
 def _workspace_root() -> Path:
@@ -41,6 +45,27 @@ def _safe_resolve(relative: str) -> Path | None:
     except ValueError:
         return None
     return target
+
+
+def _safe_link_path(relative: str) -> Path | None:
+    """Validate a path without following its final symlink component.
+
+    Deleting or renaming a link must act on the link itself, never on the
+    file it points at.
+    """
+    root = _workspace_root().resolve()
+    raw = Path(relative)
+    if raw.name in ("", ".", ".."):
+        return None
+    try:
+        candidate = (root / raw.parent).resolve() / raw.name
+    except (OSError, RuntimeError):
+        return None
+    if is_sensitive_path(raw) or is_sensitive_path(candidate):
+        return None
+    if not candidate.parent.is_relative_to(root):
+        return None
+    return candidate
 
 
 class FileReadTool(IsaacTool):
@@ -79,8 +104,9 @@ class FileReadTool(IsaacTool):
             return ToolResult(success=False, error=f"File not found: {path_str}")
 
         try:
-            content = target.read_text(encoding="utf-8", errors="replace")
-            max_chars = int(kwargs.get("max_chars", 50_000))
+            max_chars = max(0, int(kwargs.get("max_chars", 50_000)))
+            with target.open("r", encoding="utf-8", errors="replace") as handle:
+                content = handle.read(max_chars + 1)
             if len(content) > max_chars:
                 content = content[:max_chars] + f"\n\n... truncated at {max_chars} chars ..."
             return ToolResult(success=True, output=content)
@@ -165,10 +191,13 @@ class FileListTool(IsaacTool):
             return ToolResult(success=False, error=f"Not a directory: {path_str}")
 
         try:
+            children = sorted(islice(target.iterdir(), _MAX_LIST_ENTRIES + 1))
             entries: list[str] = []
-            for child in sorted(target.iterdir()):
+            for child in children[:_MAX_LIST_ENTRIES]:
                 kind = "dir" if child.is_dir() else "file"
                 entries.append(f"[{kind}] {child.name}")
+            if len(children) > _MAX_LIST_ENTRIES:
+                entries.append(f"... truncated at {_MAX_LIST_ENTRIES} entries ...")
             return ToolResult(success=True, output="\n".join(entries) or "(empty)")
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
@@ -198,15 +227,14 @@ class FileDeleteTool(IsaacTool):
         if not path_str:
             return ToolResult(success=False, error="Missing 'path' parameter.")
 
-        target = _safe_resolve(path_str)
+        target = _safe_link_path(path_str)
         if target is None:
             return ToolResult(success=False, error="Path escapes workspace boundary.")
 
-        if not target.exists():
+        if not os.path.lexists(target):
             return ToolResult(success=False, error=f"Does not exist: {path_str}")
 
-        # Refuse directory delete — only files
-        if target.is_dir():
+        if not target.is_symlink() and target.is_dir():
             return ToolResult(
                 success=False,
                 error="Directory deletion is not supported. Delete files individually.",

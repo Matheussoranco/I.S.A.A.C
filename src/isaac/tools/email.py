@@ -6,11 +6,14 @@ Content of outgoing messages is passed through the Guard node.
 
 from __future__ import annotations
 
+import asyncio
 import email as email_lib
 import email.mime.text
 import imaplib
 import logging
 import smtplib
+import ssl
+from contextlib import suppress
 from typing import Any
 
 from isaac.tools.base import IsaacTool, ToolResult
@@ -18,22 +21,99 @@ from isaac.tools.base import IsaacTool, ToolResult
 logger = logging.getLogger(__name__)
 
 
-def _email_settings() -> dict[str, str]:
+def _email_settings() -> dict[str, Any]:
     """Retrieve email-related settings from the environment."""
-    try:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        s = get_settings()
-        return {
-            "imap_host": getattr(s, "email_imap_host", ""),
-            "imap_port": str(getattr(s, "email_imap_port", "993")),
-            "smtp_host": getattr(s, "email_smtp_host", ""),
-            "smtp_port": str(getattr(s, "email_smtp_port", "587")),
-            "username": getattr(s, "email_username", ""),
-            "password": getattr(s, "email_password", ""),
-        }
-    except Exception:
-        return {}
+    settings = get_settings()
+    return {
+        "imap_host": settings.email_imap_host,
+        "imap_port": settings.email_imap_port,
+        "imap_user": settings.email_user,
+        "imap_password": settings.email_password,
+        "smtp_host": settings.email_smtp_host,
+        "smtp_port": settings.email_smtp_port,
+        "smtp_user": settings.email_smtp_user or settings.email_user,
+        "smtp_password": settings.email_smtp_password or settings.email_password,
+    }
+
+
+def _decode_part(part: Any) -> str:
+    payload = part.get_payload(decode=True)
+    if not isinstance(payload, bytes):
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="replace")
+    except LookupError:
+        return payload.decode("utf-8", errors="replace")
+
+
+def _read_imap(cfg: dict[str, Any], folder: str, limit: int) -> str:
+    context = ssl.create_default_context()
+    connection = imaplib.IMAP4_SSL(
+        cfg["imap_host"],
+        int(cfg["imap_port"]),
+        ssl_context=context,
+        timeout=30,
+    )
+    try:
+        connection.login(cfg["imap_user"], cfg["imap_password"])
+        status, _ = connection.select(folder, readonly=True)
+        if status != "OK":
+            raise RuntimeError(f"IMAP folder is unavailable: {folder}")
+        status, data = connection.search(None, "ALL")
+        if status != "OK" or not data or not data[0]:
+            return "No messages found."
+        message_ids = data[0].split()
+        recent_ids = message_ids[-limit:]
+
+        messages: list[str] = []
+        for message_id in reversed(recent_ids):
+            status, message_data = connection.fetch(message_id, "(RFC822)")
+            if status != "OK" or not message_data:
+                continue
+            if not message_data[0] or not isinstance(message_data[0], tuple):
+                continue
+            message = email_lib.message_from_bytes(message_data[0][1])
+            subject = message.get("Subject", "(no subject)")
+            sender = message.get("From", "(unknown)")
+            date = message.get("Date", "")
+            body = ""
+            if message.is_multipart():
+                for part in message.walk():
+                    if part.get_content_type() == "text/plain":
+                        body = _decode_part(part)[:500]
+                        break
+            else:
+                body = _decode_part(message)[:500]
+            messages.append(f"From: {sender}\nDate: {date}\nSubject: {subject}\n{body}\n---")
+        return "\n".join(messages) or "No messages found."
+    finally:
+        with suppress(Exception):
+            connection.logout()
+
+
+def _send_smtp(cfg: dict[str, Any], to_addr: str, subject: str, body: str) -> None:
+    context = ssl.create_default_context()
+    message = email.mime.text.MIMEText(body, "plain", "utf-8")
+    message["Subject"] = subject
+    message["From"] = cfg["smtp_user"]
+    message["To"] = to_addr
+
+    host = cfg["smtp_host"]
+    port = int(cfg["smtp_port"])
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=30, context=context) as smtp:
+            smtp.login(cfg["smtp_user"], cfg["smtp_password"])
+            smtp.send_message(message)
+        return
+    with smtplib.SMTP(host, port, timeout=30) as smtp:
+        smtp.ehlo()
+        smtp.starttls(context=context)
+        smtp.ehlo()
+        smtp.login(cfg["smtp_user"], cfg["smtp_password"])
+        smtp.send_message(message)
 
 
 class EmailReadTool(IsaacTool):
@@ -63,58 +143,25 @@ class EmailReadTool(IsaacTool):
             Number of messages to fetch (default 5).
         """
         cfg = _email_settings()
-        if not cfg.get("imap_host") or not cfg.get("username"):
+        if not cfg.get("imap_host") or not cfg.get("imap_user"):
             return ToolResult(
                 success=False,
                 error=(
                     "Email IMAP settings are not configured. "
-                    "Set EMAIL_IMAP_HOST, EMAIL_USERNAME, EMAIL_PASSWORD."
+                    "Set ISAAC_EMAIL_IMAP_HOST, ISAAC_EMAIL_USER, ISAAC_EMAIL_PASSWORD."
                 ),
             )
 
-        folder: str = kwargs.get("folder", "INBOX")
-        limit: int = int(kwargs.get("limit", 5))
+        folder = str(kwargs.get("folder") or "INBOX")
+        try:
+            limit = int(kwargs.get("limit", 5))
+        except (TypeError, ValueError):
+            limit = 5
+        limit = max(1, min(limit, 100))
 
         try:
-            conn = imaplib.IMAP4_SSL(cfg["imap_host"], int(cfg.get("imap_port", "993")))
-            conn.login(cfg["username"], cfg["password"])
-            conn.select(folder, readonly=True)
-
-            _status, data = conn.search(None, "ALL")
-            msg_ids = data[0].split()
-            recent_ids = msg_ids[-limit:] if msg_ids else []
-
-            messages: list[str] = []
-            for mid in reversed(recent_ids):
-                _status, msg_data = conn.fetch(mid, "(RFC822)")
-                if msg_data and msg_data[0] and isinstance(msg_data[0], tuple):
-                    raw = msg_data[0][1]
-                    msg = email_lib.message_from_bytes(raw)  # type: ignore[arg-type]
-                    subject = msg.get("Subject", "(no subject)")
-                    sender = msg.get("From", "(unknown)")
-                    date = msg.get("Date", "")
-                    body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                payload = part.get_payload(decode=True)
-                                if isinstance(payload, bytes):
-                                    body = payload.decode("utf-8", errors="replace")[:500]
-                                break
-                    else:
-                        payload = msg.get_payload(decode=True)
-                        if isinstance(payload, bytes):
-                            body = payload.decode("utf-8", errors="replace")[:500]
-
-                    messages.append(
-                        f"From: {sender}\nDate: {date}\nSubject: {subject}\n{body}\n---"
-                    )
-
-            conn.logout()
-            return ToolResult(
-                success=True,
-                output="\n".join(messages) or "No messages found.",
-            )
+            output = await asyncio.to_thread(_read_imap, cfg, folder, limit)
+            return ToolResult(success=True, output=output)
         except Exception as exc:
             logger.error("IMAP read error: %s", exc)
             return ToolResult(success=False, error=str(exc))
@@ -151,35 +198,31 @@ class EmailSendTool(IsaacTool):
             Plain-text body.
         """
         cfg = _email_settings()
-        if not cfg.get("smtp_host") or not cfg.get("username"):
+        if not cfg.get("smtp_host") or not cfg.get("smtp_user"):
             return ToolResult(
                 success=False,
                 error="Email SMTP settings are not configured.",
             )
 
-        to_addr: str = kwargs.get("to", "")
-        subject: str = kwargs.get("subject", "")
-        body: str = kwargs.get("body", "")
+        to_addr = str(kwargs.get("to", "")).strip()
+        subject = str(kwargs.get("subject", "")).strip()
+        body = str(kwargs.get("body", ""))
 
         if not to_addr:
             return ToolResult(success=False, error="Missing 'to' parameter.")
         if not body:
             return ToolResult(success=False, error="Missing 'body' parameter.")
+        for label, value in (("to", to_addr), ("subject", subject)):
+            if "\r" in value or "\n" in value:
+                return ToolResult(
+                    success=False,
+                    error=f"Invalid {label}: line breaks are not allowed.",
+                )
 
-        # Pass outgoing body through the Guard for injection screening
         body = await self._guard_screen(body)
 
         try:
-            msg = email.mime.text.MIMEText(body, "plain", "utf-8")
-            msg["Subject"] = subject
-            msg["From"] = cfg["username"]
-            msg["To"] = to_addr
-
-            with smtplib.SMTP(cfg["smtp_host"], int(cfg.get("smtp_port", "587"))) as smtp:
-                smtp.starttls()
-                smtp.login(cfg["username"], cfg["password"])
-                smtp.send_message(msg)
-
+            await asyncio.to_thread(_send_smtp, cfg, to_addr, subject, body)
             return ToolResult(success=True, output=f"Email sent to {to_addr}.")
         except Exception as exc:
             logger.error("SMTP send error: %s", exc)

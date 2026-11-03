@@ -146,9 +146,8 @@ class TestToolCallBudget:
         assert tool.calls == 3
 
 
-class TestIdleIterations:
+class TestLoopCounters:
     def test_generous_limits_preserve_existing_behaviour(self) -> None:
-        # With default (generous) limits a normal run is untouched.
         tool = DistinctTool()
         llm = FakeLLM(
             [
@@ -159,5 +158,4 @@ class TestIdleIterations:
         result = AgentLoop([tool], llm=llm).run("simple")
 
         assert result.stopped_reason == "final"
-        assert result.idle_streak == 0
         assert result.tool_call_count == 1

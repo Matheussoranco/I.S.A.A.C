@@ -26,3 +26,19 @@ def test_ensure_latest_reuses_most_recent_conversation(tmp_path) -> None:
     conversation_id = store.create("Teste")
 
     assert store.ensure_latest() == conversation_id
+
+
+def test_search_finds_messages_and_escapes_wildcards(tmp_path) -> None:
+    store = ConversationStore(tmp_path / "conversations.sqlite3")
+    first = store.create("Primeira")
+    store.add(first, "user", "Explique o módulo de memória")
+    store.add(first, "assistant", "A taxa é 100% agora")
+    second = store.create("Segunda")
+    store.add(second, "user", "Outro assunto")
+
+    results = store.search("memória")
+
+    assert {row["id"] for row in results} == {first}
+    assert results[0]["content"] == "Explique o módulo de memória"
+    assert [row["content"] for row in store.search("100%")] == ["A taxa é 100% agora"]
+    assert store.search("   ") == []

@@ -19,9 +19,23 @@ def test_critical_rule_blocks_rm_rf() -> None:
 
 def test_force_push_to_main_flagged() -> None:
     decision = review("git", "git push --force origin main", use_llm=False)
-    # High-severity but not critical: should not autoblock with score
-    # threshold, but should require approval.
+    # High severity is fail-closed, and the approval flag remains informative.
+    assert decision.allow is False
     assert decision.requires_approval is True
+
+
+def test_malformed_llm_critic_does_not_crash() -> None:
+    from unittest.mock import patch
+
+    with patch("isaac.security.constitution._llm_critic", return_value=["not", "a", "dict"]):
+        assert review("shell", "ls", use_llm=True).allow is True
+
+    with patch(
+        "isaac.security.constitution._llm_critic",
+        return_value={"score": None, "violations": "nope", "rationale": None},
+    ):
+        decision = review("shell", "ls", use_llm=True)
+    assert isinstance(decision.score, float)
 
 
 def test_benign_action_allowed() -> None:

@@ -250,12 +250,13 @@ def _send_reminder_notification(text: str, chat_id: str, token: str) -> None:
 
 
 def reminders_job(*, isaac_home: Path | None = None) -> None:
+    from isaac.config.settings import parse_id_list
     from isaac.memory.reminders import claim_due_reminders, finish_reminder_notification
 
     settings = _get_settings()
     home = isaac_home if isaac_home is not None else settings.isaac_home
     token = getattr(settings, "telegram_bot_token", "")
-    recipients = getattr(settings, "telegram_allowed_users", [])
+    recipients = parse_id_list(getattr(settings, "telegram_allowed_users", ""))
     channels = [("log", "")]
     if token and recipients:
         channels.extend((f"telegram:{user}", str(user)) for user in dict.fromkeys(recipients))

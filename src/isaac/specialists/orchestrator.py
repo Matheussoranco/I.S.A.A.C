@@ -587,10 +587,8 @@ class Orchestrator:
 
         return ordered
 
-    def _timeout_result(self, subtask: SubTask, reason: str) -> Any:
+    def _timeout_result(self, subtask: SubTask, reason: str) -> SpecialistResult:
         """Build a failed SpecialistResult for skipped/timed-out subtasks."""
-        from isaac.specialists.base import SpecialistResult
-
         return SpecialistResult(
             specialist=subtask.specialist,
             task=subtask.description,

@@ -66,3 +66,32 @@ def test_api_keys_management():
         )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
+
+
+def test_gateway_status_reports_unconfigured_gateway(monkeypatch):
+    monkeypatch.setenv("ISAAC_GATEWAYS", "discord")
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+
+    resp = client.get("/api/desktop/dashboard/gateways")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] == []
+    assert data["count"] == 0
+    assert data["gateways"][0]["configured"] is False
+    assert "DISCORD_BOT_TOKEN" in data["gateways"][0]["error"]
+
+
+def test_session_search_uses_runtime_conversation_store(monkeypatch):
+    from isaac.config.settings import get_settings
+    from isaac.interfaces.conversation_store import ConversationStore
+    from isaac.interfaces.dashboard import session_search
+
+    path = get_settings().isaac_home / "ui" / "conversations.sqlite3"
+    store = ConversationStore(path)
+    conversation_id = store.create("Busca")
+    store.add(conversation_id, "user", "conteúdo pesquisável")
+
+    results = session_search.search_sessions("pesquisável")
+
+    assert [row["id"] for row in results] == [conversation_id]

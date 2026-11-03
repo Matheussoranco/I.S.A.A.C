@@ -107,7 +107,7 @@ def test_handle_agent_routes_to_loop(monkeypatch: Any) -> None:
 
     assert result["output"] == "final answer"
     assert result["completed"] is True
-    assert result["success"] is False
+    assert result["success"] is True
     assert result["iterations"] == 2
     assert result["tool_calls"][0]["name"] == "web_search"
     assert captured["task"] == "do it"

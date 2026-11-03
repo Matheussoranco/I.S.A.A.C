@@ -72,14 +72,14 @@ def subprocess_spawner(task: Task, *, workspace: Path, profile: str) -> Any:
     env["ISAAC_PROFILE"] = profile
     env["ISAAC_KANBAN_TASK"] = task.id
     log_path = workspace / "agent.log"
-    log_file = open(log_path, "ab")  # noqa: SIM115 — owned by subprocess
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "isaac", "run", prompt, "--auto-approve"],
-        cwd=str(workspace),
-        env=env,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-    )
+    with open(log_path, "ab") as log_file:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "isaac", "agent", prompt],
+            cwd=str(workspace),
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
     logger.info("Dispatched task %s to profile %s (pid=%s)", task.id, profile, proc.pid)
     return proc
 
@@ -163,21 +163,26 @@ class KanbanDispatcher:
                 continue
             if (now - last).total_seconds() > self.stale_seconds:
                 reclaimed.append(task)
+        recovered: list[Task] = []
         for task in reclaimed:
-            idem = self.board._update(
-                task.id,
-                status="ready",
-                claimed_at="",
-                heartbeat_at="",
-            )
+            raw = task.heartbeat_at or task.claimed_at
+            updated = self.board.reclaim_stale_task(task.id, raw)
+            if updated is None:
+                continue
             self.board.add_comment(
                 task.id,
                 author="dispatcher",
                 body=f"claim reclaimed after {self.stale_seconds:.0f}s without heartbeat",
             )
-            self.processes.pop(task.id, None)
-            logger.warning("Reclaimed stale claim on task %s (id=%s)", idem.id, task.assignee)
-        return reclaimed
+            stale_process = self.processes.pop(task.id, None)
+            if stale_process is not None:
+                try:
+                    stale_process.terminate()
+                except Exception:
+                    logger.debug("Could not terminate stale pid for %s", task.id, exc_info=True)
+            recovered.append(updated)
+            logger.warning("Reclaimed stale claim on task %s (id=%s)", updated.id, task.assignee)
+        return recovered
 
     # ------------------------------------------------------------------
 
@@ -186,6 +191,7 @@ class KanbanDispatcher:
 
         Returns the ids of tasks dispatched during this pass."""
         self.reclaim_stale()
+        self._reap_processes()
         ready = self.board.list_ready()
         # free slots: running tasks this dispatcher would own minus reaped ones
         running = [t for t in self.board.list_tasks(status="running") if self._allowed(t.assignee)]
@@ -197,6 +203,8 @@ class KanbanDispatcher:
             if task.assignee and not self._allowed(task.assignee):
                 continue  # reserved for a profile we don't serve
             profile = self._resolve_profile(task)
+            if not self._allowed(profile):
+                continue
             try:
                 claimed = self.board.claim_task(task.id, profile)
             except Exception as exc:  # lost the race to another gateway
@@ -213,6 +221,17 @@ class KanbanDispatcher:
             dispatched.append(task.id)
             slots -= 1
         return dispatched
+
+    def _reap_processes(self) -> None:
+        for task_id, proc in list(self.processes.items()):
+            poll = getattr(proc, "poll", None)
+            if poll is None:
+                continue
+            try:
+                if poll() is not None:
+                    self.processes.pop(task_id, None)
+            except Exception:
+                logger.debug("Could not reap process for %s", task_id, exc_info=True)
 
     # ------------------------------------------------------------------
 

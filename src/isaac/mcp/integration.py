@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -19,11 +18,11 @@ class MCPToolWrapper(IsaacTool):
         super().__init__()
         self.client = client
         self.name = tool_def["name"]
-        self.description = tool_def["description"]
+        self.description = tool_def.get("description") or ""
         # MCP tools are generally treated as risk 1 unless they are known to be destructive.
         # In a full implementation, this could be mapped from MCP metadata.
         self.risk_level = 1
-        self.parameters = tool_def["input_schema"]
+        self.parameters = tool_def.get("input_schema") or {"type": "object", "properties": {}}
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
@@ -51,31 +50,27 @@ async def load_mcp_servers_from_config(config_path: str | None = None):
     """
     import pathlib
 
-    # 1. Try .mcp.json
-    mcp_json_path = (
-        pathlib.Path(config_path or ".mcp.json")
+    candidates = (
+        [pathlib.Path(config_path)]
         if config_path
-        else pathlib.Path.home() / ".mcp.json"
+        else [
+            pathlib.Path.cwd() / ".mcp.json",
+            pathlib.Path.home() / ".mcp.json",
+        ]
     )
-    # If running in repo, check current dir
-    if not mcp_json_path.exists():
-        mcp_json_path = pathlib.Path("C:/Users/mathe/Documents/Code/I.S.A.A.C/.mcp.json")
+    mcp_json_path = next((p for p in candidates if p.exists()), candidates[0])
 
-    servers_to_load = {}
+    servers_to_load: dict[str, Any] = {}
 
     if mcp_json_path.exists():
         try:
-            with open(mcp_json_path) as f:
-                import json
+            import json
 
+            with open(mcp_json_path, encoding="utf-8") as f:
                 data = json.load(f)
                 servers_to_load.update(data.get("mcpServers", {}))
         except Exception as e:
             logger.warning(f"Could not read {mcp_json_path}: {e}")
-
-    # 2. Try config.yaml (Isaac profile config)
-    # This would normally involve calling Isaac's config system, but for simplicity:
-    # We'll focus on the .mcp.json and the registry.
 
     registry = get_tool_registry()
 
@@ -89,12 +84,16 @@ async def load_mcp_servers_from_config(config_path: str | None = None):
             url=cfg.get("url"),
         )
 
+        client: MCPClient | None = None
         try:
             client = MCPClient(server_cfg)
             await client.connect()
 
             # Discover tools
             tools_defs = await client.list_tools()
+            if not tools_defs:
+                await client.disconnect()
+                continue
             for t_def in tools_defs:
                 wrapper = MCPToolWrapper(client, t_def)
                 registry.register(wrapper)
@@ -102,11 +101,8 @@ async def load_mcp_servers_from_config(config_path: str | None = None):
 
         except Exception as e:
             logger.error(f"Failed to load MCP server {name}: {e}")
-
-
-def register_mcp_tools_sync():
-    """Synchronous wrapper to load MCP tools at startup."""
-    try:
-        asyncio.run(load_mcp_servers_from_config())
-    except Exception as e:
-        logger.error(f"Error during sync MCP tool registration: {e}")
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    logger.debug("MCP client cleanup failed for %s.", name, exc_info=True)

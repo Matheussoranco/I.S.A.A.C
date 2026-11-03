@@ -19,7 +19,6 @@ via the heartbeat scheduler with :func:`schedule_consolidation`.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import re
@@ -98,7 +97,7 @@ def consolidate_now(
             extracted.extend(_extract_heuristic(episode_text))
 
     # Filter, dedupe, promote
-    seen: dict[tuple[str, str, str], float] = {}
+    seen: dict[tuple[str, str, str], tuple[str, str, str, float]] = {}
     for fact in extracted:
         s = str(fact.get("subject", "")).strip()
         p = str(fact.get("predicate", "")).strip()
@@ -107,28 +106,31 @@ def consolidate_now(
         if not s or not p or not o or c < min_confidence:
             continue
         key = (s.lower(), p.lower(), o.lower())
-        if key in seen:
-            seen[key] = max(seen[key], c)
-        else:
-            seen[key] = c
+        previous = seen.get(key)
+        if previous is None or c > previous[3]:
+            seen[key] = (s, p, o, c)
 
     report.facts_extracted = len(seen)
 
-    for (s, p, o), c in seen.items():
-        existing = _existing_confidence(semantic, s, p, o)
+    touched: set[tuple[str, str, str]] = set()
+    for s, p, o, c in seen.values():
+        existing = semantic.get_fact(s, p, o)
         if existing is None:
             semantic.add_fact(s, p, o, confidence=c, source="consolidation")
             report.facts_promoted += 1
         else:
-            new_conf = existing + (1.0 - existing) * hebbian_eta
+            new_conf = existing.confidence + (1.0 - existing.confidence) * hebbian_eta
             semantic.add_fact(s, p, o, confidence=min(1.0, new_conf), source="consolidation")
             report.facts_strengthened += 1
+        touched.add((s, p, o))
         if len(report.samples) < 5:
             report.samples.append({"subject": s, "predicate": p, "object": o, "confidence": c})
 
-    # Decay + prune long-unused facts (best-effort — depends on backend API)
-    pruned = _decay_and_prune(semantic, decay=decay_factor, prune_below=prune_below)
-    report.facts_pruned = pruned
+    report.facts_pruned = semantic.decay_and_prune(
+        decay=decay_factor,
+        prune_below=prune_below,
+        exclude=touched,
+    )
 
     report.elapsed_ms = (time.perf_counter() - t0) * 1000.0
     logger.info(
@@ -201,50 +203,6 @@ def _extract_heuristic(episode_text: str) -> list[dict[str, Any]]:
             }
         )
     return facts
-
-
-def _existing_confidence(semantic: Any, s: str, p: str, o: str) -> float | None:
-    try:
-        graph = getattr(semantic, "_graph", None)
-        if graph is None:
-            return None
-        if not graph.has_edge(s, o):
-            return None
-        data = graph.get_edge_data(s, o) or {}
-        if data.get("predicate") != p:
-            return None
-        return float(data.get("confidence", 0.5))
-    except Exception:
-        return None
-
-
-def _decay_and_prune(semantic: Any, *, decay: float, prune_below: float) -> int:
-    """Multiplicatively decay confidence and prune facts below threshold.
-
-    Best-effort — only runs if the SemanticMemory backend exposes its graph.
-    """
-    pruned = 0
-    try:
-        graph = getattr(semantic, "_graph", None)
-        if graph is None:
-            return 0
-        edges_to_remove: list[tuple[str, str]] = []
-        for u, v, data in graph.edges(data=True):
-            new_conf = float(data.get("confidence", 0.5)) * decay
-            data["confidence"] = new_conf
-            if new_conf < prune_below:
-                edges_to_remove.append((u, v))
-        for u, v in edges_to_remove:
-            graph.remove_edge(u, v)
-            pruned += 1
-        # Persist if SemanticMemory exposes a save method
-        save = getattr(semantic, "_persist_all", None) or getattr(semantic, "save", None)
-        if callable(save):
-            with contextlib.suppress(Exception):
-                save()
-    except Exception as exc:
-        logger.debug("decay_and_prune failed: %s", exc)
-    return pruned
 
 
 # ---------------------------------------------------------------------------

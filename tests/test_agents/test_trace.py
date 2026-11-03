@@ -72,6 +72,19 @@ def test_trace_store_handles_unserialisable_event_data(tmp_path) -> None:
     assert store.run_events(rid)[0]["kind"] == "weird"
 
 
+def test_trace_oversized_event_stays_valid_json(tmp_path) -> None:
+    import json
+
+    store = TraceStore(tmp_path / "traces.db", include_content=True)
+    rid = store.start_run("big")
+    store.record_event(rid, "thought", {"text": "x" * 20_000})
+
+    event = store.run_events(rid)[0]
+    payload = json.loads(event["data_json"])
+    assert payload["truncated"] is True
+    assert payload["size"] > 8_000
+
+
 def test_recent_runs_ordering_and_unknown_run(tmp_path) -> None:
     store = TraceStore(tmp_path / "traces.db")
     first = store.start_run("first")

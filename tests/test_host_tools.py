@@ -92,6 +92,81 @@ def test_recursive_copy_refuses_protected_descendant(allowed_root) -> None:
     assert not dest.exists()
 
 
+def test_copy_into_source_tree_is_refused(allowed_root) -> None:
+    src = allowed_root / "source"
+    src.mkdir()
+    (src / "a.txt").write_text("one", encoding="utf-8")
+
+    res = _run(FsCopyTool().execute(src=str(src), dest=str(src / "nested" / "copy")))
+
+    assert res.success is False
+    assert "inside the source" in res.error.lower()
+    assert not (src / "nested").exists()
+
+
+def test_move_into_source_tree_is_refused(allowed_root) -> None:
+    src = allowed_root / "source"
+    src.mkdir()
+    (src / "a.txt").write_text("one", encoding="utf-8")
+
+    res = _run(FsMoveTool().execute(src=str(src), dest=str(src / "nested")))
+
+    assert res.success is False
+    assert "descendant" in res.error.lower()
+    assert src.exists()
+
+
+def test_move_directory_falls_back_across_filesystems(allowed_root, monkeypatch) -> None:
+    import errno
+    from pathlib import Path
+
+    src = allowed_root / "source"
+    src.mkdir()
+    (src / "a.txt").write_text("one", encoding="utf-8")
+    dest = allowed_root / "dest"
+
+    def _cross_device(self, target):
+        raise OSError(errno.EXDEV, "cross-device link")
+
+    monkeypatch.setattr(Path, "rename", _cross_device)
+    res = _run(FsMoveTool().execute(src=str(src), dest=str(dest)))
+
+    assert res.success, res.error
+    assert not src.exists()
+    assert (dest / "a.txt").read_text(encoding="utf-8") == "one"
+
+
+def test_move_symlink_moves_link_not_target(allowed_root) -> None:
+    import os
+
+    target = allowed_root / "target.txt"
+    target.write_text("payload", encoding="utf-8")
+    link = allowed_root / "link.txt"
+    moved = allowed_root / "moved-link.txt"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks are not available on this platform")
+
+    res = _run(FsMoveTool().execute(src=str(link), dest=str(moved)))
+
+    assert res.success, res.error
+    assert not os.path.lexists(link)
+    assert moved.is_symlink()
+    assert target.read_text(encoding="utf-8") == "payload"
+
+
+def test_fs_read_is_bounded(allowed_root) -> None:
+    target = allowed_root / "big.txt"
+    target.write_text("x" * 5_000, encoding="utf-8")
+
+    res = _run(FsReadTool().execute(path=str(target), max_chars=10))
+
+    assert res.success
+    assert res.output.startswith("x" * 10)
+    assert "truncated at 10 chars" in res.output
+
+
 # ── sensitive-path deny list ────────────────────────────────────────────────
 
 

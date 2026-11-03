@@ -123,9 +123,9 @@ class TraceStore:
     def record_event(self, run_id: str, kind: str, data: dict) -> None:
         try:
             stored = data if self._include_content else self._safe_event_data(data)
-            payload = redact_secrets(json.dumps(stored, ensure_ascii=False, default=str))[
-                :_MAX_FIELD
-            ]
+            payload = redact_secrets(json.dumps(stored, ensure_ascii=False, default=str))
+            if len(payload) > _MAX_FIELD:
+                payload = json.dumps({"truncated": True, "size": len(payload)})
         except Exception:
             payload = "{}"
         with self._connect() as conn:

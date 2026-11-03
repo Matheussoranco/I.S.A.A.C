@@ -7,28 +7,62 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — 2026-09-02
+## [Unreleased] — 2026-11-03
 
 ### Fixed
 
 - Enforced scoped, expiring capability tokens at agent-tool and connector
-  execution boundaries; added atomic one-use consumption and isolated token
-  state in tests.
+  execution boundaries; added atomic one-use consumption, reload of revoked
+  tokens from disk, and isolated token state in tests.
 - Made cron tasks approval-required by default and routed approved shell work
-  through constitutional review plus a one-use connector grant.
+  through constitutional review plus a one-use connector grant. The cron engine
+  now writes manifests and PID claims atomically, locks across processes,
+  isolates per-task failures, reserves explicit `shell:` connectors only, and
+  reclaims stale locks.
 - Required Docker for generated-skill verification by default and removed the
   implicit host-execution fallback.
 - Unified credential-path denial across host file tools and the filesystem
-  connector.
+  connector, and redacted credentials (including JSON and prefixed keys) from
+  logs and traces.
 - Repaired sequential/parallel plan activation, made parallel specialists
   agentic, and connected connector observations to synthesis.
-- Cleared the configured mypy check across all 184 source files and made it a
+- Hardened the sandboxed file tools: symlink-aware move/delete, descendant
+  copy/move rejection, bounded reads and listings, and cross-device fallbacks.
+- Routed calendar datetimes through UTC, escaped iCalendar text fields, and
+  rejected inverted ranges; moved CalDAV I/O off the event loop.
+- Split e-mail credentials per protocol (IMAP vs. SMTP), enforced TLS with
+  timeouts, bounded message reads, and rejected header injection.
+- Bounded search, code, browser, and desktop tools: threaded blocking backends,
+  clamped limits, unique browser artifacts under `isaac_home`, modifier cleanup
+  on partial key failures, and explicit action-failure results.
+- Reported `AgentRunResult.success` as operational success (completed and not
+  marked unverified-failed) and compacted over-long transcripts while keeping
+  recent context verbatim.
+- Voice: TTS providers declare native formats and convert to WAV when asked;
+  cloud STT/TTS fallbacks require a configured credential; local Whisper models
+  are cached; removed fake TTS provider fallbacks so unknown backends fail with
+  the supported list; the master switch now gates the voice REPL and the web
+  speech endpoint; `isaac transcribe` / `isaac speak` honor the
+  `ISAAC_VOICE_STT_*` and `ISAAC_TTS_*` settings; removed the duplicated,
+  unused `ISAAC_WHISPER_MODEL` and `ISAAC_VOICE_TTS_SAMPLE_RATE` settings.
+- Blocked `high`/`critical` constitution violations and flagged `medium` ones
+  for approval; cron skips approval-required tasks.
+- Fail-closed web/API surfaces: profile-name validation, non-ASCII API keys
+  rejected, bounded request bodies, and no secrets serialized to the UI.
+- Kanban dispatcher no longer auto-approves subprocesses; it enforces profile
+  allow-lists, reclaims stale claims atomically, and reaps finished children.
+- Goal updates are atomic, and the `isaac goal` CLI now supports
+  `set/list/show/complete/pause/resume/progress` with prefix lookup.
+- Cleared the configured mypy check across all 217 source files and made it a
   required CI gate.
 
 ### Tests
 
-- Added regression coverage for capability consumption, connector denial,
-  cron approval/critical blocking, credential paths, and parallel routing.
+- Added regression coverage for capability consumption and revocation,
+  connector denial, cron approval/critical blocking and manifest/lock
+  corruption, credential paths and redaction, parallel routing, goal prefix
+  lookup, calendar/email/file tools, desktop failure semantics, browser
+  profiles, TTS format handling, and audio temp-file provenance.
 
 ## [1.6.2] — 2026-08-31 — Standalone Windows executable
 

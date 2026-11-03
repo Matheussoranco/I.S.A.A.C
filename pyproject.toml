@@ -63,6 +63,9 @@ browser = [
 gateway-discord = [
     "discord.py>=2.3,<3.0",
 ]
+mcp = [
+    "mcp>=1.0,<2.0",
+]
 desktop = [
     "pywebview>=6.2,<7",
     "pyautogui>=0.9.54,<1.0",
@@ -144,6 +147,7 @@ all = [
     "mss>=9.0,<11.0",
     "webrtcvad>=2.0,<3.0",
     "piper-tts>=1.2,<2.0",
+    "mcp>=1.0,<2.0",
 ]
 
 [project.scripts]

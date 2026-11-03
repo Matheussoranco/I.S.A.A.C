@@ -242,13 +242,16 @@ class DesktopBackend:
     def _held_modifiers(self, gui: Any, raw_keys: Any) -> Iterator[None]:
         keys = raw_keys if isinstance(raw_keys, list) else []
         normalized = [_validated_key(key, gui) for key in keys]
-        for key in normalized:
-            gui.keyDown(key)
+        held: list[str] = []
         try:
+            for key in normalized:
+                gui.keyDown(key)
+                held.append(key)
             yield
         finally:
-            for key in reversed(normalized):
-                gui.keyUp(key)
+            for key in reversed(held):
+                with contextlib.suppress(Exception):
+                    gui.keyUp(key)
 
     def _validated_point(self, raw_x: Any, raw_y: Any) -> tuple[int, int]:
         try:
@@ -432,9 +435,13 @@ class ComputerControlTool(_DesktopVisualMixin, IsaacTool):
         action = str(kwargs.get("action", "")).strip()
         if not action:
             return ToolResult(success=False, error="No desktop action provided.")
+        backend = get_desktop_backend()
         try:
-            backend = get_desktop_backend()
             await asyncio.to_thread(backend.perform, action, kwargs)
+        except Exception as exc:
+            return ToolResult(success=False, error=f"Desktop action '{action}' failed: {exc}")
+
+        try:
             frame = await asyncio.to_thread(backend.capture)
             path = self._publish_frame(frame)
             self._emit_visual(
@@ -447,16 +454,28 @@ class ComputerControlTool(_DesktopVisualMixin, IsaacTool):
                 height=frame.height,
                 action=action,
             )
+        except Exception as exc:
+            logger.warning(
+                "Desktop action '%s' completed but the follow-up screenshot failed: %s",
+                action,
+                exc,
+            )
             return ToolResult(
                 success=True,
                 output=(
-                    f"Desktop action '{action}' completed. Updated screenshot: {path}. "
-                    f"Cursor: ({frame.cursor_x}, {frame.cursor_y})."
+                    f"Desktop action '{action}' completed, but the follow-up screenshot "
+                    f"failed: {exc}"
                 ),
-                metadata={"path": path, "cursor_x": frame.cursor_x, "cursor_y": frame.cursor_y},
             )
-        except Exception as exc:
-            return ToolResult(success=False, error=f"Desktop action '{action}' failed: {exc}")
+
+        return ToolResult(
+            success=True,
+            output=(
+                f"Desktop action '{action}' completed. Updated screenshot: {path}. "
+                f"Cursor: ({frame.cursor_x}, {frame.cursor_y})."
+            ),
+            metadata={"path": path, "cursor_x": frame.cursor_x, "cursor_y": frame.cursor_y},
+        )
 
 
 def _validated_button(value: Any) -> str:

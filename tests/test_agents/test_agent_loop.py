@@ -105,7 +105,7 @@ class TestAgentLoop:
 
         assert result.stopped_reason == "final"
         assert result.completed is True
-        assert result.success is False  # No trusted task validator supplied.
+        assert result.success is True  # No validator supplied: operational success.
         assert "hi" in result.output
         assert result.iterations == 2
         assert len(result.tool_calls) == 1
@@ -396,6 +396,20 @@ class TestLoopHardening:
         assert any("[compacted:" in str(m.content) for m in tool_msgs)
         # The most recent tool output stays verbatim.
         assert "[compacted:" not in str(tool_msgs[-1].content)
+
+    def test_context_compaction_stubs_old_observation_messages(self) -> None:
+        from langchain_core.messages import HumanMessage
+
+        loop = AgentLoop([], llm=FakeLLM([AIMessage(content="done")]), context_budget_chars=500)
+        task = HumanMessage(content="original task")
+        observations = [HumanMessage(content=f"Result of echo:\n{'x' * 2_000}") for _ in range(8)]
+        messages = [task, *observations]
+
+        loop._compact_messages(messages)
+
+        assert messages[0] is task and task.content == "original task"
+        assert any("[compacted:" in str(m.content) for m in messages[1:3])
+        assert "[compacted:" not in str(messages[-1].content)
 
     def test_run_is_traced_when_store_attached(self, tmp_path) -> None:
         from isaac.agents.trace import TraceStore

@@ -79,13 +79,18 @@ def _abstract_ui_skill(
     raw_code = candidate.code or "{}"
     try:
         payload = json.loads(raw_code)
-    except json.JSONDecodeError:
-        logger.warning("Skill Abstraction (UI): code_buffer is not valid JSON — using raw string.")
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(
+            "Skill Abstraction (UI): candidate code is not valid JSON — using empty trace."
+        )
+        payload = {}
+    if not isinstance(payload, dict):
         payload = {}
 
-    action_trace_raw: list[dict] = payload.get("actions", [])
-    screenshot_before_b64: str = payload.get("screenshot_before", "")
-    screenshot_after_b64: str = payload.get("screenshot_after", "")
+    raw_actions = payload.get("actions", [])
+    action_trace_raw = raw_actions if isinstance(raw_actions, list) else []
+    screenshot_before_b64 = str(payload.get("screenshot_before") or "")
+    screenshot_after_b64 = str(payload.get("screenshot_after") or "")
 
     # Convert raw dicts to UIAction objects so the prompt helper can access attributes
     action_trace: list[UIAction] = [
@@ -97,9 +102,8 @@ def _abstract_ui_skill(
             key=a.get("key"),
             description=a.get("description", ""),
         )
-        if isinstance(a, dict)
-        else a
         for a in action_trace_raw
+        if isinstance(a, dict)
     ]
 
     # Also try to pull screenshots from code_buffer if not in candidate.code
@@ -107,12 +111,15 @@ def _abstract_ui_skill(
         buf = state.get("code_buffer", "")
         try:
             buf_payload = json.loads(buf)
-            screenshot_before_b64 = screenshot_before_b64 or buf_payload.get(
-                "screenshot_before", ""
+        except (json.JSONDecodeError, TypeError):
+            buf_payload = {}
+        if isinstance(buf_payload, dict):
+            screenshot_before_b64 = screenshot_before_b64 or str(
+                buf_payload.get("screenshot_before") or ""
             )
-            screenshot_after_b64 = screenshot_after_b64 or buf_payload.get("screenshot_after", "")
-        except (json.JSONDecodeError, AttributeError):
-            pass
+            screenshot_after_b64 = screenshot_after_b64 or str(
+                buf_payload.get("screenshot_after") or ""
+            )
 
     prompt = skill_abstraction_ui_prompt(
         action_trace=action_trace,

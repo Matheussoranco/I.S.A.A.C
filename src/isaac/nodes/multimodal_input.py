@@ -12,7 +12,7 @@ Attachments are passed via ``world_model.resources["_attachments"]``:
         {"type": "image_b64","data": "<base64>", "mime": "image/png"},
     ]
 
-The node enriches the user message and ``world_model.observations`` with the
+The node enriches the conversation and ``world_model.observations`` with the
 extracted content so the rest of the graph treats it as plain text/context.
 """
 
@@ -21,9 +21,11 @@ from __future__ import annotations
 import base64
 import logging
 import tempfile
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import SystemMessage
 
 from isaac.core.state import IsaacState
 
@@ -33,11 +35,12 @@ logger = logging.getLogger(__name__)
 def multimodal_input_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: extract and inject multimodal content into the state."""
     wm = state.get("world_model")
-    resources = wm.resources if wm else {}
-    attachments: list[dict[str, Any]] = resources.get("_attachments", [])
+    if wm is None:
+        return {"multimodal_done": True, "current_phase": "multimodal_input"}
 
+    attachments: list[dict[str, Any]] = wm.resources.get("_attachments", [])
     if not attachments:
-        return {}
+        return {"multimodal_done": True, "current_phase": "multimodal_input"}
 
     extracted_parts: list[str] = []
 
@@ -68,23 +71,21 @@ def multimodal_input_node(state: IsaacState) -> dict[str, Any]:
             logger.warning("Multimodal(%s) failed: %s", att_type, exc)
             extracted_parts.append(f"[{att_type.upper()} ERROR: {exc}]")
 
-    if not extracted_parts:
-        return {}
+    resources = {key: value for key, value in wm.resources.items() if key != "_attachments"}
+    observations = (wm.observations + extracted_parts[:3])[-50:]
+    wm = replace(wm, resources=resources, observations=observations)
 
-    # Inject extracted content into the conversation as a system-level context message
-    combined = "\n\n".join(extracted_parts)
-    injection = HumanMessage(content=f"<multimodal_context>\n{combined}\n</multimodal_context>")
-
-    # Also update world_model observations
-    if wm:
-        wm.observations.extend(extracted_parts[:3])  # cap to avoid bloat
-        resources.pop("_attachments", None)  # consumed
-
-    return {
-        "messages": [injection],
+    updates: dict[str, Any] = {
         "world_model": wm,
+        "multimodal_done": True,
         "current_phase": "multimodal_input",
     }
+    if extracted_parts:
+        combined = "\n\n".join(extracted_parts)
+        updates["messages"] = [
+            SystemMessage(content=f"<multimodal_context>\n{combined}\n</multimodal_context>")
+        ]
+    return updates
 
 
 def _handle_audio(att: dict[str, Any]) -> str:
@@ -101,7 +102,7 @@ def _handle_document(att: dict[str, Any]) -> str:
 
     path = att.get("path", "")
     max_pages = att.get("max_pages", 50)
-    return extract_text(path, max_pages=max_pages)[:8000]  # cap to avoid context overflow
+    return extract_text(path, max_pages=max_pages)[:8000]
 
 
 def _handle_image_path(att: dict[str, Any]) -> dict[str, Any]:
@@ -116,13 +117,15 @@ def _handle_image_b64(att: dict[str, Any]) -> dict[str, Any]:
     data = att.get("data", "")
     mime = att.get("mime", "image/png")
     prompt = att.get("prompt", "Describe this image. Extract any visible text, data, or diagrams.")
-
-    # Save to temp file and call analyse_image
     suffix = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(mime, ".png")
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-        f.write(base64.b64decode(data))
-        tmp_path = f.name
 
-    from isaac.multimodal.document import analyse_image
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+        handle.write(base64.b64decode(data))
+        tmp_path = Path(handle.name)
 
-    return analyse_image(tmp_path, prompt=prompt)
+    try:
+        from isaac.multimodal.document import analyse_image
+
+        return analyse_image(str(tmp_path), prompt=prompt)
+    finally:
+        tmp_path.unlink(missing_ok=True)

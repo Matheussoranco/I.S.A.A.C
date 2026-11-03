@@ -7,6 +7,7 @@ and apply incremental updates from Perception observations.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from typing import Any
 
 from isaac.core.state import WorldModel
@@ -26,7 +27,8 @@ def merge_observations(
     Older observations beyond a rolling window of 50 are discarded.
     """
     combined = model.observations + new_observations
-    return WorldModel(
+    return replace(
+        model,
         files=dict(model.files),
         resources=dict(model.resources),
         constraints=list(model.constraints),
@@ -36,24 +38,12 @@ def merge_observations(
 
 def update_files(model: WorldModel, files: dict[str, str]) -> WorldModel:
     """Return a new WorldModel with the ``files`` dict replaced/updated."""
-    merged = {**model.files, **files}
-    return WorldModel(
-        files=merged,
-        resources=dict(model.resources),
-        constraints=list(model.constraints),
-        observations=list(model.observations),
-    )
+    return replace(model, files={**model.files, **files})
 
 
 def update_resources(model: WorldModel, resources: dict[str, Any]) -> WorldModel:
     """Return a new WorldModel with updated resource snapshots."""
-    merged = {**model.resources, **resources}
-    return WorldModel(
-        files=dict(model.files),
-        resources=merged,
-        constraints=list(model.constraints),
-        observations=list(model.observations),
-    )
+    return replace(model, resources={**model.resources, **resources})
 
 
 def content_hash(data: str) -> str:

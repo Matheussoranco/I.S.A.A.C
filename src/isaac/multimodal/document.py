@@ -43,10 +43,15 @@ def extract_text(doc_path: str | Path, max_pages: int = 100) -> str:
 
     if suffix == ".pdf":
         return _extract_pdf(path, max_pages)
-    if suffix in (".docx", ".doc"):
+    if suffix == ".docx":
         return _extract_docx(path)
-    if suffix in (".pptx", ".ppt"):
+    if suffix == ".pptx":
         return _extract_pptx(path)
+    if suffix in (".doc", ".ppt"):
+        raise ValueError(
+            f"Legacy binary {suffix} files are not supported; convert {path.name} "
+            f"to {suffix}x first."
+        )
     if suffix in (".txt", ".md", ".rst", ".csv", ".json"):
         return path.read_text(encoding="utf-8", errors="replace")
     if suffix in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".gif"):
@@ -60,13 +65,13 @@ def extract_pages(pdf_path: str | Path, max_pages: int = 100) -> list[str]:
     try:
         import fitz  # type: ignore[import-untyped]  # pymupdf
 
-        doc = fitz.open(str(pdf_path))
-        pages = []
-        for i, page in enumerate(doc):
-            if i >= max_pages:
-                break
-            pages.append(page.get_text())
-        return pages
+        with fitz.open(str(pdf_path)) as doc:
+            pages = []
+            for i, page in enumerate(doc):
+                if i >= max_pages:
+                    break
+                pages.append(page.get_text())
+            return pages
     except ImportError:
         logger.warning("pymupdf not installed; falling back to single-chunk extraction")
         text = _extract_pdf(Path(pdf_path), max_pages)
@@ -84,19 +89,19 @@ def extract_metadata(doc_path: str | Path) -> dict[str, Any]:
         try:
             import fitz
 
-            doc = fitz.open(str(path))
-            raw = doc.metadata or {}
-            meta.update(
-                {
-                    "title": raw.get("title", ""),
-                    "author": raw.get("author", ""),
-                    "pages": len(doc),
-                    "format": "PDF",
-                }
-            )
+            with fitz.open(str(path)) as doc:
+                raw = doc.metadata or {}
+                meta.update(
+                    {
+                        "title": raw.get("title", ""),
+                        "author": raw.get("author", ""),
+                        "pages": len(doc),
+                        "format": "PDF",
+                    }
+                )
         except ImportError:
             pass
-    elif suffix in (".docx", ".doc"):
+    elif suffix == ".docx":
         try:
             import docx  # type: ignore[import-untyped]
 
@@ -159,13 +164,13 @@ def _extract_pdf(path: Path, max_pages: int) -> str:
     try:
         import fitz
 
-        doc = fitz.open(str(path))
-        texts = []
-        for i, page in enumerate(doc):
-            if i >= max_pages:
-                break
-            texts.append(page.get_text())
-        return "\n\n".join(texts)
+        with fitz.open(str(path)) as doc:
+            texts = []
+            for i, page in enumerate(doc):
+                if i >= max_pages:
+                    break
+                texts.append(page.get_text())
+            return "\n\n".join(texts)
     except ImportError:
         pass
 
@@ -231,8 +236,8 @@ def _ocr_image(path: Path) -> str:
         import pytesseract  # type: ignore[import-untyped]
         from PIL import Image  # type: ignore[import-untyped]
 
-        img = Image.open(str(path))
-        return pytesseract.image_to_string(img)
+        with Image.open(str(path)) as img:
+            return pytesseract.image_to_string(img)
     except ImportError as exc:
         raise ImportError(
             "Image OCR requires pytesseract and Pillow. "

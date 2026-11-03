@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 _ui_executor: Any = None
 
 
-def _get_ui_executor() -> Any:
+def get_ui_executor() -> Any:
     """Return the module-level ``UIExecutor``, starting it if needed."""
     global _ui_executor
     if _ui_executor is None:
@@ -189,15 +189,14 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
     max_cycles: int = settings.graph.max_ui_cycles
     plan: list[PlanStep] = state.get("plan", [])
     world_model: WorldModel = state.get("world_model", WorldModel())
-    current_ui_cycle: int = state.get("ui_cycle", 0)
-    accumulated_results: list[UIActionResult] = list(state.get("ui_results", []))
+    current_ui_cycle = 0
 
     active_step = _get_active_step(plan)
     if active_step is None:
         logger.warning("ComputerUse: no active step found — skipping.")
         return {"current_phase": "computer_use"}
 
-    executor = _get_ui_executor()
+    executor = get_ui_executor()
 
     # -- Screenshot → LLM → Action loop ------------------------------------
     new_results: list[UIActionResult] = []
@@ -280,41 +279,39 @@ def computer_use_node(state: IsaacState) -> dict[str, Any]:
         "current_phase": "computer_use",
     }
 
-    all_results = accumulated_results + new_results
-
     if step_done:
         active_step.status = "done"
         updates["plan"] = plan
 
         # Build a UIAction trace for SkillAbstraction
-        trace = [r.action for r in all_results]
-        first_b64 = all_results[0].screenshot_before_b64 if all_results else ""
-        last_b64 = all_results[-1].screenshot_after_b64 if all_results else ""
+        trace = [r.action for r in new_results]
+        first_b64 = new_results[0].screenshot_before_b64 if new_results else ""
+        last_b64 = new_results[-1].screenshot_after_b64 if new_results else ""
 
         updates["skill_candidate"] = SkillCandidate(
             name=f"ui_{active_step.id}_{active_step.description[:30].replace(' ', '_').lower()}",
             code=json.dumps(
-                [
-                    {
-                        "type": a.type,
-                        "x": a.x,
-                        "y": a.y,
-                        "text": a.text,
-                        "key": a.key,
-                        "description": a.description,
-                    }
-                    for a in trace
-                ],
+                {
+                    "actions": [
+                        {
+                            "type": a.type,
+                            "x": a.x,
+                            "y": a.y,
+                            "text": a.text,
+                            "key": a.key,
+                            "description": a.description,
+                        }
+                        for a in trace
+                    ],
+                    "screenshot_before": first_b64,
+                    "screenshot_after": last_b64,
+                },
                 indent=2,
             ),
             task_context=active_step.description,
             skill_type="ui",
             tags=["ui", "xdotool", active_step.description[:20]],
             success_count=1,
-        )
-        # Stash before/after for SkillAbstraction to use
-        updates["code_buffer"] = json.dumps(
-            {"screenshot_before": first_b64, "screenshot_after": last_b64}
         )
     else:
         # Exhausted cycles without success

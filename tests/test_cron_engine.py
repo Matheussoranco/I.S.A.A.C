@@ -201,3 +201,94 @@ class TestCronExecutionSafety:
             status = _execute_task(task)
         assert status == "blocked"
         script.assert_not_called()
+
+
+class TestCronManifestSafety:
+    @pytest.fixture(autouse=True)
+    def _setup(self, tmp_path: Path) -> None:
+        self._home = tmp_path / ".isaac"
+        self._home.mkdir()
+        self._patcher = patch(
+            "isaac.background.cron_engine._isaac_home",
+            return_value=self._home,
+        )
+        self._patcher.start()
+
+    def teardown_method(self) -> None:
+        self._patcher.stop()
+
+    def test_corrupt_manifest_is_not_overwritten(self) -> None:
+        from isaac.background.cron_engine import CronManifestError, add_task
+
+        manifest = self._home / "cron_tasks.json"
+        manifest.write_text("{not json", encoding="utf-8")
+
+        with pytest.raises(CronManifestError):
+            add_task(name="New", schedule="0 * * * *", command="echo hi")
+
+        assert manifest.read_text(encoding="utf-8") == "{not json"
+
+    def test_malformed_schedule_does_not_raise(self) -> None:
+        from datetime import datetime
+
+        from isaac.background.cron_engine import CronTask, _is_due
+
+        task = CronTask(schedule="not a schedule", last_run=datetime.now(UTC).isoformat())
+        assert _is_due(task) is False
+
+    def test_malformed_last_run_does_not_raise(self) -> None:
+        from isaac.background.cron_engine import CronTask, _is_due
+
+        assert _is_due(CronTask(schedule="* * * * *", last_run="yesterday")) is False
+
+
+class TestConnectorParsing:
+    def test_windows_path_is_not_a_connector_call(self, monkeypatch) -> None:
+        from isaac.background.cron_engine import _parse_connector_call
+
+        monkeypatch.setattr(
+            "isaac.skills.connectors.registry.get_registry",
+            lambda: {"shell": object()},
+        )
+        assert _parse_connector_call(r"C:\scripts\job.bat") is None
+
+    def test_quoted_multi_word_shell_command_is_kept(self, monkeypatch) -> None:
+        from isaac.background.cron_engine import _parse_connector_call
+
+        monkeypatch.setattr(
+            "isaac.skills.connectors.registry.get_registry",
+            lambda: {"shell": object()},
+        )
+        parsed = _parse_connector_call('shell:command="echo hello world"')
+        assert parsed == ("shell", {"command": "echo hello world"})
+
+    def test_unbalanced_quote_is_rejected(self, monkeypatch) -> None:
+        from isaac.background.cron_engine import _parse_connector_call
+
+        monkeypatch.setattr(
+            "isaac.skills.connectors.registry.get_registry",
+            lambda: {"shell": object()},
+        )
+        assert _parse_connector_call('shell:command="echo hello') is None
+
+
+class TestCronLocks:
+    def test_stale_lock_is_reclaimed(self, tmp_path: Path) -> None:
+        from isaac.background import cron_locks
+
+        with patch("isaac.background.cron_locks._isaac_home", return_value=tmp_path):
+            path = cron_locks._get_lock_path("abc")
+            assert path is not None
+            path.write_text("1 0", encoding="utf-8")
+            import os
+
+            os.utime(path, (0, 0))
+            assert cron_locks._acquire_lock("abc") is True
+            cron_locks._release_lock("abc")
+            assert not path.exists()
+
+    def test_invalid_task_id_never_builds_a_path(self) -> None:
+        from isaac.background.cron_locks import _acquire_lock, _get_lock_path
+
+        assert _get_lock_path("../../escape") is None
+        assert _acquire_lock("../../escape") is False

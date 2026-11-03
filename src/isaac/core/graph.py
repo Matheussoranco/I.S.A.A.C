@@ -7,26 +7,14 @@ Full topology
 -------------
 ::
 
-    START ─► Guard ─► Perception ─► Explorer ─► Planner
-                                                    ├─ sequential ─► Connectors ─► Synthesis
-                                                    └─ parallel ───► Agentic sub-agents
-                                                               │
-                          ┌────────────────────────────────────┴────────────────┐
-                          │ mode=ui                              │ mode=code/hybrid
-                          ▼                                      ▼
-                    ComputerUse                              Sandbox
-                          │                                      │
-                          └────────────────┬─────────────────────┘
-                                           ▼
-                                      Reflection
-                                           │
-              ┌───────────────────────┬────┴────────────────────────┐
-              ▼ success               ▼ retry                       ▼ max errors
-       SkillAbstraction            Planner                         END
-              │
-          ┌───┴─────────────┐
-          ▼ pending         ▼ complete
-        Planner             END
+    START → Guard → {MultimodalInput | Perception | END}
+    MultimodalInput → Perception → {DirectResponse | Clarification}
+    Clarification → {END | Explorer} → Planner
+    DirectResponse → MetaLearner → {Planner | END}
+    Planner → {ParallelSynthesis | ConnectorExecution → Synthesis}
+    ParallelSynthesis → Reflection
+    Synthesis → {ComputerUse | Sandbox} → Reflection
+    Reflection → {SkillAbstraction → MetaLearner, Planner, END}
 
 Tool-call approvals are enforced by :class:`AgentLoop`; graph-hosted
 computer-use actions require an explicit ``ui_approval_callback`` in state.
@@ -111,28 +99,7 @@ def build_graph() -> Any:
     """Construct and compile the I.S.A.A.C. cognitive graph.
 
     Returns a compiled ``StateGraph`` ready for ``.invoke()`` or
-    ``.stream()``.
-
-    Full topology::
-
-        START ─► Perception ─► Planner ─► Synthesis
-                                              │
-                    ┌─────────────────────────┴──────────────────────┐
-                    │ mode=ui                  │ mode=code/hybrid
-                    ▼                          ▼
-              ComputerUse                  Sandbox
-                    │                          │
-                    └───────────────┬──────────┘
-                                    ▼
-                               Reflection
-                                    │
-           ┌───────────────────────┬┴────────────────────────┐
-           ▼ success               ▼ retry                   ▼ max errors
-    SkillAbstraction            Planner                      END
-           │
-       ┌───┴─────────────┐
-       ▼ pending         ▼ complete
-     Planner             END
+    ``.stream()``.  See the module docstring for the full topology.
     """
     graph = StateGraph(IsaacState)
 
@@ -205,6 +172,7 @@ def build_graph() -> Any:
         {
             NODE_PARALLEL_SYNTHESIS: _PARALLEL_SYNTHESIS,
             NODE_SYNTHESIS: _CONNECTOR_EXEC,
+            END: END,
         },
     )
     graph.add_edge(_PARALLEL_SYNTHESIS, _REFLECTION)

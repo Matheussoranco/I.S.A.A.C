@@ -165,6 +165,9 @@ class KanbanBoard:
         status; the dispatcher later promotes backlog cards to ready."""
         if status not in COLUMNS:
             raise KanbanError(f"invalid status: {status!r}")
+        for dep in depends_on or []:
+            if not self.get_task(dep):
+                raise KanbanError(f"dependency task not found: {dep}")
         task = Task(
             title=title,
             description=description,
@@ -193,8 +196,6 @@ class KanbanBoard:
             ),
         )
         for dep in depends_on or []:
-            if not self.get_task(dep):
-                raise KanbanError(f"dependency task not found: {dep}")
             conn.execute(
                 "INSERT INTO dependencies (task_id, depends_on) VALUES (?,?)",
                 (task.id, dep),
@@ -266,6 +267,21 @@ class KanbanBoard:
         if cur.rowcount == 0:
             raise KanbanError(f"task {task_id} could not be claimed (race)")
         return self.get_task(task_id)  # type: ignore[return-value]
+
+    def reclaim_stale_task(self, task_id: str, expected_heartbeat: str) -> Task | None:
+        """Atomically reset a still-stale running task to ``ready``."""
+        conn = self._conn()
+        now = _now()
+        cur = conn.execute(
+            "UPDATE tasks SET status='ready', claimed_at='', heartbeat_at='',"
+            " updated_at=? WHERE id=? AND status='running'"
+            " AND COALESCE(NULLIF(heartbeat_at,''), claimed_at)=?",
+            (now, task_id, expected_heartbeat),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return None
+        return self.get_task(task_id)
 
     def heartbeat(self, task_id: str, agent: str | None = None) -> Task:
         """Refresh the claim heartbeat (keeps a running claim alive)."""
@@ -423,7 +439,9 @@ def get_board(db_path: Path | str | None = None) -> KanbanBoard:
     """Return the shared default board (or one at ``db_path``)."""
     global _default_board
     if db_path is not None:
-        return KanbanBoard(db_path)
+        board = KanbanBoard(db_path)
+        board.init_board()
+        return board
     if _default_board is None:
         _default_board = KanbanBoard()
         _default_board.init_board()

@@ -57,3 +57,39 @@ def test_stt_file_not_found():
     stt = STTManager()
     with pytest.raises(FileNotFoundError):
         stt.transcribe(Path("non_existent_audio.wav"))
+
+
+def test_get_stt_honors_voice_settings(monkeypatch):
+    from isaac.config.settings import get_settings
+    from isaac.multimodal.voice import stt as stt_module
+
+    captured: dict[str, str] = {}
+
+    class _FakeWhisperModel:
+        def __init__(self, model: str, device: str, compute_type: str) -> None:
+            captured.update(model=model, device=device, compute_type=compute_type)
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "voice_stt_model", "small")
+    monkeypatch.setattr(settings, "voice_device", "cpu")
+    monkeypatch.setattr(settings, "voice_stt_compute_type", "float32")
+    monkeypatch.setattr(settings, "voice_stt_language", "pt")
+    monkeypatch.setattr(stt_module, "WhisperModel", _FakeWhisperModel)
+    monkeypatch.setattr(stt_module, "_stt_manager", None)
+
+    manager = stt_module.get_stt()
+
+    assert captured == {"model": "small", "device": "cpu", "compute_type": "float32"}
+    assert manager.providers[0].language == "pt"  # type: ignore[attr-defined]
+
+
+def test_get_stt_respects_voice_disabled(monkeypatch):
+    from isaac.config.settings import get_settings
+    from isaac.multimodal.voice import stt as stt_module
+
+    monkeypatch.setattr(get_settings(), "voice_enabled", False)
+    monkeypatch.setattr(stt_module, "_stt_manager", None)
+
+    with pytest.raises(RuntimeError, match="disabled"):
+        stt_module.get_stt()
+    assert stt_module.is_stt_available() is False

@@ -14,22 +14,25 @@ runner lazily delegates to the ISAAC agent loop.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
 AgentRunner = Callable[[str], str]
 
+_AUDIO_SUFFIXES = frozenset({".wav", ".mp3", ".ogg", ".m4a", ".flac", ".aac"})
+
 
 def _default_agent_runner(text: str) -> str:
     """Default agent runner — delegates to the ISAAC agent loop."""
     from isaac.agents.agent_loop import build_default_agent  # lazy: heavy import
 
-    result = build_default_agent().run(text)
-    return str(result)
+    return build_default_agent().run(text).output
 
 
 class Gateway(ABC):
@@ -98,25 +101,46 @@ class Gateway(ABC):
 
         Returns the reply text (useful for tests).
         """
-        # Handle audio attachments via STT
         if attachments:
-            from pathlib import Path
+            text = await asyncio.to_thread(self._transcribe_audio, text, attachments)
 
-            from isaac.multimodal.voice.stt import STTManager
-
-            stt = STTManager()
-            for attach in attachments:
-                # Check if attachment is an audio file (simplistic check for path/extension)
-                path_attr = getattr(attach, "file_path", None) or getattr(attach, "path", None)
-                if path_attr and any(
-                    str(path_attr).endswith(ext) for ext in [".wav", ".mp3", ".ogg", ".m4a"]
-                ):
-                    try:
-                        transcribed_text = stt.transcribe(Path(path_attr))
-                        text = f"{text}\n[Audio]: {transcribed_text}" if text else transcribed_text
-                    except Exception as e:
-                        logger.error("STT transcription failed for %s: %s", path_attr, e)
-
-        reply = self._route_to_agent(channel_id, user_id, text, attachments)
+        reply = await asyncio.to_thread(
+            self._route_to_agent, channel_id, user_id, text, attachments
+        )
         await self.send_message(channel_id, reply)
         return reply
+
+    @staticmethod
+    def _attachment_path(attachment: Any) -> Path | None:
+        candidate = None
+        if isinstance(attachment, dict):
+            candidate = attachment.get("file_path") or attachment.get("path")
+        elif isinstance(attachment, str):
+            candidate = attachment
+        else:
+            candidate = getattr(attachment, "file_path", None) or getattr(attachment, "path", None)
+        if not candidate:
+            return None
+        path = Path(str(candidate)).expanduser()
+        return path if path.is_file() else None
+
+    def _transcribe_audio(self, text: str, attachments: list[Any]) -> str:
+        """Transcribe local audio attachments and append the text."""
+        paths = [
+            path
+            for path in (self._attachment_path(item) for item in attachments)
+            if path is not None and path.suffix.lower() in _AUDIO_SUFFIXES
+        ]
+        if not paths:
+            return text
+
+        from isaac.multimodal.voice.stt import STTManager
+
+        for path in paths:
+            try:
+                transcribed = STTManager().transcribe(path)
+            except Exception as exc:
+                logger.error("STT transcription failed for %s: %s", path, exc)
+                continue
+            text = f"{text}\n[Audio]: {transcribed}" if text else transcribed
+        return text

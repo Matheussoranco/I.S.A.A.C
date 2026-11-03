@@ -53,18 +53,15 @@ START ─► Guard ─► Perception ─► (DirectResponse | Explorer)
                                     Synthesis
                                        │
                 ┌──────────────────────┴──────────────────────┐
-                │ mode=ui                  │ mode=code/hybrid │
-                ▼                          ▼                  │
-          ComputerUse                   Sandbox               │
-                └──────────────┬───────────┘                  │
-                               ▼                              │
-                          Reflection                          │
-                               │                              │
-            ┌──────────────────┼─────────────────────┐        │
-            ▼                  ▼                     ▼        │
-     SkillAbstraction      Planner                  END       │
-                                                              │
-                  AwaitApproval (inserted dynamically) ◄──────┘
+                ▼                                             ▼
+          ComputerUse (mode=ui)                        Sandbox (code/hybrid)
+                └──────────────────────┬──────────────────────┘
+                                       ▼
+                                  Reflection
+                                       │
+            ┌──────────────────────────┼──────────────────────┐
+            ▼                          ▼                      ▼
+     SkillAbstraction              Planner                  END
 ```
 
 | Node | Responsibility |
@@ -80,7 +77,6 @@ START ─► Guard ─► Perception ─► (DirectResponse | Explorer)
 | **ComputerUse** | GUI automation in virtual desktop (Xvfb + Playwright) |
 | **Reflection** | Analyse, refine, or escalate to Planner |
 | **SkillAbstraction** | Generalise successful code into reusable Library entries |
-| **AwaitApproval** | Pause for human approval on high-risk tools |
 
 ### Multimodal subsystem
 
@@ -480,7 +476,6 @@ The `IsaacState` TypedDict flows through all graph nodes:
 | `task_mode` | `TaskMode` | replace | `"code"` \| `"computer_use"` \| `"hybrid"` |
 | `ui_actions` | `list[UIAction]` | append | Pending GUI actions |
 | `ui_results` | `list[UIActionResult]` | append | Screenshot+outcome |
-| `pending_approvals` | `list[PendingApproval]` | append | High-risk actions awaiting sign-off |
 
 ## Sandbox Security
 

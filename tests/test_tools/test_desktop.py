@@ -152,6 +152,70 @@ def test_responses_action_translates_virtual_desktop_coordinates(monkeypatch) ->
     ]
 
 
+@pytest.mark.asyncio
+async def test_computer_control_reports_success_when_screenshot_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backend = _patch_desktop(monkeypatch, tmp_path)
+
+    def _fail_capture() -> ScreenFrame:
+        raise RuntimeError("screen capture unavailable")
+
+    monkeypatch.setattr(backend, "capture", _fail_capture)
+    tool = ComputerControlTool()
+
+    result = await tool.execute(action="click", x=400, y=300)
+
+    assert result.success is True
+    assert "screenshot failed" in result.output
+
+
+@pytest.mark.asyncio
+async def test_computer_control_reports_action_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backend = _patch_desktop(monkeypatch, tmp_path)
+
+    def _fail(action: str, args: dict[str, Any]) -> None:
+        raise RuntimeError("input rejected")
+
+    monkeypatch.setattr(backend, "perform", _fail)
+    tool = ComputerControlTool()
+
+    result = await tool.execute(action="click", x=400, y=300)
+
+    assert result.success is False
+    assert "input rejected" in result.error
+
+
+def test_modifiers_are_released_when_an_action_fails(monkeypatch) -> None:
+    calls: list[tuple[Any, ...]] = []
+
+    class _Gui:
+        KEYBOARD_KEYS = ["ctrl", "shift"]
+
+        def keyDown(self, key):
+            calls.append(("down", key))
+
+        def keyUp(self, key):
+            calls.append(("up", key))
+
+        def moveTo(self, *args, **kwargs):
+            raise RuntimeError("move failed")
+
+    backend = desktop_module.DesktopBackend()
+    monkeypatch.setattr(backend, "_pyautogui", lambda: _Gui())
+    monkeypatch.setattr(backend, "bounds", lambda: (0, 0, 1920, 1080))
+    frame = ScreenFrame(b"png", 0, 0, 1920, 1080, 0, 0)
+
+    with pytest.raises(RuntimeError, match="move failed"):
+        backend.perform_computer_action(
+            {"type": "move", "x": 100, "y": 80, "keys": ["ctrl", "shift"]}, frame
+        )
+
+    assert calls == [("down", "ctrl"), ("down", "shift"), ("up", "shift"), ("up", "ctrl")]
+
+
 def test_responses_action_rejects_out_of_frame_point(monkeypatch) -> None:
     backend = desktop_module.DesktopBackend()
     monkeypatch.setattr(backend, "_pyautogui", lambda: object())

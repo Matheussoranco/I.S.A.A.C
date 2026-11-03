@@ -225,12 +225,17 @@ def get_llm(tier: ModelTier = "default") -> BaseChatModel:
     cfg = settings.llm
     provider = cfg.llm_provider.lower()
 
-    # Resolve model name and temperature for the requested tier
-    if tier == "fast" and cfg.fast_model:
-        model_name = cfg.fast_model
+    # Resolve model name and temperature for the requested tier.  Ollama's
+    # light/heavy tags remain the documented task-tier presets.
+    if tier == "fast":
+        model_name = cfg.fast_model or (
+            settings.ollama_light_model if provider == "ollama" else cfg.model_name
+        )
         temperature = cfg.fast_temperature if cfg.fast_temperature >= 0 else cfg.temperature
-    elif tier == "strong" and cfg.strong_model:
-        model_name = cfg.strong_model
+    elif tier == "strong":
+        model_name = cfg.strong_model or (
+            settings.ollama_heavy_model if provider == "ollama" else cfg.model_name
+        )
         temperature = cfg.strong_temperature if cfg.strong_temperature >= 0 else cfg.temperature
     else:
         model_name = cfg.model_name

@@ -7,6 +7,7 @@ The host process never ``exec``s user-generated code directly.
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -40,14 +41,23 @@ class CodeExecutor:
         self._policy = policy or default_policy()
         self._manager = SandboxManager(self._image, self._policy)
 
-    def execute(self, code: str) -> ExecutionResult:
+    def execute(
+        self,
+        code: str,
+        *,
+        extra_files: dict[str, str] | None = None,
+    ) -> ExecutionResult:
         """Run *code* in a fresh sandbox and return the captured output.
+
+        ``extra_files`` maps sandbox-relative paths (for example
+        ``"isaac_arc/dsl.py"``) to file contents; they are mounted read-only
+        next to ``task.py`` so imports resolve without touching ``sys.path``.
 
         Lifecycle
         ---------
         1. Validate `code` with `ast.parse` to catch immediate errors.
-        2. Write ``code`` to a temporary file on the host.
-        3. Bind-mount the file read-only at ``/input/task.py``.
+        2. Write ``code`` (and any extra files) to a temporary host directory.
+        3. Bind-mount the directory read-only at ``/input``.
         4. Create and start an ephemeral container.
         5. Wait for completion (or timeout).
         6. Capture stdout / stderr / exit code.
@@ -123,8 +133,24 @@ class CodeExecutor:
             )
 
         tmp_dir = tempfile.mkdtemp(prefix="isaac_sandbox_")
-        task_file = Path(tmp_dir) / "task.py"
+        root = Path(tmp_dir).resolve()
+        task_file = root / "task.py"
         task_file.write_text(code, encoding="utf-8")
+
+        for relative, content in (extra_files or {}).items():
+            target = (root / relative).resolve()
+            try:
+                target.relative_to(root)
+            except ValueError:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return ExecutionResult(
+                    stdout="",
+                    stderr=f"SecurityError: extra file path escapes sandbox: {relative!r}",
+                    exit_code=1,
+                    duration_ms=0.0,
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
 
         volumes = {
             str(tmp_dir): {"bind": "/input", "mode": "ro"},
@@ -145,11 +171,7 @@ class CodeExecutor:
             if container is not None:
                 self._manager.destroy(container)
             # Clean up host temp files
-            try:
-                task_file.unlink(missing_ok=True)
-                Path(tmp_dir).rmdir()
-            except OSError:
-                logger.debug("Temp dir cleanup failed for %s", tmp_dir)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
         result = ExecutionResult(
             stdout=stdout,

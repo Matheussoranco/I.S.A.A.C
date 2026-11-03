@@ -41,8 +41,21 @@ class PlanDAG:
         """Populate the internal graph from the step list."""
         self._graph.clear()
         step_map = {s.id: s for s in self.steps}
+        valid_ids = set(step_map)
 
         for step in self.steps:
+            dependencies = [
+                dep_id
+                for dep_id in dict.fromkeys(step.depends_on)
+                if dep_id in valid_ids and dep_id != step.id
+            ]
+            if dependencies != step.depends_on:
+                logger.warning(
+                    "PlanDAG: dropped invalid dependencies %s from step '%s'.",
+                    sorted(set(step.depends_on) - set(dependencies)),
+                    step.id,
+                )
+                step.depends_on = dependencies
             self._graph.add_node(
                 step.id,
                 step=step,
@@ -53,8 +66,18 @@ class PlanDAG:
 
         for step in self.steps:
             for dep_id in step.depends_on:
-                if dep_id in step_map:
-                    self._graph.add_edge(dep_id, step.id)
+                self._graph.add_edge(dep_id, step.id)
+
+        while True:
+            try:
+                cycle = nx.find_cycle(self._graph)
+            except nx.NetworkXNoCycle:
+                break
+            source, target = cycle[0][0], cycle[0][1]
+            self._graph.remove_edge(source, target)
+            step = step_map[target]
+            step.depends_on = [dep for dep in step.depends_on if dep != source]
+            logger.warning("PlanDAG: removed cyclic dependency '%s' → '%s'.", source, target)
 
     def refresh(self) -> None:
         """Re-sync internal graph after step status mutations."""

@@ -50,12 +50,13 @@ class KGEdge:
 class WorldModelKG:
     """Knowledge-graph layer on top of the flat :class:`WorldModel`.
 
-    Internally uses a ``networkx.DiGraph``.  Persists to SQLite at
-    ``~/.isaac/memory/world_model_kg.db``.
+    Internally uses a ``networkx.MultiDiGraph`` so two entities may be
+    connected by more than one relation.  Persists to SQLite at
+    ``<isaac_home>/memory/world_model_kg.db``.
     """
 
     def __init__(self, persist_dir: Path | None = None) -> None:
-        self._graph = nx.DiGraph()
+        self._graph = nx.MultiDiGraph()
         self._db_path: Path | None = None
 
         if persist_dir is not None:
@@ -70,22 +71,20 @@ class WorldModelKG:
 
     def add_node(self, node: KGNode) -> None:
         """Add or update a node."""
-        self._graph.add_node(
-            node.id,
-            label=node.label,
-            kind=node.kind,
-            **node.properties,
-        )
+        properties = {k: v for k, v in node.properties.items() if k not in {"label", "kind"}}
+        self._graph.add_node(node.id, label=node.label, kind=node.kind, **properties)
         self._persist_node(node)
 
     def add_edge(self, edge: KGEdge) -> None:
-        """Add or update a directed edge."""
+        """Add or update a directed edge, keyed by relation."""
+        properties = {k: v for k, v in edge.properties.items() if k not in {"relation", "weight"}}
         self._graph.add_edge(
             edge.source,
             edge.target,
+            key=edge.relation,
             relation=edge.relation,
             weight=edge.weight,
-            **edge.properties,
+            **properties,
         )
         self._persist_edge(edge)
 
@@ -124,9 +123,9 @@ class WorldModelKG:
                 set(self._graph.successors(node_id)) | set(self._graph.predecessors(node_id))
             )
 
-    def subgraph(self, node_ids: list[str]) -> nx.DiGraph:
+    def subgraph(self, node_ids: list[str]) -> nx.MultiDiGraph:
         """Return the induced subgraph for the given nodes."""
-        return nx.DiGraph(self._graph.subgraph(node_ids))
+        return nx.MultiDiGraph(self._graph.subgraph(node_ids))
 
     def shortest_path(self, source: str, target: str) -> list[str]:
         """Shortest path between two nodes, or empty list if unreachable."""
@@ -234,7 +233,15 @@ class WorldModelKG:
                 "SELECT source, target, relation, weight, properties FROM edges"
             ):
                 props = json.loads(row[4]) if row[4] else {}
-                self._graph.add_edge(row[0], row[1], relation=row[2], weight=row[3], **props)
+                props = {k: v for k, v in props.items() if k not in {"relation", "weight"}}
+                self._graph.add_edge(
+                    row[0],
+                    row[1],
+                    key=row[2],
+                    relation=row[2],
+                    weight=row[3],
+                    **props,
+                )
         finally:
             conn.close()
 

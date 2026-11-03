@@ -100,6 +100,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
                 "world_model": world_model,
                 "hypothesis": hypothesis,
                 "task_mode": task_mode_hint,
+                "perception_confidence": confidence,
                 "plan": [],
                 "iteration": 0,
                 "ui_actions": [],
@@ -129,18 +130,17 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
     try:
         from isaac.memory.user_profile import get_user_profile
 
-        profile = get_user_profile()
-        profile.record_interaction()
-        profile.save()
-        profile_context = profile.to_context_string()
+        profile_context = get_user_profile().to_context_string()
     except Exception:
         pass
 
+    context = "\n\n".join(part for part in (ltm_context, profile_context) if part)
+
     # -- Choose prompt based on modality ------------------------------------
     if screenshot_b64:
-        prompt = perception_multimodal_prompt(user_text, world_model, screenshot_b64)
+        prompt = perception_multimodal_prompt(user_text, world_model, screenshot_b64, context)
     else:
-        prompt = perception_prompt(user_text, world_model)
+        prompt = perception_prompt(user_text, world_model, context)
 
     response = llm.invoke(prompt)
     content = response.content if isinstance(response.content, str) else str(response.content)
@@ -149,6 +149,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
     observations: list[str] = []
     hypothesis = ""
     task_mode = "code"
+    confidence = 0.6
     gui_meta: dict[str, Any] = {}
     try:
         cleaned = content.strip()
@@ -159,15 +160,19 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         observations = parsed.get("observations", [])
         hypothesis = parsed.get("hypothesis", "")
         task_mode = parsed.get("task_mode", "code")
+        raw_confidence = parsed.get("confidence")
+        if isinstance(raw_confidence, (int, float)) and not isinstance(raw_confidence, bool):
+            confidence = min(1.0, max(0.0, float(raw_confidence)))
         gui_meta = {
             k: parsed[k]
             for k in ("active_window_title", "current_url", "screen_width", "screen_height")
             if k in parsed
         }
-    except (json.JSONDecodeError, IndexError):
+    except (json.JSONDecodeError, IndexError, AttributeError):
         logger.error("Perception: failed to parse LLM response as JSON.")
         observations = [f"Raw LLM response: {content[:500]}"]
         hypothesis = content[:200]
+        confidence = 0.4
         if screenshot_b64:
             task_mode = "computer_use"
 
@@ -191,15 +196,6 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
             cursor_y=existing_gui.cursor_y,
         )
 
-    # -- Enrich hypothesis with context ------------------------------------
-    context_parts: list[str] = []
-    if ltm_context:
-        context_parts.append(ltm_context)
-    if profile_context:
-        context_parts.append(f"## User profile\n{profile_context}")
-    if context_parts and hypothesis:
-        hypothesis = hypothesis + "\n\n" + "\n\n".join(context_parts)
-
     logger.info(
         "Perception (LLM): %d observations, mode=%s",
         len(observations),
@@ -210,6 +206,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         "world_model": updated_world,
         "hypothesis": hypothesis,
         "task_mode": task_mode,
+        "perception_confidence": confidence,
         "plan": [],
         "iteration": 0,
         "ui_actions": [],

@@ -18,10 +18,27 @@ from typing import Any
 
 DEFAULT_PROFILE = "default"
 
+_MAX_PROFILE_NAME_LENGTH = 64
+_INVALID_PROFILE_CHARS = frozenset('/\\:*?"<>|')
+
+
+def validate_profile_name(name: str) -> str:
+    """Return a filesystem-safe profile name or raise ``ValueError``."""
+    name = (name or "").strip() or DEFAULT_PROFILE
+    if (
+        name in {".", ".."}
+        or len(name) > _MAX_PROFILE_NAME_LENGTH
+        or name.startswith(".")
+        or name.endswith((".", " "))
+        or any(char in _INVALID_PROFILE_CHARS or ord(char) < 32 for char in name)
+    ):
+        raise ValueError(f"Invalid profile name: {name!r}")
+    return name
+
 
 def _isaac_root() -> Path:
     """Root ISAAC data dir; honours ISAAC_HOME for tests/sandboxes."""
-    override = os.environ.get("ISAAC_HOME", "").strip()
+    override = (os.environ.get("ISAAC_HOME") or os.environ.get("ISAAC_ISAAC_HOME") or "").strip()
     if override:
         return Path(override).expanduser()
     return Path.home() / ".isaac"
@@ -34,7 +51,7 @@ def get_active_profile() -> str:
 
 def profile_dir(name: str) -> Path:
     """Return the directory for profile *name*, creating it on demand."""
-    name = (name or "").strip() or DEFAULT_PROFILE
+    name = validate_profile_name(name)
     d = _isaac_root() / "profiles" / name
     d.mkdir(parents=True, exist_ok=True)
     return d

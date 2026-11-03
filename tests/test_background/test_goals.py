@@ -4,6 +4,7 @@ from isaac.background.goals import (
     due_goals_context,
     get_goal,
     list_goals,
+    mark_goal_progress,
     pause_goal,
 )
 
@@ -51,3 +52,27 @@ def test_due_goals_context(tmp_path):
     ctx = due_goals_context(isaac_home=isaac_home)
     assert "Active Goal" in ctx
     assert "Completed Goal" not in ctx
+
+
+def test_progress_marks_accumulate_atomically(tmp_path):
+    isaac_home = tmp_path / ".isaac"
+    goal = add_goal("Long project", isaac_home=isaac_home)
+
+    for i in range(5):
+        assert mark_goal_progress(goal.id, f"step {i}", isaac_home=isaac_home)
+
+    saved = get_goal(goal.id, isaac_home=isaac_home)
+    assert saved is not None
+    assert saved.progress == 5
+    assert saved.notes.count("step ") == 5
+
+
+def test_goal_prefix_lookup_does_not_treat_wildcards(tmp_path):
+    isaac_home = tmp_path / ".isaac"
+    first = add_goal("First", isaac_home=isaac_home)
+    add_goal("Second", isaac_home=isaac_home)
+
+    assert get_goal("_", isaac_home=isaac_home) is None
+    assert get_goal("%", isaac_home=isaac_home) is None
+    assert complete_goal("%", isaac_home=isaac_home) is False
+    assert get_goal(first.id, isaac_home=isaac_home).status == "active"

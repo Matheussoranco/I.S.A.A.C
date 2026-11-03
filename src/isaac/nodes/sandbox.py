@@ -8,6 +8,7 @@ record the raw output.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from isaac.core.state import IsaacState
@@ -89,11 +90,41 @@ def sandbox_node(state: IsaacState) -> dict[str, Any]:
             "current_phase": "sandbox",
         }
 
-    executor = CodeExecutor()
-    try:
-        result = executor.execute(code)
-    finally:
-        executor.close()
+    plan = state.get("plan", [])
+    active_step = next((step for step in plan if step.status == "active"), None)
+
+    if active_step is not None and active_step.mode == "hybrid":
+        from isaac.core.state import ExecutionResult
+        from isaac.nodes.computer_use import get_ui_executor
+
+        started = time.perf_counter()
+        try:
+            exit_code, stdout, stderr = get_ui_executor().exec_python(code)
+        except Exception as exc:
+            result = ExecutionResult(
+                stdout="",
+                stderr=f"UI execution failed: {exc}",
+                exit_code=1,
+                duration_ms=0.0,
+            )
+        else:
+            result = ExecutionResult(
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=exit_code,
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            )
+    else:
+        extra_files = None
+        if "isaac_arc" in code:
+            from isaac.arc.sandbox_bundle import arc_sandbox_files
+
+            extra_files = arc_sandbox_files()
+        executor = CodeExecutor()
+        try:
+            result = executor.execute(code, extra_files=extra_files)
+        finally:
+            executor.close()
 
     logger.info(
         "Sandbox: exit_code=%d  stdout=%d chars  stderr=%d chars",

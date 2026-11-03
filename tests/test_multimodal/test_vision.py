@@ -11,9 +11,9 @@ from isaac.multimodal.vision.vlm import VisionManager
 async def test_vision_manager_fallback():
     """Test that VisionManager falls back to cloud when local fails."""
     manager = VisionManager()
+    manager._cloud_key = "test-key"
     image_path = Path("tests/test_multimodal/sample.jpg")
 
-    # Mock local failure, cloud success
     with (
         patch.object(manager, "_analyze_local", side_effect=Exception("Local VLM Down")),
         patch.object(manager, "_analyze_cloud", new_callable=AsyncMock) as mock_cloud,
@@ -23,6 +23,23 @@ async def test_vision_manager_fallback():
 
         assert result == "Cloud analysis result"
         mock_cloud.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_vision_manager_does_not_send_without_cloud_key():
+    """A missing cloud credential must not leak the image to a vendor endpoint."""
+    manager = VisionManager()
+    manager._cloud_key = ""
+    image_path = Path("tests/test_multimodal/sample.jpg")
+
+    with (
+        patch.object(manager, "_analyze_local", side_effect=Exception("Local VLM Down")),
+        patch.object(manager, "_analyze_cloud", new_callable=AsyncMock) as mock_cloud,
+        pytest.raises(Exception, match="Local VLM Down"),
+    ):
+        await manager.analyze(image_path, "What is this?")
+
+    mock_cloud.assert_not_called()
 
 
 @pytest.mark.asyncio

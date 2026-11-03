@@ -62,24 +62,42 @@ def transcribe(
     except Exception as exc:
         logger.warning("faster-whisper failed (%s); falling back to OpenAI API", exc)
 
-    # 2. Fallback: OpenAI Whisper API
-    return _transcribe_openai(path, language)
+    # 2. Fallback: OpenAI Whisper API (requires a configured credential)
+    api_key = _openai_credential()
+    if not api_key:
+        raise RuntimeError(
+            "No speech-to-text backend available: install faster-whisper or configure "
+            "an OpenAI API key."
+        )
+    return _transcribe_openai(path, language, api_key)
+
+
+_WHISPER_MODELS: dict[str, object] = {}
 
 
 def _transcribe_faster_whisper(path: Path, model: str, language: str | None) -> str:
     from faster_whisper import WhisperModel as FWModel  # type: ignore[import-untyped]
 
-    wm = FWModel(model, device="cpu", compute_type="int8")
-    segments, info = wm.transcribe(str(path), language=language, beam_size=5)
+    wm = _WHISPER_MODELS.get(model)
+    if wm is None:
+        wm = FWModel(model, device="cpu", compute_type="int8")
+        _WHISPER_MODELS[model] = wm
+    segments, info = wm.transcribe(str(path), language=language, beam_size=5)  # type: ignore[attr-defined]
     logger.debug("Detected language: %s (%.0f%%)", info.language, info.language_probability * 100)
     return " ".join(seg.text.strip() for seg in segments)
 
 
-def _transcribe_openai(path: Path, language: str | None) -> str:
+def _openai_credential() -> str:
+    from isaac.config.settings import get_settings
+    from isaac.security.credentials import get_credential
+
+    return get_credential("openai") or get_settings().openai_api_key.strip()
+
+
+def _transcribe_openai(path: Path, language: str | None, api_key: str) -> str:
     import openai
 
-    client = openai.OpenAI()
-    with path.open("rb") as f:
+    with openai.OpenAI(api_key=api_key) as client, path.open("rb") as f:
         if language:
             transcript = client.audio.transcriptions.create(
                 model="whisper-1", file=f, language=language
@@ -156,8 +174,12 @@ def _speak_pyttsx3(
 ) -> Path | None:
     import pyttsx3  # type: ignore[import-untyped]
 
+    from isaac.config.settings import get_settings
+
     engine = pyttsx3.init()
-    engine.setProperty("rate", int(engine.getProperty("rate") * speed))
+    rate = get_settings().voice_tts_rate or engine.getProperty("rate")
+    if rate:
+        engine.setProperty("rate", int(rate * speed))
 
     if voice != "default":
         voices = engine.getProperty("voices")
@@ -223,16 +245,19 @@ def _speak_openai(
 ) -> Path | None:
     import openai
 
-    client = openai.OpenAI()
+    api_key = _openai_credential()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured for the openai TTS engine.")
     oai_voice = voice if voice in ("alloy", "echo", "fable", "onyx", "nova", "shimmer") else "nova"
     with _audio_destination(output_path, ".mp3") as out_path:
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice=oai_voice,
-            input=text,
-            speed=speed,  # type: ignore[arg-type]
-        )
-        response.stream_to_file(str(out_path))
+        with openai.OpenAI(api_key=api_key) as client:
+            response = client.audio.speech.create(
+                model="tts-1",
+                voice=oai_voice,
+                input=text,
+                speed=speed,  # type: ignore[arg-type]
+            )
+            response.write_to_file(str(out_path))
         return out_path
 
 

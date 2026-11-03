@@ -21,12 +21,9 @@ import os
 import re
 import threading
 import time as _time
-from contextlib import suppress
-
-try:  # POSIX advisory locking; on Windows tick dedup falls back to best-effort create
-    import fcntl as _fcntl  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - Windows
-    _fcntl = None  # type: ignore[assignment]
+from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -120,6 +117,23 @@ def _append_log(task_id: str, status: str, detail: str = "") -> None:
         pass
 
 
+def task_logs(task_id: str, limit: int = 200) -> list[str]:
+    """Return the most recent execution-log lines for *task_id*."""
+    path = _log_path()
+    if not path.exists():
+        return []
+    marker = f"task={task_id}"
+    matches: deque[str] = deque(maxlen=max(1, limit))
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if marker in line:
+                    matches.append(line.rstrip())
+    except OSError:
+        return []
+    return list(matches)
+
+
 # ---------------------------------------------------------------------------
 # Natural-language schedules (roadmap 4.2.1)
 # ---------------------------------------------------------------------------
@@ -143,27 +157,73 @@ from isaac.scheduler.cron_parser import schedule_from_nl  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+class CronManifestError(RuntimeError):
+    """Raised when the cron manifest exists but cannot be decoded."""
+
+
 def load_tasks() -> list[CronTask]:
-    """Load tasks from the JSON manifest."""
+    """Load tasks from the JSON manifest.
+
+    A corrupt manifest raises instead of silently yielding an empty list,
+    which would let the next write erase every scheduled job.
+    """
     path = _manifest_path()
     if not path.exists():
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise CronManifestError(f"cron manifest is unreadable ({path}): {exc}") from exc
+    if not isinstance(data, list):
+        raise CronManifestError(f"cron manifest must contain a list: {path}")
+    try:
         return [_task_from_dict(d) for d in data]
     except Exception as exc:
-        logger.error("Failed to load cron tasks: %s", exc)
-        return []
+        raise CronManifestError(f"cron manifest contains an invalid task: {exc}") from exc
 
 
 def save_tasks(tasks: list[CronTask]) -> None:
-    """Persist tasks to the JSON manifest."""
+    """Persist tasks atomically so a crash cannot truncate the manifest."""
     path = _manifest_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temp.write_text(
         json.dumps([asdict(t) for t in tasks], indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    os.replace(temp, path)
+
+
+@contextmanager
+def _manifest_guard(timeout: float = 10.0) -> Iterator[None]:
+    """Serialise read-modify-write cycles across CLI and daemon processes."""
+    lock_path = _manifest_path().with_name("cron_tasks.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = _time.monotonic() + timeout
+    while True:
+        try:
+            with lock_path.open("x", encoding="utf-8") as handle:
+                handle.write(str(os.getpid()))
+            break
+        except FileExistsError:
+            try:
+                stale = _time.time() - lock_path.stat().st_mtime > 30
+            except OSError:
+                stale = False
+            if stale:
+                with suppress(OSError):
+                    lock_path.unlink()
+                continue
+            if _time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"timed out waiting for cron manifest lock: {lock_path}"
+                ) from None
+            _time.sleep(0.05)
+    try:
+        yield
+    finally:
+        with suppress(OSError):
+            lock_path.unlink()
 
 
 _TASK_KEY_RE = re.compile(r"^[\w@]{1,64}$", re.UNICODE)
@@ -227,43 +287,47 @@ def add_task(
         deliver_to=list(deliver_to or []),
         timeout_seconds=timeout_seconds,
     )
-    tasks = load_tasks()
-    tasks.append(task)
-    save_tasks(tasks)
+    with _manifest_guard():
+        tasks = load_tasks()
+        tasks.append(task)
+        save_tasks(tasks)
     logger.info("Cron task added: %s (%s)", task.id, name)
     return task
 
 
 def remove_task(task_id: str) -> bool:
     """Remove a task by id.  Returns True if found and removed."""
-    tasks = load_tasks()
-    filtered = [t for t in tasks if t.id != task_id]
-    if len(filtered) == len(tasks):
-        return False
-    save_tasks(filtered)
+    with _manifest_guard():
+        tasks = load_tasks()
+        filtered = [t for t in tasks if t.id != task_id]
+        if len(filtered) == len(tasks):
+            return False
+        save_tasks(filtered)
     logger.info("Cron task removed: %s", task_id)
     return True
 
 
 def pause_task(task_id: str) -> bool:
     """Disable a task by id.  Returns True if found."""
-    tasks = load_tasks()
-    for t in tasks:
-        if t.id == task_id:
-            t.enabled = False
-            save_tasks(tasks)
-            return True
+    with _manifest_guard():
+        tasks = load_tasks()
+        for t in tasks:
+            if t.id == task_id:
+                t.enabled = False
+                save_tasks(tasks)
+                return True
     return False
 
 
 def resume_task(task_id: str) -> bool:
     """Re-enable a task by id.  Returns True if found."""
-    tasks = load_tasks()
-    for t in tasks:
-        if t.id == task_id:
-            t.enabled = True
-            save_tasks(tasks)
-            return True
+    with _manifest_guard():
+        tasks = load_tasks()
+        for t in tasks:
+            if t.id == task_id:
+                t.enabled = True
+                save_tasks(tasks)
+                return True
     return False
 
 
@@ -280,9 +344,6 @@ def list_tasks() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Phase 4.2 execution helpers
 # ---------------------------------------------------------------------------
-
-# Long-running records: task_id -> {"pid": int, "future": Future, "cancel_after": float}
-_running: dict[str, dict[str, Any]] = {}
 
 
 def _outputs_path() -> Path:
@@ -308,7 +369,9 @@ def record_run_output(task_id: str, task_name: str, result_text: str) -> None:
         "output": result_text[:4000],
         "ts": datetime.now(UTC).isoformat(),
     }
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(temp, path)
 
 
 def _gather_context(task: CronTask) -> str:
@@ -336,18 +399,39 @@ def run_agent_job(
     skill: str = "",
     model: str = "",
     provider: str = "",
+    timeout_seconds: int = 600,
 ) -> str:
-    """Run *command* through the agent graph with optional skill / model /
+    """Run *command* through the agent with optional skill / model /
     provider overrides (4.2.2-4.2.4).  Returns text output or raises."""
-    from isaac.agents.runner import run_text
+    from isaac.agents.agent_loop import build_default_agent
+    from isaac.config.settings import get_settings
 
-    result = run_text(
-        command,
-        skill=skill or None,
-        model=model or None,
-        provider=provider or None,
+    settings = get_settings()
+    llm = None
+    if model or provider:
+        from isaac.llm.provider import build_llm_for_profile
+
+        llm = build_llm_for_profile(
+            provider or settings.llm.llm_provider,
+            model or settings.llm.model_name,
+        )
+
+    context = ""
+    if skill:
+        from isaac.memory.skill_library import SkillLibrary
+
+        code = SkillLibrary(settings.skills_dir).get_code(skill)
+        if not code:
+            raise ValueError(f"Skill '{skill}' not found in the library.")
+        context = f"Reusable helper skill `{skill}`:\n{code}"
+
+    agent = build_default_agent(
+        llm=llm,
+        max_iterations=settings.graph.max_iterations,
+        max_wall_seconds=float(max(int(timeout_seconds), 1)),
     )
-    return str(result)
+    result = agent.run(command, context=context)
+    return result.output or "(no output)"
 
 
 def _run_script(script: str, timeout: int) -> str:
@@ -367,32 +451,12 @@ def _run_script(script: str, timeout: int) -> str:
     return out
 
 
-def mark_running(task_id: str, pid: int, future: Any, cancel_after: float) -> None:
-    if _TASK_KEY_RE.fullmatch(task_id):
-        _running[task_id] = {"pid": pid, "future": future, "cancel_after": cancel_after}
-
-
-def reap_long_running(now: float | None = None) -> list[str]:
-    """Hard interrupt (roadmap 4.2): fence tasks running longer than their
-    ``cancel_after`` deadline.  Returns ids that were signalled."""
-    now = now if now is not None else _time.time()
-    killed = []
-    for tid, rec in list(_running.items()):
-        if now > rec["cancel_after"]:
-            with suppress(Exception):
-                rec["future"].cancel()
-            _step(tid, "hard_interrupted(timeout)")
-            killed.append(tid)
-            _running.pop(tid, None)
-    return killed
-
-
 def _deliver(task: CronTask, status: str, output: str) -> None:
     """Multi-platform delivery targets per job (roadmap 4.2)."""
     text = f"[cron:{task.name or task.id}] {status}: {output[:800]}"
     for target in task.deliver_to:
         try:
-            from isaac.interfaces.delivery import deliver  # type: ignore[attr-defined]
+            from isaac.interfaces.delivery import deliver
 
             deliver(target, text)
         except Exception as exc:
@@ -422,18 +486,23 @@ def _execute_task(task: CronTask) -> str:
 
     timeout = max(int(task.timeout_seconds or 180), 1)
 
+    from isaac.security.constitution import review
+
+    decision = review("shell", task.command, context={"cron_task": task.id}, use_llm=False)
+    if not decision.allow or decision.requires_approval:
+        _append_log(task.id, "blocked", decision.reason)
+        return "blocked"
+
     # --- Phase 4.2: pre-run script / script-only jobs ---------------------
     script_out = ""
     if task.pre_run_script:
-        from isaac.security.constitution import review
-
         decision = review(
             "shell",
             task.pre_run_script,
             context={"cron_task": task.id},
             use_llm=False,
         )
-        if not decision.allow:
+        if not decision.allow or decision.requires_approval:
             _append_log(task.id, "blocked", decision.reason)
             return "blocked"
         try:
@@ -452,24 +521,6 @@ def _execute_task(task: CronTask) -> str:
         if script_out.strip():
             command = f"{command}\n\nPre-run output:\n{script_out.strip()}"
 
-    # --- Phase 4.2: agent-run path with per-job overrides -----------------
-    if task.skill or task.model or task.provider:
-        try:
-            output = run_agent_job(
-                command,
-                skill=task.skill,
-                model=task.model,
-                provider=task.provider,
-            )
-            record_run_output(task.id, task.name, output)
-            _append_log(task.id, "ok", "agent job completed")
-            _deliver(task, "ok", output)
-            return "ok"
-        except Exception as exc:
-            _append_log(task.id, "error", f"agent job failed: {exc}")
-            record_run_output(task.id, task.name, f"agent error: {exc}")
-            return "error"
-
     def issue_token(connector_name: str) -> str:
         from isaac.security.capabilities import get_token_store
 
@@ -482,32 +533,11 @@ def _execute_task(task: CronTask) -> str:
         )
         return token.token_id
 
-    # Try connector-style execution first
-    try:
-        from isaac.skills.connectors.registry import run_connector
-
-        # If the command looks like `connector:action key=val`, parse it
-        if ":" in task.command and not task.command.startswith("http"):
-            parts = task.command.split(":", 1)
-            connector_name = parts[0].strip()
-            rest = parts[1].strip()
-
-            kwargs: dict[str, Any] = {}
-            for token in rest.split():
-                if "=" in token:
-                    k, v = token.split("=", 1)
-                    kwargs[k] = v
-                else:
-                    kwargs.setdefault("query", token)
-
-            if connector_name == "shell":
-                from isaac.security.constitution import review
-
-                command = str(kwargs.get("command", ""))
-                decision = review("shell", command, context={"cron_task": task.id}, use_llm=False)
-                if not decision.allow:
-                    _append_log(task.id, "blocked", decision.reason)
-                    return "blocked"
+    parsed = _parse_connector_call(command)
+    if parsed is not None:
+        connector_name, kwargs = parsed
+        try:
+            from isaac.skills.connectors.registry import run_connector
 
             result = run_connector(
                 connector_name,
@@ -517,41 +547,96 @@ def _execute_task(task: CronTask) -> str:
             status = "error" if result.get("error") else "ok"
             _append_log(task.id, status, json.dumps(result)[:300])
             return status
-    except Exception as exc:
-        logger.debug("Connector-style cron exec failed: %s", exc)
-        if ":" in task.command and not task.command.startswith("http"):
-            _append_log(task.id, "error", str(exc))
+        except Exception as exc:
+            _append_log(task.id, "error", f"connector {connector_name} failed: {exc}")
             return "error"
 
-    # Fallback: run as shell command if shell connector is available
+    # Plain-language jobs go through the agent; the shell connector is only
+    # used for an explicit ``shell:`` job.
     try:
-        from isaac.security.constitution import review
-        from isaac.skills.connectors.registry import run_connector
-
-        decision = review(
-            "shell",
-            task.command,
-            context={"cron_task": task.id},
-            use_llm=False,
+        output = run_agent_job(
+            command,
+            skill=task.skill,
+            model=task.model,
+            provider=task.provider,
+            timeout_seconds=timeout,
         )
-        if not decision.allow:
-            _append_log(task.id, "blocked", decision.reason)
-            return "blocked"
-        result = run_connector(
-            "shell",
-            capability_token=issue_token("shell"),
-            command=task.command,
-        )
-        status = "ok" if result.get("exit_code", 1) == 0 else "error"
-        _append_log(task.id, status, json.dumps(result)[:300])
-        return status
+        record_run_output(task.id, task.name, output)
+        _append_log(task.id, "ok", "agent job completed")
+        _deliver(task, "ok", output)
+        return "ok"
     except Exception as exc:
-        _append_log(task.id, "error", str(exc))
+        _append_log(task.id, "error", f"agent job failed: {exc}")
+        record_run_output(task.id, task.name, f"agent error: {exc}")
         return "error"
 
 
+def _parse_connector_call(command: str) -> tuple[str, dict[str, Any]] | None:
+    """Parse ``connector:key=value ...`` only when the connector exists."""
+    head, sep, rest = command.partition(":")
+    if not sep:
+        return None
+    name = head.strip().lower()
+    if not _TASK_KEY_RE.fullmatch(name):
+        return None
+    try:
+        from isaac.skills.connectors.registry import get_registry
+
+        if name not in get_registry():
+            return None
+    except Exception:
+        return None
+    try:
+        tokens = _split_connector_args(rest.strip())
+    except ValueError:
+        return None
+    kwargs: dict[str, Any] = {}
+    query: list[str] = []
+    for token in tokens:
+        key, sep, value = token.partition("=")
+        if sep and key:
+            kwargs[key] = value
+        else:
+            query.append(token)
+    if query:
+        kwargs.setdefault("query", " ".join(query))
+    if name == "shell" and "command" not in kwargs and "query" in kwargs:
+        kwargs["command"] = kwargs.pop("query")
+    return name, kwargs
+
+
+def _split_connector_args(text: str) -> list[str]:
+    """Split ``key=value`` arguments while preserving quoted spaces/backslashes."""
+    args: list[str] = []
+    buf: list[str] = []
+    quote = ""
+    for char in text:
+        if quote:
+            if char == quote:
+                quote = ""
+            else:
+                buf.append(char)
+        elif char in "\"'":
+            quote = char
+        elif char.isspace():
+            if buf:
+                args.append("".join(buf))
+                buf = []
+        else:
+            buf.append(char)
+    if quote:
+        raise ValueError("unbalanced quote in connector arguments")
+    if buf:
+        args.append("".join(buf))
+    return args
+
+
 def _is_due(task: CronTask) -> bool:
-    """Check if *task* is due based on its cron schedule and last_run."""
+    """Check if *task* is due based on its cron schedule and last_run.
+
+    Malformed schedules/timestamps disable that task instead of raising
+    into the daemon loop (which would skip every later task).
+    """
     try:
         from croniter import croniter  # type: ignore[import-untyped]
     except ImportError:
@@ -559,14 +644,23 @@ def _is_due(task: CronTask) -> bool:
         return False
 
     now = datetime.now(UTC)
-    if task.last_run:
-        last = datetime.fromisoformat(task.last_run)
-    else:
+    if not task.last_run:
         # Never ran: consider it due immediately
         return True
-
-    cron = croniter(task.schedule, last)
-    next_run = cron.get_next(datetime)
+    try:
+        last = datetime.fromisoformat(task.last_run)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        next_run = croniter(task.schedule, last).get_next(datetime)
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        logger.warning(
+            "Cron task %s has an invalid schedule/timestamp (%s / %s): %s",
+            task.id,
+            task.schedule,
+            task.last_run,
+            exc,
+        )
+        return False
     if next_run.tzinfo is None:
         next_run = next_run.replace(tzinfo=UTC)
     return now >= next_run
@@ -585,85 +679,179 @@ def _daemon_loop(poll_seconds: int = 30) -> None:
     logger.info("Cron daemon loop started (poll=%ds).", poll_seconds)
     while not _stop_event.is_set():
         try:
-            reap_long_running()  # 4.2: hard interrupt watchdog
             tasks = load_tasks()
-            for task in tasks:
-                if _stop_event.is_set():
-                    break
+        except CronManifestError as exc:
+            logger.error("Cron daemon cannot read its manifest: %s", exc)
+            tasks = []
+
+        for task in tasks:
+            if _stop_event.is_set():
+                break
+            try:
                 if not task.enabled:
                     continue
-                if _is_due(task):
-                    if not _acquire_lock(task.id):
-                        logger.info("Task %s is already running (lock held). Skipping.", task.id)
-                        continue
-                    try:
-                        status = _execute_task(task)
-                        # reload & update persisted state
-                        all_tasks = load_tasks()
-                        for t in all_tasks:
-                            if t.id == task.id:
-                                t.last_run = datetime.now(UTC).isoformat()
-                                t.last_status = status
-                                break
-                        save_tasks(all_tasks)
-                    finally:
-                        _release_lock(task.id)
-        except Exception as exc:
-            logger.error("Cron daemon tick error: %s", exc)
+                if not _is_due(task):
+                    continue
+                if not _acquire_lock(task.id):
+                    logger.info("Task %s is already running (lock held). Skipping.", task.id)
+                    continue
+                try:
+                    status = _execute_task(task)
+                finally:
+                    _release_lock(task.id)
+                with _manifest_guard():
+                    all_tasks = load_tasks()
+                    for saved in all_tasks:
+                        if saved.id == task.id:
+                            saved.last_run = datetime.now(UTC).isoformat()
+                            saved.last_status = status
+                            break
+                    save_tasks(all_tasks)
+            except Exception as exc:
+                logger.error("Cron task %s failed: %s", task.id, exc, exc_info=True)
 
         _stop_event.wait(poll_seconds)
 
     logger.info("Cron daemon loop stopped.")
 
 
-def start_cron_daemon(poll_seconds: int = 30) -> None:
-    """Start the cron daemon in a background thread.
+def _pid_alive(pid: int) -> bool:
+    """Check whether *pid* refers to a running process (never signals it).
 
-    Uses a PID file to prevent multiple daemons.
+    ``os.kill(pid, 0)`` is unsafe on Windows: CPython implements it with
+    ``TerminateProcess``, so probing a live daemon would kill it.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return int(ctypes.get_last_error()) == 5  # ERROR_ACCESS_DENIED = alive
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _read_pid(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _claim_pid_file(path: Path) -> bool:
+    """Atomically create the PID file, reclaiming it if its owner is dead."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            existing = _read_pid(path)
+            if existing is not None and _pid_alive(existing):
+                logger.warning("Cron daemon already running (PID %d).", existing)
+                return False
+            with suppress(OSError):
+                path.unlink()
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(str(os.getpid()))
+        return True
+    return False
+
+
+def _release_pid_file(path: Path) -> None:
+    if _read_pid(path) == os.getpid():
+        path.unlink(missing_ok=True)
+
+
+def start_cron_daemon(poll_seconds: int = 30) -> None:
+    """Start the cron daemon as a background thread in this process.
+
+    Uses an atomically-created PID file to prevent multiple daemons.
     """
     global _daemon_thread
 
-    pid_path = _pid_path()
-    pid_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Check existing PID
-    if pid_path.exists():
-        try:
-            existing_pid = int(pid_path.read_text().strip())
-            # On Windows, os.kill(pid, 0) checks existence
-            os.kill(existing_pid, 0)
-            logger.warning("Cron daemon already running (PID %d).", existing_pid)
-            return
-        except (OSError, ValueError):
-            # Stale PID file
-            pid_path.unlink(missing_ok=True)
+    if _daemon_thread is not None and _daemon_thread.is_alive():
+        logger.warning("Cron daemon thread is already running.")
+        return
+    if not _claim_pid_file(_pid_path()):
+        return
 
     _stop_event.clear()
-    _daemon_thread = threading.Thread(
+    thread = threading.Thread(
         target=_daemon_loop,
         args=(poll_seconds,),
         daemon=True,
         name="isaac-cron",
     )
-    _daemon_thread.start()
-
-    pid_path.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        thread.start()
+    except Exception:
+        _release_pid_file(_pid_path())
+        raise
+    _daemon_thread = thread
     logger.info("Cron daemon started (PID %d).", os.getpid())
 
 
-def stop_cron_daemon() -> None:
-    """Signal the cron daemon to stop."""
+def run_cron_daemon(poll_seconds: int = 30) -> None:
+    """Run the cron daemon in the foreground until stopped or signalled."""
     global _daemon_thread
+
+    if not _claim_pid_file(_pid_path()):
+        return
+    import signal
+
+    def _stop(_signum: int, _frame: Any) -> None:
+        _stop_event.set()
+
+    for signame in ("SIGTERM", "SIGINT", "SIGBREAK"):
+        sig = getattr(signal, signame, None)
+        if sig is None:
+            continue
+        with suppress(OSError, ValueError):
+            signal.signal(sig, _stop)
+    _stop_event.clear()
+    try:
+        _daemon_loop(poll_seconds)
+    finally:
+        _release_pid_file(_pid_path())
+        _daemon_thread = None
+
+
+def stop_cron_daemon() -> None:
+    """Stop the in-process daemon and any daemon recorded in the PID file."""
+    global _daemon_thread
+
     _stop_event.set()
     if _daemon_thread is not None:
         _daemon_thread.join(timeout=5)
         _daemon_thread = None
 
     pid_path = _pid_path()
-    pid_path.unlink(missing_ok=True)
+    pid = _read_pid(pid_path)
+    if pid is not None and pid != os.getpid() and _pid_alive(pid):
+        with suppress(OSError):
+            os.kill(pid, 15)
+    if pid is not None:
+        if pid == os.getpid():
+            _release_pid_file(pid_path)
+        else:
+            pid_path.unlink(missing_ok=True)
     logger.info("Cron daemon stopped.")
 
 
 def is_cron_running() -> bool:
-    """Return True if the cron daemon thread is alive."""
-    return _daemon_thread is not None and _daemon_thread.is_alive()
+    """Return True if a cron daemon is alive in this or another process."""
+    if _daemon_thread is not None and _daemon_thread.is_alive():
+        return True
+    pid = _read_pid(_pid_path())
+    return pid is not None and _pid_alive(pid)

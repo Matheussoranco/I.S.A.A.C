@@ -32,7 +32,7 @@ _ANSI_RE = re.compile(
     \x1b          # ESC
     (?:
         \[[\d;]*[A-Za-z]   # CSI sequences
-        | \].*?(?:\x07|\x1b\\)  # OSC sequences
+        | \][^\x07\x1b]*(?:\x07|\x1b\\)  # OSC sequences
         | [()][AB012]       # Charset selection
         | [=>]              # Misc
     )
@@ -89,6 +89,11 @@ def sanitize_text(
     if not text:
         return ""
 
+    # Bound the work before running any regex over attacker-controlled input.
+    if len(text) > max_length:
+        text = text[:max_length]
+        logger.debug("Text truncated to %d chars.", max_length)
+
     # Null bytes first
     text = _NULL_RE.sub("", text)
 
@@ -101,12 +106,7 @@ def sanitize_text(
     if strip_html:
         text = _HTML_TAG_RE.sub("", text)
 
-    # Enforce length
-    if len(text) > max_length:
-        text = text[:max_length]
-        logger.debug("Text truncated to %d chars.", max_length)
-
-    return text
+    return text[:max_length]
 
 
 def sanitize_input(text: str) -> str:

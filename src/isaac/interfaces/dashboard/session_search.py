@@ -1,6 +1,4 @@
-"""FTS5-powered search over past session history.
-Query the conversation store for historical contexts.
-"""
+"""Search over persisted native-app conversations."""
 
 from __future__ import annotations
 
@@ -9,25 +7,27 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from isaac.config.settings import get_settings
 from isaac.interfaces.conversation_store import ConversationStore
 
-# Initialize store
-_store = ConversationStore(path=Path.home() / ".isaac" / "sessions.sqlite3")
+_store: ConversationStore | None = None
+_store_path: Path | None = None
+
+
+def _get_store() -> ConversationStore:
+    global _store, _store_path
+    path = get_settings().isaac_home / "ui" / "conversations.sqlite3"
+    if _store is None or _store_path != path:
+        _store = ConversationStore(path)
+        _store_path = path
+    return _store
 
 
 def search_sessions(query: str, limit: int = 20) -> list[dict[str, Any]]:
-    """Search across all session logs for a specific query."""
+    """Search across all stored conversations for *query*."""
+    if not query.strip():
+        return []
     try:
-        # Assuming ConversationStore has a search method or we iterate sessions
-        with _store._connect() as db:
-            rows = db.execute(
-                "SELECT c.id, c.title, m.role, m.content "
-                "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
-                "WHERE m.content LIKE ? ORDER BY m.created_at DESC LIMIT ?",
-                (f"%{query}%", max(1, min(200, limit))),
-            ).fetchall()
-        results = [dict(row) for row in rows]
-        return results
+        return _get_store().search(query, limit=limit)
     except Exception as e:
-        # Fallback if .search doesn't exist yet
-        raise HTTPException(501, f"Session search not implemented in store: {e}") from e
+        raise HTTPException(500, f"Session search failed: {e}") from e

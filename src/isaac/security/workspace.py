@@ -50,3 +50,21 @@ def resolve_allowed(path: str | Path) -> Path | None:
     except (OSError, RuntimeError, ValueError):
         pass
     return None
+
+
+def resolve_allowed_link(path: str | Path) -> Path | None:
+    """Validate a path without following its final symlink component."""
+    from isaac.security.path_policy import is_sensitive_path
+
+    try:
+        raw = Path(path).expanduser()
+        if not str(path) or not raw.is_absolute() or raw.name in ("", ".", ".."):
+            return None
+        candidate = raw.parent.resolve() / raw.name
+        if is_sensitive_path(raw) or is_sensitive_path(candidate):
+            return None
+        if any(candidate.parent.is_relative_to(root) for root in allowed_roots()):
+            return candidate
+    except (OSError, RuntimeError, ValueError):
+        pass
+    return None

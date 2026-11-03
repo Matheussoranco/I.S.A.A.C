@@ -111,9 +111,15 @@ class DiscordGateway(Gateway):
             if client.user is not None:
                 for mention in (f"<@{client.user.id}>", f"<@!{client.user.id}>"):
                     text = text.replace(mention, "").strip()
-            if not text:
+            attachments = [
+                {"url": a.url, "filename": a.filename, "content_type": a.content_type}
+                for a in message.attachments
+            ] or None
+            if not text and not attachments:
                 return
-            attachments = [a.url for a in message.attachments] or None
+            if attachments:
+                labels = "\n".join(f"[Attachment: {a['filename']}] {a['url']}" for a in attachments)
+                text = f"{text}\n\n{labels}".strip()
             try:
                 await self._handle_incoming(
                     str(message.channel.id),

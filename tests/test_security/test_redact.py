@@ -33,6 +33,17 @@ def test_credential_assignments_are_redacted_but_keys_kept() -> None:
     assert "password=" in out  # the variable name survives, the value does not
 
 
+def test_json_credentials_and_prefixed_keys_are_redacted() -> None:
+    text = '{"password": "hunter2secret", "db_password": "abcdefghi", "api_key": "abcd1234efgh"}'
+    out = redact_secrets(text)
+    assert "hunter2secret" not in out
+    assert "abcdefghi" not in out
+    assert "abcd1234efgh" not in out
+    assert out.count("[REDACTED:credential-assignment]") == 3
+    assert '"password": "' in out
+    assert '"db_password": "' in out
+
+
 def test_normal_text_untouched() -> None:
     text = "The password policy requires 12 characters. See docs/security.md."
     assert redact_secrets(text) == text

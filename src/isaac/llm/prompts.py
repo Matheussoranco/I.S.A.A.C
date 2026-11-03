@@ -177,20 +177,26 @@ _SKILL_ABSTRACTION_UI_CONTENT = (
 # ---------------------------------------------------------------------------
 
 
-def perception_prompt(user_input: str, world_model: WorldModel) -> list[BaseMessage]:
+def perception_prompt(
+    user_input: str,
+    world_model: WorldModel,
+    context: str = "",
+) -> list[BaseMessage]:
     """Build the prompt for the Perception node (text-only input)."""
+    context_block = f"## Relevant memory\n{context}\n\n" if context else ""
     return [
         _sys(_PERCEPTION_CONTENT),
         HumanMessage(
             content=(
                 f"## User input\n{user_input}\n\n"
+                f"{context_block}"
                 f"## Current world model\n"
                 f"Files: {json.dumps(world_model.files)}\n"
                 f"Resources: {json.dumps(world_model.resources)}\n"
                 f"Constraints: {json.dumps(world_model.constraints)}\n\n"
                 "Respond with JSON:\n"
                 '{"observations": ["..."], "hypothesis": "...", '
-                '"task_mode": "direct|code|computer_use|hybrid"}'
+                '"task_mode": "direct|code|computer_use|hybrid", "confidence": 0.0}'
             )
         ),
     ]
@@ -200,14 +206,17 @@ def perception_multimodal_prompt(
     user_text: str,
     world_model: WorldModel,
     screenshot_b64: str,
+    context: str = "",
 ) -> list[BaseMessage]:
     """Build a multimodal prompt for Perception when a screenshot is provided.
 
     The LLM receives both the text request and the current screen state,
     enabling it to extract GUI observations and detect ``task_mode``.
     """
+    context_block = f"## Relevant memory\n{context}\n\n" if context else ""
     text_block = (
         f"## User request\n{user_text}\n\n"
+        f"{context_block}"
         f"## Current world model\n"
         f"Files: {json.dumps(world_model.files)}\n"
         f"Observations: {json.dumps(world_model.observations)}\n"
@@ -218,6 +227,7 @@ def perception_multimodal_prompt(
         '  "observations": ["<what you see on screen>", "..."],\n'
         '  "hypothesis": "<how to achieve the task>",\n'
         '  "task_mode": "computer_use",\n'
+        '  "confidence": 0.0,\n'
         '  "active_window_title": "...",\n'
         '  "current_url": "...",\n'
         '  "screen_width": 1280,\n'

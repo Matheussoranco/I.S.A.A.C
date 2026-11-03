@@ -5,6 +5,7 @@ Falls back to a user-provided Searx instance if configured.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -43,24 +44,27 @@ class WebSearchTool(IsaacTool):
         max_results:
             Maximum number of results (default 5).
         """
-        query: str = kwargs.get("query", "")
+        query = str(kwargs.get("query", "")).strip()
         if not query:
             return ToolResult(success=False, error="Missing 'query' parameter.")
+        try:
+            max_results = int(kwargs.get("max_results", 5))
+        except (TypeError, ValueError, OverflowError):
+            return ToolResult(success=False, error="'max_results' must be an integer.")
+        max_results = max(1, min(max_results, 20))
 
-        max_results: int = int(kwargs.get("max_results", 5))
-
-        result = await self._ddg_search(query, max_results)
+        result = await asyncio.to_thread(self._ddg_search, query, max_results)
         if result.success:
             return result
 
         logger.warning("DuckDuckGo search failed, trying Searx fallback.")
-        return await self._searx_search(query, max_results)
+        return await asyncio.to_thread(self._searx_search, query, max_results)
 
     # ------------------------------------------------------------------
     # DuckDuckGo backend
     # ------------------------------------------------------------------
 
-    async def _ddg_search(self, query: str, max_results: int) -> ToolResult:
+    def _ddg_search(self, query: str, max_results: int) -> ToolResult:
         """Search via the ``ddgs`` (formerly ``duckduckgo-search``) package."""
         try:
             try:
@@ -106,22 +110,17 @@ class WebSearchTool(IsaacTool):
     # Searx fallback
     # ------------------------------------------------------------------
 
-    async def _searx_search(self, query: str, max_results: int) -> ToolResult:
+    def _searx_search(self, query: str, max_results: int) -> ToolResult:
         """Search via a self-hosted Searx instance."""
-        try:
-            from isaac.config.settings import get_settings
+        from isaac.config.settings import get_settings
 
-            settings = get_settings()
-            searx_url: str = getattr(settings, "searx_url", "")
-        except Exception:
-            searx_url = ""
-
+        searx_url = get_settings().searx_url
         if not searx_url:
             return ToolResult(
                 success=False,
                 error=(
                     "DuckDuckGo and Searx both unavailable. "
-                    "Install duckduckgo-search or set SEARX_URL."
+                    "Install duckduckgo-search or set ISAAC_SEARX_URL."
                 ),
             )
 
@@ -132,9 +131,9 @@ class WebSearchTool(IsaacTool):
 
             params = urllib.parse.urlencode({"q": query, "format": "json", "categories": "general"})
             url = f"{searx_url.rstrip('/')}/search?{params}"
-            req = urllib.request.Request(url, headers={"User-Agent": "ISAAC/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
+            request = urllib.request.Request(url, headers={"User-Agent": "ISAAC/1.0"})
+            with urllib.request.urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode())
 
             results = data.get("results", [])[:max_results]
             if not results:

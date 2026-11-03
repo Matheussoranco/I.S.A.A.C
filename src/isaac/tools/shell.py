@@ -122,7 +122,6 @@ class ShellTool(IsaacTool):
             default_timeout = int(getattr(settings, "shell_tool_timeout", 30))
             unrestricted = bool(getattr(settings, "shell_unrestricted", False))
             pass_secrets = bool(getattr(settings, "shell_pass_secrets", False))
-            allowlist_cfg: list[str] = list(getattr(settings, "shell_allowed_commands", []) or [])
         except Exception:
             return ToolResult(success=False, error="BLOCKED: shell configuration unavailable")
 
@@ -140,7 +139,7 @@ class ShellTool(IsaacTool):
                 error=f"BLOCKED by safety critic: {exc}",
                 metadata={"constitution": {"fail_closed": True}},
             )
-        if decision is not None and not decision.allow:
+        if decision is not None and (not decision.allow or decision.requires_approval):
             violated = ", ".join(v.rule for v in decision.violations) or decision.reason
             return ToolResult(
                 success=False,
@@ -150,8 +149,9 @@ class ShellTool(IsaacTool):
 
         # ── Gate 3: execution mode ─────────────────────────────────────────
         if unrestricted:
-            return self._run_unrestricted_confined(
-                command, cwd, timeout, pass_secrets, allowlist_cfg
+            return ToolResult(
+                success=False,
+                error="BLOCKED: unrestricted host execution is disabled; use the Docker code tool.",
             )
         return self._run_allowlisted(command, cwd, timeout, pass_secrets)
 
@@ -170,10 +170,6 @@ class ShellTool(IsaacTool):
         except Exception as exc:
             logger.error("Constitution review unavailable — blocking shell execution: %s", exc)
             raise PermissionError(f"safety review unavailable ({exc})") from exc
-
-    def _review(self, command: str, cwd: str | None) -> Any:  # backwards-compat
-        """Deprecated: use :meth:`_review_or_raise` (fail-closed)."""
-        return self._review_or_raise(command, cwd)
 
     def _run_allowlisted(
         self, command: str, cwd: str | None, timeout: int, pass_secrets: bool = False
@@ -196,15 +192,6 @@ class ShellTool(IsaacTool):
             exit_code=int(result.get("exit_code", 0)),
             command=command,
         )
-
-    def _run_unrestricted_confined(self, *args: Any, **kwargs: Any) -> ToolResult:
-        return ToolResult(
-            success=False,
-            error="BLOCKED: unrestricted host execution is disabled; use the Docker code tool.",
-        )
-
-    def _run_unrestricted(self, *args: Any, **kwargs: Any) -> ToolResult:
-        return self._run_unrestricted_confined(*args, **kwargs)
 
     @staticmethod
     def _format(stdout: str, stderr: str, exit_code: int, command: str) -> ToolResult:

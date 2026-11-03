@@ -68,8 +68,8 @@ class KanbanShowTool(IsaacTool):
     }
 
     async def execute(self, task_id: str = "", **_: Any) -> ToolResult:
-        board = get_board()
         try:
+            board = get_board()
             if task_id:
                 t = board.get_task(task_id)
                 if t is None:
@@ -124,9 +124,8 @@ class KanbanCreateTool(IsaacTool):
         depends_on: list[str] | None = None,
         **_: Any,
     ) -> ToolResult:
-        board = get_board()
         try:
-            t = board.create_task(
+            t = get_board().create_task(
                 title,
                 description,
                 priority=priority,
