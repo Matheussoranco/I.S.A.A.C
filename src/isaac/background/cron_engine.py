@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 import time as _time
 from collections import deque
@@ -723,7 +724,7 @@ def _pid_alive(pid: int) -> bool:
     """
     if pid <= 0:
         return False
-    if os.name == "nt":
+    if sys.platform == "win32":
         import ctypes
 
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]

@@ -553,13 +553,12 @@ if TYPE_CHECKING or typer is not None:
             if is_cron_running():
                 typer.echo("Cron daemon is already running.")
                 return
-            import os
             import subprocess
             import sys
             import time
 
             argv = [sys.executable, "-m", "isaac", "cron", "start", "--foreground"]
-            if os.name == "nt":
+            if sys.platform == "win32":
                 proc = subprocess.Popen(
                     argv,
                     stdin=subprocess.DEVNULL,
