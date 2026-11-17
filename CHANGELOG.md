@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Validate profile YAML in the CLI, dashboard, and runtime. Keep credential
+  fields out of profile files and preserve existing files on invalid edits.
 - Enforced scoped, expiring capability tokens at agent-tool and connector
   execution boundaries; added atomic one-use consumption, reload of revoked
   tokens from disk, and isolated token state in tests.

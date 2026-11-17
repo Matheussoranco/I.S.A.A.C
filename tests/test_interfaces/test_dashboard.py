@@ -33,6 +33,34 @@ def test_config_get_post():
         assert resp.json()["ok"] is True
 
 
+def test_dashboard_config_rejects_credentials_and_preserves_settings(monkeypatch, tmp_path):
+    monkeypatch.setenv("ISAAC_HOME", str(tmp_path))
+    url = "/api/desktop/dashboard/config?profile=work"
+    config = {"llm": {"model_name": "local-model"}}
+    assert client.post(url, json=config).status_code == 200
+
+    credential = "test-credential-not-for-yaml"
+    response = client.post(url, json={"email_password": credential})
+
+    assert response.status_code == 400
+    assert ".env" in response.text
+    assert credential not in response.text
+    assert client.get(url).json() == config
+
+
+def test_dashboard_config_does_not_return_legacy_yaml_credentials(monkeypatch, tmp_path):
+    from isaac.config.profiles import profile_config_path
+
+    monkeypatch.setenv("ISAAC_HOME", str(tmp_path))
+    credential = "test-credential-already-in-yaml"
+    profile_config_path("work").write_text(f"api_key: {credential}\n", encoding="utf-8")
+
+    response = client.get("/api/desktop/dashboard/config?profile=work")
+
+    assert response.status_code == 400
+    assert credential not in response.text
+
+
 def test_memory_search_endpoint():
     """Test the unified memory search endpoint."""
     with patch("isaac.interfaces.dashboard.memory_browser.search_memory") as mock_search:

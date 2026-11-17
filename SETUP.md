@@ -32,9 +32,35 @@ pip install -e ".[multimodal]" # vision + voice combined
 pip install -e ".[browser,calendar]" # connectors
 ```
 
-## 2. Environment Variables
+## 2. Configuration
 
-Copy the example env file and edit what you need:
+### Profile settings and credentials
+
+Use `isaac config paths` to find the active profile’s `config.yaml`. Put
+non-secret settings there, using the same nesting as the CLI’s dotted keys:
+
+```yaml
+llm:
+  llm_provider: ollama
+  model_name: qwen3.6
+```
+
+Keep tokens, API keys, and passwords in the environment or in the ignored
+`.env` file, using `ISAAC_` variable names (for example,
+`ISAAC_EMAIL_SMTP_PASSWORD`). Desktop provider credentials can still use the
+OS keyring. Existing `.env` settings continue to work; non-secret profile
+settings take precedence over environment settings and built-in defaults.
+
+The CLI and dashboard reject unknown keys, invalid values, and credential
+fields without replacing the existing file. If an existing `config.yaml`
+is invalid, edit it directly. Move any credential to `.env` before removing
+it from the YAML. The runtime ignores invalid profile YAML and warns without
+printing its contents.
+
+### Environment variable reference
+
+`.env.example` documents the supported environment variables. For local
+development, create an ignored `.env` if you need one:
 
 ```bash
 cp .env.example .env

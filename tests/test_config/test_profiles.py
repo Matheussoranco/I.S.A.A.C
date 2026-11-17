@@ -86,10 +86,12 @@ def test_load_overrides_invalid_yaml_returns_empty():
 
 
 def test_load_overrides_roundtrip():
-    profiles.save_profile_overrides("x", {"llm": {"model_name": "m"}, "temperature": 1})
+    profiles.save_profile_overrides(
+        "x", {"llm": {"model_name": "m"}, "heartbeat_interval_minutes": 1}
+    )
     assert profiles.load_profile_overrides("x") == {
         "llm": {"model_name": "m"},
-        "temperature": 1,
+        "heartbeat_interval_minutes": 1,
     }
 
 
@@ -135,9 +137,8 @@ def test_inactive_profile_overrides_ignored():
 
 
 def test_invalid_override_warns_not_raises():
-    profiles.save_profile_overrides(
-        "default",
-        {"llm": {"temperature": 99.0}},  # exceeds le=2.0 constraint
+    profiles.profile_config_path("default").write_text(
+        "llm:\n  temperature: 99.0\n", encoding="utf-8"
     )
     clear_settings_cache()
     with pytest.warns(UserWarning, match="profile config.yaml"):
@@ -222,11 +223,91 @@ def test_cli_profile_flag(runner, monkeypatch):
     monkeypatch.delenv("ISAAC_PROFILE", raising=False)
 
 
-def test_cli_get_redacts_secrets(runner, monkeypatch):
+@pytest.mark.parametrize(
+    ("key", "env_name"),
+    [
+        ("openai_api_key", "ISAAC_OPENAI_API_KEY"),
+        ("email_smtp_password", "ISAAC_EMAIL_SMTP_PASSWORD"),
+    ],
+)
+def test_cli_get_redacts_secrets(runner, monkeypatch, key, env_name):
     cli, app = runner
-    monkeypatch.setenv("ISAAC_OPENAI_API_KEY", "sk-supersecret")
+    credential = "test-credential-from-env"
+    monkeypatch.setenv(env_name, credential)
     clear_settings_cache()
-    r = cli.invoke(app, ["config", "get", "openai_api_key"])
+    r = cli.invoke(app, ["config", "get", key])
     assert r.exit_code == 0
-    assert "sk-supersecret" not in r.output
+    assert credential not in r.output
     assert "<set:" in r.output
+
+
+@pytest.mark.parametrize("key", ["openai_api_key", "email_smtp_password", "telegram_bot_token"])
+def test_config_set_rejects_credential_fields_without_echoing_values(runner, key):
+    cli, app = runner
+    secret = "test-credential-not-for-yaml"
+    result = cli.invoke(app, ["config", "set", key, secret])
+
+    assert result.exit_code != 0
+    assert ".env" in result.output
+    assert secret not in result.output
+    assert not profiles.profile_config_path("default").exists()
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [("llm.temperature", "99", "llm.temperature"), ("llm.not_a_setting", "1", "Unknown")],
+)
+def test_config_set_preserves_file_on_validation_failure(runner, key, value, message):
+    cli, app = runner
+    assert cli.invoke(app, ["config", "set", "agent_name", "HAL"]).exit_code == 0
+    path = profiles.profile_config_path("default")
+    original = path.read_bytes()
+
+    result = cli.invoke(app, ["config", "set", key, value])
+
+    assert result.exit_code != 0
+    assert message in result.output
+    assert path.read_bytes() == original
+
+
+def test_config_set_does_not_overwrite_malformed_yaml(runner):
+    cli, app = runner
+    path = profiles.profile_config_path("default")
+    original = b"agent_name: [broken\n"
+    path.write_bytes(original)
+
+    result = cli.invoke(app, ["config", "set", "agent_name", "HAL"])
+
+    assert result.exit_code != 0
+    assert "config.yaml" in result.output
+    assert path.read_bytes() == original
+
+
+def test_profile_yaml_cannot_override_environment_credentials(monkeypatch):
+    monkeypatch.setenv("ISAAC_EMAIL_SMTP_PASSWORD", "test-env-credential")
+    profiles.profile_config_path("default").write_text(
+        "email_smtp_password: test-yaml-credential\n", encoding="utf-8"
+    )
+
+    with pytest.warns(UserWarning, match=r"email_smtp_password.*\.env") as caught:
+        settings = get_settings()
+
+    assert settings.email_smtp_password == "test-env-credential"
+    assert "test-yaml-credential" not in str(caught[0].message)
+    assert "test-env-credential" not in str(caught[0].message)
+
+
+def test_dotenv_supplies_credentials_without_changing_profile_yaml(tmp_path, monkeypatch):
+    from isaac.config.settings import Settings
+
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("ISAAC_EMAIL_SMTP_PASSWORD=test-dotenv-credential\n", encoding="utf-8")
+    monkeypatch.delenv("ISAAC_EMAIL_SMTP_PASSWORD", raising=False)
+    monkeypatch.setitem(Settings.model_config, "env_file", str(dotenv))
+    path = profiles.save_profile_overrides("default", {"agent_name": "HAL"})
+
+    settings = get_settings()
+
+    assert settings.agent_name == "HAL"
+    assert settings.email_smtp_password == "test-dotenv-credential"
+    assert "test-dotenv-credential" not in path.read_text(encoding="utf-8")
