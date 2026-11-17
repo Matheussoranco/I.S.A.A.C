@@ -28,7 +28,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy source code
-COPY pyproject.toml /app/pyproject.toml
+COPY pyproject.toml README.md LICENSE NOTICE /app/
 COPY src/ /app/src/
 COPY skills/ /app/skills/
 

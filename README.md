@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-1.6.2-blue)
-[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 
 A **multimodal, self-improving, local-first** autonomous agent built on
@@ -492,20 +492,6 @@ The `IsaacState` TypedDict flows through all graph nodes:
 
 ## License
 
-[**CC BY-NC-SA 4.0**](https://creativecommons.org/licenses/by-nc-sa/4.0/) — see [LICENSE](LICENSE).
-
-Copyright © 2026 Matheus Soranço <matheussoranco@gmail.com>
-`SPDX-License-Identifier: CC-BY-NC-SA-4.0`
-
-You may use, study, run, modify and redistribute I.S.A.A.C., and share your
-modified versions, on three conditions:
-
-- **NonCommercial** — not primarily for or directed towards commercial advantage
-  or monetary compensation (§1(k)).
-- **ShareAlike** — anything you share onward, including modified versions, must
-  carry these same terms. This is a copyleft licence (§3(b)).
-- **Attribution** — keep the copyright notice, the licence reference and the
-  warranty disclaimer, say if you changed it, and link back where practicable (§3(a)).
-
-Commercial use requires separate written permission from the copyright holder.
-Note the licence grants no patent or trademark rights (§2(b)(2)).
+I.S.A.A.C. is licensed under the [Apache License, Version 2.0](LICENSE).
+See [NOTICE](NOTICE) for copyright information. Previously published releases
+retain the license they shipped with.

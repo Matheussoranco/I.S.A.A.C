@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,9 +7,8 @@ name = "isaac"
 version = "1.6.2"
 description = "Intelligent System for Autonomous Action and Cognition — neuro-symbolic autonomous agent"
 readme = "README.md"
-# CC BY-NC-SA 4.0 — noncommercial + ShareAlike. Not an OSI-approved licence,
-# hence the "Other/Proprietary" classifier.
-license = { text = "CC-BY-NC-SA-4.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 authors = [{ name = "Matheus Soranço", email = "matheussoranco@gmail.com" }]
 keywords = ["agent", "agi", "neuro-symbolic", "langgraph", "code-agent"]
@@ -17,7 +16,6 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "License :: Other/Proprietary License",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
