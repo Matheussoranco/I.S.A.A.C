@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — 2026-11-03
 
+### Changed
+
+- Licensed the project under Apache-2.0 for future distributions. The Python
+  distributions include the license and copyright notice.
+
 ### Fixed
 
 - Enforced scoped, expiring capability tokens at agent-tool and connector

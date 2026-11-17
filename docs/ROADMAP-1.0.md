@@ -166,7 +166,7 @@ off by default. Numbers and post-mortem in §7.
   table marked stable / beta / experimental; benchmark numbers with caveats.
 - Model card + eval card; `LIMITATIONS.md` (honest failure modes).
 - `CONTRIBUTING`, issue templates, a public roadmap board.
-- AGPL compliance notes for downstream users.
+- License and attribution information for downstream users.
 **Acceptance:** no unsubstantiated "SOTA" anywhere without a cited number; a
 reader can tell stable vs experimental at a glance.
 
