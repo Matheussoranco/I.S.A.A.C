@@ -16,6 +16,11 @@ import os
 from pathlib import Path
 from typing import Any
 
+import yaml  # type: ignore[import-untyped]
+
+from isaac.config.settings import ProfileConfigError, validate_profile_overrides
+from isaac.security.file_mutation import write_text
+
 DEFAULT_PROFILE = "default"
 
 _MAX_PROFILE_NAME_LENGTH = 64
@@ -70,38 +75,34 @@ def list_profiles() -> list[str]:
     return sorted(p.name for p in root.iterdir() if p.is_dir())
 
 
-def load_profile_overrides(name: str) -> dict[str, Any]:
-    """Parse the profile's config.yaml into a nested dict.
-
-    Returns an empty dict when the file is missing, empty, invalid, or
-    pyyaml is not installed — this function never raises.
-    """
+def load_profile_overrides(name: str, *, strict: bool = False) -> dict[str, Any]:
+    """Read a profile's YAML, optionally reporting invalid configuration."""
     try:
-        path = profile_config_path(name)
-    except Exception:
+        try:
+            path = profile_config_path(name)
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (ValueError, OSError, yaml.YAMLError, RecursionError):
+            raise ProfileConfigError("Could not read config.yaml as YAML.") from None
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise ProfileConfigError("config.yaml must contain a mapping.")
+        validate_profile_overrides(data)
+        return data
+    except ProfileConfigError:
+        if strict:
+            raise
         return {}
-    if not path.is_file():
-        return {}
-    try:
-        import yaml  # type: ignore[import-untyped]
-    except ImportError:
-        return {}
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def save_profile_overrides(name: str, data: dict[str, Any]) -> Path:
-    """Write *data* as YAML to the profile's config.yaml; returns the path."""
-    import yaml  # type: ignore[import-untyped]
-
+    """Validate and atomically replace the profile's YAML."""
+    validate_profile_overrides(data)
     path = profile_config_path(name)
-    path.write_text(
-        yaml.safe_dump(data, default_flow_style=False, sort_keys=True, allow_unicode=True),
-        encoding="utf-8",
-    )
+    content = yaml.safe_dump(data, sort_keys=True, allow_unicode=True)
+    write_text(path, content, overwrite=True)
     return path
 
 

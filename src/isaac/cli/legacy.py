@@ -1632,7 +1632,12 @@ if TYPE_CHECKING or typer is not None:
             save_profile_overrides,
             sniff_scalar,
         )
-        from isaac.config.settings import clear_settings_cache, get_settings
+        from isaac.config.settings import (
+            ProfileConfigError,
+            clear_settings_cache,
+            get_settings,
+            is_secret_setting,
+        )
 
         if profile:
             import os
@@ -1671,9 +1676,9 @@ if TYPE_CHECKING or typer is not None:
             return
 
         try:
-            data = load_profile_overrides(active)
-        except Exception as exc:
-            typer.echo(f"Could not read profile config: {exc}", err=True)
+            data = load_profile_overrides(active, strict=True)
+        except ProfileConfigError as exc:
+            typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
 
         if act in {"set", "unset"}:
@@ -1693,11 +1698,19 @@ if TYPE_CHECKING or typer is not None:
                     typer.echo("'set' needs a value.")
                     raise typer.Exit(2)
                 node[parts[-1]] = sniff_scalar(value)
-                save_profile_overrides(active, data)
-                typer.echo(f"Set {active}.{key} = {node[parts[-1]]!r}")
             else:
                 node.pop(parts[-1], None)
+            try:
                 save_profile_overrides(active, data)
+            except ProfileConfigError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(2) from exc
+            except OSError as exc:
+                typer.echo("Could not write config.yaml.", err=True)
+                raise typer.Exit(1) from exc
+            if act == "set":
+                typer.echo(f"Set {active}.{key} = {node[parts[-1]]!r}")
+            else:
                 typer.echo(f"Unset {active}.{key}")
             clear_settings_cache()
             return
@@ -1724,8 +1737,8 @@ if TYPE_CHECKING or typer is not None:
                     break
                 lookup = lookup[part]
             value_out: object = lookup
-            if any(word in key.lower() for word in ("api_key", "token", "secret")) and value_out:
-                value_out = f"<set: {len(str(value_out))} chars>"
+            if is_secret_setting(key) and value_out:
+                value_out = "<set: hidden>"
             typer.echo(
                 _json.dumps(value_out, indent=2)
                 if isinstance(value_out, (dict, list))

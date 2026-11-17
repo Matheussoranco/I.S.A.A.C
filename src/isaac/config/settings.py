@@ -17,12 +17,38 @@ import warnings
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Single source of truth for the default local model tag (``ollama pull qwen3.6``).
 from isaac.llm.providers.ollama import DEFAULT_BASE_URL as DEFAULT_OLLAMA_BASE_URL
 from isaac.llm.providers.ollama import DEFAULT_MODEL as DEFAULT_LOCAL_MODEL
+
+_SECRET_SETTINGS = frozenset(
+    {
+        "api_key",
+        "openai_api_key",
+        "anthropic_api_key",
+        "gemini_api_key",
+        "elevenlabs_api_key",
+        "openai_compat_api_key",
+        "telegram_bot_token",
+        "github_token",
+        "email_password",
+        "email_smtp_password",
+        "caldav_password",
+    }
+)
+
+
+class ProfileConfigError(ValueError):
+    """A profile configuration error that is safe to display."""
+
+
+def is_secret_setting(name: str) -> bool:
+    """Return whether a setting belongs outside profile YAML."""
+    return name in _SECRET_SETTINGS
+
 
 # Resolve .env relative to this file so it is found regardless of CWD.
 # Layout: src/isaac/config/settings.py → src/isaac/config → src/isaac → src → project_root
@@ -144,6 +170,11 @@ class GraphSettings(BaseSettings):
     """Upper bound on ComputerUse screenshot→action loop per step."""
 
 
+class HeartbeatSettings(BaseModel):
+    interval_min: int | None = Field(default=None, ge=1, le=1440)
+    prompt: str = ""
+
+
 class Settings(BaseSettings):
     """Top-level settings aggregator.
 
@@ -195,6 +226,7 @@ class Settings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     ui_sandbox: UISandboxSettings = Field(default_factory=UISandboxSettings)
     graph: GraphSettings = Field(default_factory=GraphSettings)
+    heartbeat: HeartbeatSettings = Field(default_factory=HeartbeatSettings)
     skills_dir: Path = Field(default_factory=lambda: default_isaac_home() / "skills")
     """Persistent skill library directory (absolute, anchored to isaac_home)."""
 
@@ -423,33 +455,47 @@ def _deep_merge(base: Any, override: Any) -> Any:
     return override
 
 
-def _apply_profile_overrides(settings: Settings) -> Settings:
-    """Deep-merge the active profile's config.yaml over env-loaded settings.
+def validate_profile_overrides(overrides: dict[str, Any]) -> None:
+    """Validate YAML settings without loading environment values or credentials."""
+    _validate_fields(Settings, overrides)
 
-    Precedence: profile config.yaml > env defaults loaded by pydantic > code defaults.
-    Unknown or invalid keys in the YAML are ignored with a warning, never fatal.
-    """
+
+def _validate_fields(model: type[BaseModel], data: dict[str, Any], prefix: str = "") -> None:
+    for key, value in data.items():
+        if isinstance(key, str) and is_secret_setting(key):
+            raise ProfileConfigError(f"{key} belongs in .env or the environment, not config.yaml.")
+        if key not in model.model_fields:
+            section = f" under {prefix.rstrip('.')}" if prefix else ""
+            raise ProfileConfigError(f"Unknown setting{section} in config.yaml.")
+        field = model.model_fields[key]
+        path = f"{prefix}{key}"
+        annotation = field.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            if not isinstance(value, dict):
+                raise ProfileConfigError(f"{path} must be a mapping in config.yaml.")
+            _validate_fields(annotation, value, f"{path}.")
+        else:
+            adapter: TypeAdapter[Any] = TypeAdapter(field.rebuild_annotation())
+            try:
+                adapter.validate_python(value)
+            except ValidationError:
+                raise ProfileConfigError(f"Invalid value for {path} in config.yaml.") from None
+
+
+def _apply_profile_overrides(settings: Settings) -> Settings:
     from isaac.config.profiles import get_active_profile, load_profile_overrides
 
-    overrides = load_profile_overrides(get_active_profile())
-    if not overrides:
-        return settings
     try:
-        data = settings.model_dump(mode="python")
-    except AttributeError:  # pragma: no cover - pydantic v1 fallback
-        import json as _json
-
-        data = _json.loads(settings.json())
-    merged = _deep_merge(data, overrides)
-    try:
-        return Settings(**merged)
-    except Exception as exc:
+        overrides = load_profile_overrides(get_active_profile(), strict=True)
+        if overrides:
+            return Settings(**_deep_merge(settings.model_dump(), overrides))
+    except ProfileConfigError as exc:
+        warnings.warn(f"Ignoring profile config.yaml: {exc}", UserWarning, stacklevel=2)
+    except ValidationError:
         warnings.warn(
-            f"Ignoring profile config.yaml overrides: {exc}",
-            UserWarning,
-            stacklevel=2,
+            "Ignoring incompatible profile config.yaml overrides.", UserWarning, stacklevel=2
         )
-        return settings
+    return settings
 
 
 def clear_settings_cache() -> None:
