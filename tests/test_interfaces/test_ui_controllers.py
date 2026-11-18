@@ -29,10 +29,18 @@ def test_profile_list(client):
     assert isinstance(data["profiles"], list)
 
 
-def test_profile_switch(client):
-    response = client.post("/api/desktop/profile/switch", json={"profile_id": "default"})
+def test_profile_switch(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ISAAC_HOME", str(tmp_path))
+    monkeypatch.setenv("ISAAC_PROFILE", "default")
+    (tmp_path / "profiles" / "work").mkdir(parents=True)
+
+    response = client.post("/api/desktop/profile/switch", json={"profile_id": "work"})
     assert response.status_code == 200
-    assert response.json()["ok"] is True
+    assert response.json() == {"ok": True, "active_profile": "work", "restart_required": True}
+    assert (tmp_path / "active_profile").read_text(encoding="utf-8").strip() == "work"
+    import os
+
+    assert os.environ["ISAAC_PROFILE"] == "default"
 
 
 def test_cron_list(client):

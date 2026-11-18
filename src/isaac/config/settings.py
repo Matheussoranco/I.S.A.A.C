@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import os
 import warnings
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, DotEnvSettingsSource, SettingsConfigDict
 
 # Single source of truth for the default local model tag (``ollama pull qwen3.6``).
 from isaac.llm.providers.ollama import DEFAULT_BASE_URL as DEFAULT_OLLAMA_BASE_URL
@@ -54,12 +55,33 @@ def is_secret_setting(name: str) -> bool:
 # Layout: src/isaac/config/settings.py → src/isaac/config → src/isaac → src → project_root
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
+_loading_profile: ContextVar[str | None] = ContextVar("loading_profile", default=None)
 
 
 def default_isaac_home() -> Path:
     """Root data directory, honouring ``ISAAC_HOME`` (and its legacy alias)."""
-    override = (os.environ.get("ISAAC_HOME") or os.environ.get("ISAAC_ISAAC_HOME") or "").strip()
-    return Path(override).expanduser() if override else Path.home() / ".isaac"
+    from isaac.config.profiles import isaac_root
+
+    return isaac_root()
+
+
+def _load_settings_model[Model: BaseSettings](model: type[Model]) -> Model:
+    from isaac.config.profiles import DEFAULT_PROFILE, profile_dir
+
+    profile = _loading_profile.get()
+    if profile is None:
+        return model()
+    home = profile_dir(profile, create=False)
+    dotenv = home / ".env"
+    if dotenv.resolve() != dotenv:
+        raise ProfileConfigError("Profile .env must not be a filesystem link.")
+    if profile != DEFAULT_PROFILE:
+        return model(_env_file=dotenv)
+    legacy = model.model_config.get("env_file")
+    if not dotenv.is_file():
+        return model()
+    legacy_files = (legacy,) if isinstance(legacy, (str, Path)) else tuple(legacy or ())
+    return model(_env_file=(*legacy_files, dotenv))
 
 
 def parse_id_list(value: object) -> list[str]:
@@ -207,25 +229,30 @@ class Settings(BaseSettings):
     ):
         """Add a legacy non-prefixed env source as lowest-priority fallback.
 
-        Priority: init > ``ISAAC_`` env > ``.env`` (``ISAAC_``) > legacy
-        non-prefixed env > secrets.  Canonical ``ISAAC_`` names always win;
-        legacy names only apply when the canonical one is absent.
+        Canonical process environment and dotenv values win over legacy
+        names, with process environment first within each pair.
         """
         from pydantic_settings.sources import EnvSettingsSource
 
         legacy_env = EnvSettingsSource(settings_cls, env_prefix="")
+        legacy_dotenv = DotEnvSettingsSource(
+            settings_cls, env_file=dotenv_settings.env_file, env_prefix=""
+        )
         return (
             init_settings,
             env_settings,
             dotenv_settings,
             legacy_env,
+            legacy_dotenv,
             file_secret_settings,
         )
 
-    llm: LLMSettings = Field(default_factory=LLMSettings)
-    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
-    ui_sandbox: UISandboxSettings = Field(default_factory=UISandboxSettings)
-    graph: GraphSettings = Field(default_factory=GraphSettings)
+    llm: LLMSettings = Field(default_factory=lambda: _load_settings_model(LLMSettings))
+    sandbox: SandboxSettings = Field(default_factory=lambda: _load_settings_model(SandboxSettings))
+    ui_sandbox: UISandboxSettings = Field(
+        default_factory=lambda: _load_settings_model(UISandboxSettings)
+    )
+    graph: GraphSettings = Field(default_factory=lambda: _load_settings_model(GraphSettings))
     heartbeat: HeartbeatSettings = Field(default_factory=HeartbeatSettings)
     skills_dir: Path = Field(default_factory=lambda: default_isaac_home() / "skills")
     """Persistent skill library directory (absolute, anchored to isaac_home)."""
@@ -482,13 +509,13 @@ def _validate_fields(model: type[BaseModel], data: dict[str, Any], prefix: str =
                 raise ProfileConfigError(f"Invalid value for {path} in config.yaml.") from None
 
 
-def _apply_profile_overrides(settings: Settings) -> Settings:
-    from isaac.config.profiles import get_active_profile, load_profile_overrides
+def _apply_profile_overrides(settings: Settings, profile: str) -> Settings:
+    from isaac.config.profiles import load_profile_overrides
 
     try:
-        overrides = load_profile_overrides(get_active_profile(), strict=True)
+        overrides = load_profile_overrides(profile, strict=True)
         if overrides:
-            return Settings(**_deep_merge(settings.model_dump(), overrides))
+            return Settings(_env_file=None, **_deep_merge(settings.model_dump(), overrides))
     except ProfileConfigError as exc:
         warnings.warn(f"Ignoring profile config.yaml: {exc}", UserWarning, stacklevel=2)
     except ValidationError:
@@ -496,6 +523,37 @@ def _apply_profile_overrides(settings: Settings) -> Settings:
             "Ignoring incompatible profile config.yaml overrides.", UserWarning, stacklevel=2
         )
     return settings
+
+
+def load_profile_settings(profile: str) -> Settings:
+    """Load one profile without changing the active process or its environment."""
+    from isaac.config.profiles import DEFAULT_PROFILE, profile_dir, validate_profile_name
+
+    profile = validate_profile_name(profile)
+    token = _loading_profile.set(profile)
+    try:
+        settings = _apply_profile_overrides(_load_settings_model(Settings), profile)
+    except ValidationError:
+        raise ProfileConfigError("Invalid environment settings for this profile.") from None
+    finally:
+        _loading_profile.reset(token)
+    if profile == DEFAULT_PROFILE:
+        return settings
+
+    home = profile_dir(profile, create=False)
+    workspace = str(default_isaac_home() / "workspace")
+    return settings.model_copy(
+        update={
+            "isaac_home": home,
+            "skills_dir": home / "skills",
+            "memory_db_path": "",
+            "user_profile_path": "",
+            "meta_learner_db_path": "",
+            "allowed_paths": [
+                str(home / "workspace") if p == workspace else p for p in settings.allowed_paths
+            ],
+        }
+    )
 
 
 def clear_settings_cache() -> None:
@@ -513,7 +571,9 @@ def get_settings() -> Settings:
     """
     global _settings
     if _settings is None:
-        _settings = _apply_profile_overrides(Settings())
+        from isaac.config.profiles import get_active_profile
+
+        _settings = load_profile_settings(get_active_profile())
         try:
             for p in _settings.allowed_paths:
                 pp = Path(p)
@@ -618,7 +678,7 @@ def env_is_set(canonical: str) -> bool:
 
 def known_env_keys() -> set[str]:
     """Return every recognised env key (canonical + legacy + nested)."""
-    keys: set[str] = set()
+    keys = {"ISAAC_HOME", "ISAAC_PROFILE", "ISAAC_KANBAN_DB"}
     # Top-level Settings: canonical ISAAC_<FIELD> + legacy bare UPPER.
     for name in Settings.model_fields:
         if name in ("llm", "sandbox", "ui_sandbox", "graph"):

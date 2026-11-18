@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from isaac.config.profiles import get_active_profile, list_profiles, validate_profile_name
-from isaac.config.settings import clear_settings_cache
+from isaac.config.profiles import DEFAULT_PROFILE, get_active_profile, list_profiles, switch_profile
 from isaac.interfaces.dashboard import (
     api_keys,
     config_editor,
@@ -66,7 +64,7 @@ async def cron_logs(job_id: str):
 @router.get("/profile/list")
 async def profile_list():
     active = get_active_profile()
-    profiles = list_profiles()
+    profiles = sorted({DEFAULT_PROFILE, active, *list_profiles()})
     return {"profiles": [{"id": p, "name": p, "active": p == active} for p in profiles]}
 
 
@@ -76,11 +74,11 @@ async def profile_switch(payload: dict[str, Any]):
     if not profile_id:
         raise HTTPException(400, "Missing profile_id")
     try:
-        name = validate_profile_name(str(profile_id))
+        name = switch_profile(str(profile_id))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    os.environ["ISAAC_PROFILE"] = name
-    clear_settings_cache()
+    except OSError as e:
+        raise HTTPException(500, "Could not save the active profile.") from e
     return {"ok": True, "active_profile": name, "restart_required": True}
 
 

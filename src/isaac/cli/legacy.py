@@ -1607,6 +1607,74 @@ if TYPE_CHECKING or typer is not None:
         typer.echo(f"Unknown action: {action}. Try 'eval', 'solve', 'primitives', or 'show'.")
         raise typer.Exit(2)
 
+    profile_app = typer.Typer(help="Create, list, and switch local profiles.", no_args_is_help=True)
+    app.add_typer(profile_app, name="profile")
+
+    @profile_app.command("create")
+    def profile_create(name: str) -> None:
+        """Create a profile without copying another profile's data."""
+        from isaac.config.profiles import profile_dir
+
+        try:
+            if not name.strip():
+                raise ValueError("A profile name is required.")
+            path = profile_dir(name, create=False)
+            path.mkdir(parents=True, exist_ok=False)
+        except FileExistsError as exc:
+            typer.echo("Profile already exists.", err=True)
+            raise typer.Exit(1) from exc
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+        except OSError as exc:
+            typer.echo("Could not create profile.", err=True)
+            raise typer.Exit(1) from exc
+        typer.echo(f"Created profile '{path.name}'.")
+
+    @profile_app.command("current")
+    def profile_current() -> None:
+        """Print the profile in use by this command."""
+        from isaac.config.profiles import get_active_profile
+
+        try:
+            typer.echo(get_active_profile())
+        except (ValueError, OSError) as exc:
+            typer.echo("Could not resolve the active profile.", err=True)
+            raise typer.Exit(1) from exc
+
+    @profile_app.command("list")
+    def profile_list() -> None:
+        """List profiles and mark the active profile with an asterisk."""
+        from isaac.config.profiles import DEFAULT_PROFILE, get_active_profile, list_profiles
+
+        try:
+            active = get_active_profile()
+            names = sorted({DEFAULT_PROFILE, active, *list_profiles()})
+        except (ValueError, OSError) as exc:
+            typer.echo("Could not list profiles.", err=True)
+            raise typer.Exit(1) from exc
+        for name in names:
+            typer.echo(f"{'* ' if name == active else '  '}{name}")
+
+    @profile_app.command("switch")
+    def profile_switch(name: str) -> None:
+        """Select an existing profile for subsequent I.S.A.A.C. starts."""
+        import os
+
+        from isaac.config.profiles import switch_profile
+
+        try:
+            selected = switch_profile(name)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+        except OSError as exc:
+            typer.echo("Could not save the active profile.", err=True)
+            raise typer.Exit(1) from exc
+        typer.echo(f"Selected profile '{selected}'.")
+        if os.environ.get("ISAAC_PROFILE", "").strip():
+            typer.echo("Unset ISAAC_PROFILE to use the saved selection.")
+
     @app.command(name="config")
     def config_cmd(
         action: str = typer.Argument(
@@ -1637,6 +1705,7 @@ if TYPE_CHECKING or typer is not None:
             clear_settings_cache,
             get_settings,
             is_secret_setting,
+            load_profile_settings,
         )
 
         act = (action or "show").strip().lower()
@@ -1667,21 +1736,14 @@ if TYPE_CHECKING or typer is not None:
             typer.echo(f"config.yaml for {active}: {status}.")
             return
 
-        if profile:
-            import os
-
-            os.environ["ISAAC_PROFILE"] = profile
-            clear_settings_cache()
-        active = get_active_profile()
-
-        act = (action or "show").strip().lower()
-
         if act == "paths":
-            settings = get_settings()
+            settings = load_profile_settings(active) if profile else get_settings()
             typer.echo(f"  isaac_home  {settings.isaac_home}")
             typer.echo(f"  skills_dir  {settings.skills_dir}")
             typer.echo(f"  active_profile  {active}")
-            typer.echo(f"  profile_config  {profile_config_path(active)}")
+            config_path = profile_config_path(active, create=False)
+            typer.echo(f"  profile_config  {config_path}")
+            typer.echo(f"  profile_env  {config_path.with_name('.env')}")
             return
 
         if act == "profiles":
@@ -1750,7 +1812,7 @@ if TYPE_CHECKING or typer is not None:
             lookup: object = data
             for part in key.split("."):
                 if not isinstance(lookup, dict) or part not in lookup:
-                    settings = get_settings()
+                    settings = load_profile_settings(active) if profile else get_settings()
                     try:
                         settings_data = settings.model_dump(mode="json")
                     except AttributeError:
@@ -2011,6 +2073,19 @@ if TYPE_CHECKING or typer is not None:
 
 def main() -> int:
     """Entry point — delegates to Typer if available, else basic argparse."""
+    import sys
+
+    from isaac.config.profiles import pin_active_profile
+
+    if sys.argv[1:2] != ["profile"]:
+        try:
+            pin_active_profile()
+        except (ValueError, OSError):
+            print(
+                "Could not resolve the active profile. Run 'isaac profile switch default'.",
+                file=sys.stderr,
+            )
+            return 1
     if app is not None:
         app()
         return 0
