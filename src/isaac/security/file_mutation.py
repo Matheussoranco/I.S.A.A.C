@@ -4,10 +4,35 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO
+
+
+@contextmanager
+def process_file_lock(path: Path) -> Iterator[None]:
+    """Take an exclusive lock on a stable sidecar file until the context exits."""
+    with path.open("a+b") as lock:
+        lock.seek(0)
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def publish_file(target: Path, writer: Callable[[BinaryIO], object], *, overwrite: bool) -> None:

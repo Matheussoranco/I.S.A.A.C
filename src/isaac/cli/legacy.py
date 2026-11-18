@@ -1610,7 +1610,7 @@ if TYPE_CHECKING or typer is not None:
     @app.command(name="config")
     def config_cmd(
         action: str = typer.Argument(
-            "show", help="'show', 'get', 'set', 'unset', 'profiles', 'profile-create', or 'paths'."
+            "show", help="show, get, set, unset, edit, check, paths, profiles, or profile-create."
         ),
         key: str = typer.Argument("", help="Dotted setting key or profile name."),
         value: str = typer.Argument("", help="Value for 'set'."),
@@ -1638,6 +1638,34 @@ if TYPE_CHECKING or typer is not None:
             get_settings,
             is_secret_setting,
         )
+
+        act = (action or "show").strip().lower()
+        active = profile or get_active_profile()
+        if act == "edit":
+            from isaac.cli.config_editor import edit_profile_config
+
+            try:
+                changed = edit_profile_config(active)
+            except ProfileConfigError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(1) from exc
+            except (OSError, ValueError) as exc:
+                typer.echo("Could not edit config.yaml for this profile.", err=True)
+                raise typer.Exit(1) from exc
+            if changed:
+                clear_settings_cache()
+            typer.echo("Saved config.yaml." if changed else "No changes to config.yaml.")
+            return
+
+        if act == "check":
+            try:
+                data = load_profile_overrides(active, strict=True)
+            except ProfileConfigError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(1) from exc
+            status = "valid" if data else "valid (no overrides)"
+            typer.echo(f"config.yaml for {active}: {status}.")
+            return
 
         if profile:
             import os
@@ -1751,8 +1779,8 @@ if TYPE_CHECKING or typer is not None:
             return
 
         typer.echo(
-            f"Unknown action: {action}. Try 'show', 'get', 'set', 'unset', "
-            "'profiles', 'profile-create', or 'paths'."
+            f"Unknown action: {action}. Try 'show', 'get', 'set', 'unset', 'edit', 'check', "
+            "'paths', 'profiles', or 'profile-create'."
         )
         raise typer.Exit(2)
 

@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — 2026-11-03
 
+### Added
+
+- Added `isaac config check` for read-only profile YAML validation and
+  `isaac config edit` for validated edits that preserve comments and formatting.
+
 ### Changed
 
 - Licensed the project under Apache-2.0 for future distributions. The Python
