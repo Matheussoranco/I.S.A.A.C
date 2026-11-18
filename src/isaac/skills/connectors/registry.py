@@ -27,13 +27,9 @@ _registry: dict[str, BaseConnector] | None = None
 
 
 def _audit_path() -> Path:
-    try:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        home = get_settings().isaac_home
-    except Exception:
-        home = Path.home() / ".isaac"
-    path = home / "connector_audit.log"
+    path = get_settings().isaac_home / "connector_audit.log"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 

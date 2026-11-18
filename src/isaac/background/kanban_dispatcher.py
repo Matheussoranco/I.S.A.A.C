@@ -38,12 +38,9 @@ DEFAULT_STALE_SECONDS = 300.0  # 5-minute claim timeout
 
 
 def _isaac_home() -> Path:
-    try:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        return get_settings().isaac_home
-    except Exception:
-        return Path.home() / ".isaac"
+    return get_settings().isaac_home
 
 
 def task_workspace(task_id: str, base: Path | None = None) -> Path:

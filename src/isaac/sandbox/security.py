@@ -211,12 +211,9 @@ def write_seccomp_profile(target_dir: Path | None = None) -> Path:
     The Docker ``--security-opt=seccomp=<path>`` flag needs a file path.
     """
     if target_dir is None:
-        try:
-            from isaac.config.settings import get_settings
+        from isaac.config.settings import get_settings
 
-            target_dir = get_settings().isaac_home / "security"
-        except Exception:
-            target_dir = Path.home() / ".isaac" / "security"
+        target_dir = get_settings().isaac_home / "security"
 
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / "seccomp.json"

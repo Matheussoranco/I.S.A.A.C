@@ -15,12 +15,9 @@ _DEFAULT_STALE_SECONDS = 6 * 60 * 60
 
 
 def _isaac_home() -> Path:
-    try:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        return get_settings().isaac_home
-    except Exception:
-        return Path.home() / ".isaac"
+    return get_settings().isaac_home
 
 
 def _get_lock_path(task_id: str) -> Path | None:

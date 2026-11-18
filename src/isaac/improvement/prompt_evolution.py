@@ -60,12 +60,9 @@ class PromptEvolution:
 
     def __init__(self, store_path: Path | str | None = None) -> None:
         if store_path is None:
-            try:
-                from isaac.config.settings import settings
+            from isaac.config.settings import get_settings
 
-                store_path = settings.isaac_home / "prompt_evolution.json"
-            except Exception:
-                store_path = Path.home() / ".isaac" / "prompt_evolution.json"
+            store_path = get_settings().isaac_home / "prompt_evolution.json"
         self._path = Path(store_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()

@@ -89,12 +89,9 @@ def _now() -> str:
 
 
 def _isaac_home() -> Path:
-    try:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        return get_settings().isaac_home
-    except Exception:
-        return Path.home() / ".isaac"
+    return get_settings().isaac_home
 
 
 def _default_db_path() -> Path:

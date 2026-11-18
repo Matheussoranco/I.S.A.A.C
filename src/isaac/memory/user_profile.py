@@ -35,17 +35,12 @@ class UserProfile:
 
     def __init__(self, profile_path: str | Path | None = None) -> None:
         if profile_path is None or not str(profile_path).strip():
-            try:
-                from isaac.config.settings import settings
+            from isaac.config.settings import get_settings
 
-                configured = str(settings.user_profile_path).strip()
-                profile_path = (
-                    Path(configured).expanduser()
-                    if configured
-                    else settings.isaac_home / "user_profile.json"
-                )
-            except Exception:
-                profile_path = Path.home() / ".isaac" / "user_profile.json"
+            settings = get_settings()
+            profile_path = str(settings.user_profile_path).strip() or (
+                settings.isaac_home / "user_profile.json"
+            )
 
         self._path = Path(profile_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)

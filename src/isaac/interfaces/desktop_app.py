@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from isaac.interfaces.web_app import create_app
+from isaac.config.profiles import pin_active_profile
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,8 @@ class NativeAppServer:
 
     def start(self, timeout: float = 10.0) -> None:
         import uvicorn
+
+        from isaac.interfaces.web_app import create_app
 
         config = uvicorn.Config(
             create_app(),
@@ -79,6 +81,7 @@ def run_desktop_app(*, verbose: bool = False) -> int:
             "Native desktop dependencies are missing. Run: pip install -e '.[desktop]'"
         ) from exc
 
+    pin_active_profile()
     server = NativeAppServer(verbose=verbose)
     server.start()
     try:

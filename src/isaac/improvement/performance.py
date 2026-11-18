@@ -88,12 +88,9 @@ class PerformanceTracker:
 
     def __init__(self, db_path: Path | str | None = None) -> None:
         if db_path is None:
-            try:
-                from isaac.config.settings import settings
+            from isaac.config.settings import get_settings
 
-                db_path = settings.isaac_home / "performance-v2.db"
-            except Exception:
-                db_path = Path.home() / ".isaac" / "performance-v2.db"
+            db_path = get_settings().isaac_home / "performance-v2.db"
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
