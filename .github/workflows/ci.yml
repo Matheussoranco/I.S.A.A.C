@@ -33,13 +33,13 @@ jobs:
       - name: Ruff lint
         # src/ AND tests/ — same scope as the sibling projects. Test code that
         # nobody lints is where the dead imports and unused bindings collect.
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ scripts/doctor_smoke.py
 
       - name: Ruff format check
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ scripts/doctor_smoke.py
 
       - name: Mypy type check
-        run: mypy src/isaac --ignore-missing-imports
+        run: mypy src/isaac scripts/doctor_smoke.py --ignore-missing-imports
 
   test:
     name: Test Suite (Python ${{ matrix.python-version }})
@@ -61,6 +61,10 @@ jobs:
       - name: Install dependencies
         # The solver is optional at runtime, but its security regressions must run in CI.
         run: pip install -e ".[dev,reasoning]"
+
+      - name: Smoke test installed doctor command
+        timeout-minutes: 2
+        run: python scripts/doctor_smoke.py
 
       # No API-key env vars. The default backend is local (Ollama + qwen3.6) and
       # key validation only applies once a cloud provider is selected, so the
