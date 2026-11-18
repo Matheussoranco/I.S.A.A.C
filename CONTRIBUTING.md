@@ -39,6 +39,12 @@ pip install -e ".[dev,browser,calendar]"
 pytest tests/ --tb=short
 ```
 
+After installing the package, run `python scripts/doctor_smoke.py` to reproduce
+the CI check of the installed `isaac doctor` command. It uses an isolated
+temporary profile and a loopback Ollama fixture to check exit codes `0` and `1`
+with the model present and missing, respectively. It does not require a real
+Ollama daemon, a model download, Docker, or API credentials.
+
 Docker must be running for sandbox/execution tests (they will auto-skip if Docker is unavailable).
 
 ---
