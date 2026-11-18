@@ -24,11 +24,12 @@ import logging
 import os
 import threading
 from collections import deque
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
+
+from isaac.security.file_mutation import process_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -44,33 +45,6 @@ AuditCategory = Literal[
 ]
 
 _GENESIS_HASH = "0" * 64
-
-
-@contextmanager
-def _process_lock(path: Path):
-    """Serialize the tail-read and append across independent processes."""
-    with path.open("a+b") as lock:
-        lock.seek(0, 2)
-        if lock.tell() == 0:
-            lock.write(b"\0")
-            lock.flush()
-        lock.seek(0)
-        if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
-        else:
-            import fcntl  # type: ignore[import-not-found]
-
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)  # type: ignore[attr-defined]
-        try:
-            yield
-        finally:
-            lock.seek(0)
-            if os.name == "nt":
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
-            else:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
 
 
 def _decode_entry(data: dict[str, Any]) -> AuditEntry:
@@ -132,7 +106,7 @@ class AuditLog:
         self._lock_path = log_dir / "audit.lock"
 
         # Resume chain hash from last entry
-        with _process_lock(self._lock_path):
+        with process_file_lock(self._lock_path):
             self._resume_chain()
 
     def _resume_chain(self) -> None:
@@ -203,7 +177,7 @@ class AuditLog:
             hash_version=2,
         )
 
-        with self._lock, _process_lock(self._lock_path):
+        with self._lock, process_file_lock(self._lock_path):
             # Another instance/process may have appended since our last write.
             self._resume_chain()
             entry.prev_hash = self._prev_hash

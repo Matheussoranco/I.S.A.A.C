@@ -51,11 +51,29 @@ Keep tokens, API keys, and passwords in the environment or in the ignored
 OS keyring. Existing `.env` settings continue to work; non-secret profile
 settings take precedence over environment settings and built-in defaults.
 
-The CLI and dashboard reject unknown keys, invalid values, and credential
-fields without replacing the existing file. If an existing `config.yaml`
-is invalid, edit it directly. Move any credential to `.env` before removing
-it from the YAML. The runtime ignores invalid profile YAML and warns without
-printing its contents.
+```bash
+isaac config show
+isaac config set llm.temperature 0.4
+isaac config get llm.temperature
+isaac config check --profile work
+isaac config edit --profile work
+isaac config paths --profile work
+```
+
+`check` validates only profile YAML without changing it. Missing YAML is
+valid (no overrides); invalid YAML returns a nonzero exit status.
+`edit` opens a draft in `VISUAL`, then `EDITOR` if `VISUAL` is unset.
+If neither is set, it uses Notepad on Windows and `vi` elsewhere. Quote
+editor paths that contain spaces and use a wait flag when required by
+the editor. The draft replaces the profile file only after the editor
+exits successfully and the draft passes validation. Comments and formatting
+are preserved; invalid drafts are discarded, not written to the profile.
+If another I.S.A.A.C. process saves the profile while you are editing, rerun
+`edit` against the saved version.
+
+Use `edit` to repair invalid YAML, including duplicate keys. Move any
+credential to `.env` before removing it from the YAML. The runtime ignores
+invalid profile YAML and warns without printing its contents.
 
 ### Environment variable reference
 

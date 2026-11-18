@@ -6,6 +6,9 @@ Hermetic: every test points ``ISAAC_HOME`` at a tmp dir so the real
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
 from isaac.config import profiles
@@ -311,3 +314,185 @@ def test_dotenv_supplies_credentials_without_changing_profile_yaml(tmp_path, mon
     assert settings.agent_name == "HAL"
     assert settings.email_smtp_password == "test-dotenv-credential"
     assert "test-dotenv-credential" not in path.read_text(encoding="utf-8")
+
+
+def test_config_check_accepts_valid_selected_profile(runner):
+    cli, app = runner
+    profiles.save_profile_overrides("work", {"llm": {"temperature": 0.5}})
+
+    result = cli.invoke(app, ["config", "check", "--profile", "work"])
+
+    assert result.exit_code == 0, result.output
+    assert "work" in result.output
+    assert "valid" in result.output
+    assert profiles.get_active_profile() == "default"
+
+
+def test_config_check_accepts_missing_overrides(runner, tmp_path):
+    cli, app = runner
+
+    result = cli.invoke(app, ["config", "check"])
+
+    assert result.exit_code == 0, result.output
+    assert "no overrides" in result.output.lower()
+    assert not (tmp_path / ".isaac").exists()
+
+
+def test_config_check_accepts_explicit_yaml_merge_override(runner):
+    cli, app = runner
+    profiles.profile_config_path("default").write_bytes(
+        b"llm:\n  <<: {model_name: local, temperature: 0.5}\n  temperature: 0.4\n"
+    )
+
+    result = cli.invoke(app, ["config", "check"])
+
+    assert result.exit_code == 0, result.output
+    assert get_settings().llm.temperature == 0.4
+
+
+@pytest.mark.parametrize(
+    ("original", "message"),
+    [
+        (b"openai_api_key: test-config-secret\n", ".env"),
+        (b"<<: {llm: {openai_api_key: test-config-secret}}\nllm: {}\n", ".env"),
+        (b"agent_name: !!timestamp test-config-secret\n", "as YAML"),
+        (b"agent_name: !!bool test-config-secret\n", "as YAML"),
+    ],
+)
+def test_config_check_reports_invalid_settings_without_values(runner, original, message):
+    cli, app = runner
+    path = profiles.profile_config_path("default")
+    path.write_bytes(original)
+
+    result = cli.invoke(app, ["config", "check"])
+
+    assert result.exit_code == 1
+    assert message in result.output
+    assert "test-config-secret" not in result.output
+    assert path.read_bytes() == original
+
+
+@pytest.fixture
+def config_editor(tmp_path, monkeypatch):
+    script = tmp_path / "config editor.py"
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setenv("EDITOR", f'"{sys.executable}" "{script}"')
+    return script
+
+
+def test_config_edit_can_repair_yaml_and_preserves_comments(runner, config_editor):
+    cli, app = runner
+    path = profiles.profile_config_path("default")
+    path.write_bytes(b"agent_name: [broken\n")
+    replacement = b"# Keep this note\nagent_name: HAL\n"
+    config_editor.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        f"assert Path(sys.argv[1]).read_bytes() == {path.read_bytes()!r}\n"
+        f"Path(sys.argv[1]).write_bytes({replacement!r})\n",
+        encoding="utf-8",
+    )
+
+    result = cli.invoke(app, ["config", "edit"])
+
+    assert result.exit_code == 0, result.output
+    assert path.read_bytes() == replacement
+    assert get_settings().agent_name == "HAL"
+
+
+def test_config_edit_creates_the_selected_profile_using_visual(runner, config_editor, monkeypatch):
+    cli, app = runner
+    monkeypatch.setenv("VISUAL", f'"{sys.executable}" "{config_editor}"')
+    monkeypatch.setenv("EDITOR", "not-the-configured-editor")
+    config_editor.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "Path(sys.argv[1]).write_bytes(b'agent_name: HAL\\n')\n",
+        encoding="utf-8",
+    )
+
+    result = cli.invoke(app, ["config", "edit", "--profile", "work"])
+
+    assert result.exit_code == 0, result.output
+    assert profiles.load_profile_overrides("work") == {"agent_name": "HAL"}
+    assert profiles.get_active_profile() == "default"
+    assert profiles.list_profiles() == ["work"]
+
+
+def test_config_edit_leaves_missing_file_missing_when_unchanged(runner, config_editor, tmp_path):
+    cli, app = runner
+    config_editor.write_text("pass\n", encoding="utf-8")
+
+    result = cli.invoke(app, ["config", "edit"])
+
+    assert result.exit_code == 0, result.output
+    assert "No changes" in result.output
+    assert not (tmp_path / ".isaac").exists()
+
+
+def test_config_edit_preserves_a_save_made_while_editor_is_open(runner, config_editor):
+    cli, app = runner
+    path = profiles.save_profile_overrides("default", {"agent_name": "Before"})
+    config_editor.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "from isaac.config.profiles import save_profile_overrides\n"
+        "save_profile_overrides('default', {'agent_name': 'Concurrent'})\n"
+        "Path(sys.argv[1]).write_bytes(b'agent_name: Draft\\n')\n",
+        encoding="utf-8",
+    )
+
+    result = cli.invoke(app, ["config", "edit"])
+
+    assert result.exit_code == 1
+    assert "changed while editing" in result.output
+    assert path.read_bytes() == b"agent_name: Concurrent\n"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows system editor")
+def test_config_edit_launches_default_windows_editor_by_absolute_path(runner, monkeypatch):
+    from subprocess import CompletedProcess
+
+    cli, app = runner
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.delenv("EDITOR", raising=False)
+    launches = []
+
+    def fake_run(args, *, check):
+        launches.append(Path(args[0]))
+        return CompletedProcess(args, 0)
+
+    monkeypatch.setattr("isaac.cli.config_editor.subprocess.run", fake_run)
+    result = cli.invoke(app, ["config", "edit"])
+
+    assert result.exit_code == 0, result.output
+    assert len(launches) == 1
+    assert launches[0].is_absolute()
+    assert launches[0].name == "notepad.exe"
+
+
+@pytest.mark.parametrize(
+    ("replacement", "exit_code", "message"),
+    [
+        (b"llm: {temperature: 99}\n", 0, "llm.temperature"),
+        (b"openai_api_key: test-config-secret\n", 0, ".env"),
+        (b"agent_name: HAL\nagent_name: Other\n", 0, "duplicate"),
+        (b"agent_name: replacement\n", 3, "editor exited"),
+    ],
+)
+def test_config_edit_rejects_unsuccessful_edits(
+    runner, config_editor, replacement, exit_code, message
+):
+    cli, app = runner
+    path = profiles.save_profile_overrides("default", {"agent_name": "HAL"})
+    original = path.read_bytes()
+    config_editor.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        f"Path(sys.argv[1]).write_bytes({replacement!r})\n"
+        f"sys.exit({exit_code})\n",
+        encoding="utf-8",
+    )
+
+    result = cli.invoke(app, ["config", "edit"])
+
+    assert result.exit_code != 0
+    assert message in result.output.lower()
+    assert "test-config-secret" not in result.output
+    assert path.read_bytes() == original
