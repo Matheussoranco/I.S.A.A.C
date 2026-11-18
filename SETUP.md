@@ -34,6 +34,32 @@ pip install -e ".[browser,calendar]" # connectors
 
 ## 2. Configuration
 
+### Switch profiles
+
+```bash
+isaac profile create research
+isaac profile create coding
+isaac profile switch research
+isaac profile current
+isaac profile list
+```
+
+Named profiles keep `config.yaml`, `.env`, skills, memory, and the default
+Kanban database under `~/.isaac/profiles/<name>/`. `ISAAC_HOME` relocates the
+installation root. Files are created as needed; creating a profile does not
+copy another profile's data or credentials. `default` keeps existing storage
+paths and can still read the checkout's legacy `.env`.
+
+The saved selection applies on the next launch, not to running agents. Set
+`ISAAC_PROFILE` to override it for a process. `isaac config --profile <name>`
+targets a profile for one command without changing the selection. Named
+profiles do not read each other's `.env` files or the checkout's `.env`.
+Environment variables exported by the launcher are still shared, so keep
+profile-specific credentials in that profile's `.env` or desktop keyring
+entry. Named profiles use their own skills and memory paths even if the
+legacy paths are configured. Explicit external workspaces and an explicitly
+shared `ISAAC_KANBAN_DB` are outside this isolation.
+
 ### Profile settings and credentials
 
 Use `isaac config paths` to find the active profile’s `config.yaml`. Put

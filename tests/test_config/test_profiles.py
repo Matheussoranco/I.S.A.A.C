@@ -316,6 +316,134 @@ def test_dotenv_supplies_credentials_without_changing_profile_yaml(tmp_path, mon
     assert "test-dotenv-credential" not in path.read_text(encoding="utf-8")
 
 
+def test_profile_cli_creates_lists_and_switches(runner, tmp_path):
+    cli, app = runner
+
+    for name in ("research", "coding"):
+        result = cli.invoke(app, ["profile", "create", name])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / ".isaac" / "profiles" / name).is_dir()
+    result = cli.invoke(app, ["profile", "switch", "coding"])
+    assert result.exit_code == 0, result.output
+    current = cli.invoke(app, ["profile", "current"])
+    assert current.exit_code == 0, current.output
+    assert current.output.strip() == "coding"
+    listing = cli.invoke(app, ["profile", "list"])
+    assert listing.exit_code == 0, listing.output
+    assert listing.output.splitlines() == ["* coding", "  default", "  research"]
+
+
+def test_named_profiles_do_not_share_keyring_credentials(monkeypatch):
+    from types import SimpleNamespace
+
+    from isaac.security.credentials import get_credential, set_credential
+
+    passwords = {}
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setitem(
+        sys.modules,
+        "keyring",
+        SimpleNamespace(
+            get_password=lambda service, provider: passwords.get((service, provider)),
+            set_password=lambda service, provider, value: passwords.update(
+                {(service, provider): value}
+            ),
+        ),
+    )
+    set_credential("openai", "default-test-key")
+    profiles.profile_dir("research")
+    profiles.switch_profile("research")
+    assert get_credential("openai") == ""
+    set_credential("openai", "research-test-key")
+    assert get_credential("openai") == "research-test-key"
+    profiles.switch_profile("default")
+    assert get_credential("openai") == "default-test-key"
+
+
+def test_profile_switch_preserves_selection_on_error_and_respects_env(runner, monkeypatch):
+    cli, app = runner
+    assert cli.invoke(app, ["profile", "create", "research"]).exit_code == 0
+    assert cli.invoke(app, ["profile", "switch", "research"]).exit_code == 0
+    for name in ("unknown", "AUX", "../outside"):
+        assert cli.invoke(app, ["profile", "switch", name]).exit_code != 0
+    assert cli.invoke(app, ["profile", "current"]).output.strip() == "research"
+
+    with monkeypatch.context() as env:
+        env.setenv("ISAAC_PROFILE", "default")
+        assert cli.invoke(app, ["profile", "current"]).output.strip() == "default"
+    assert cli.invoke(app, ["profile", "current"]).output.strip() == "research"
+
+
+def test_profile_switch_isolates_config_secrets_skills_memory_and_kanban(runner, tmp_path):
+    import os
+    import subprocess
+
+    cli, app = runner
+    roots = {}
+    for name in ("research", "coding"):
+        result = cli.invoke(app, ["profile", "create", name])
+        assert result.exit_code == 0, result.output
+        roots[name] = tmp_path / ".isaac" / "profiles" / name
+        (roots[name] / ".env").write_text(
+            f"ISAAC_EMAIL_SMTP_PASSWORD={name}-test-secret\nISAAC_MODEL_NAME={name}-model\n"
+            f"OPENAI_API_KEY={name}-test-key\n",
+            encoding="utf-8",
+        )
+        profiles.save_profile_overrides(name, {"agent_name": name})
+
+    probe = """
+import sys
+from pathlib import Path
+from isaac.background.kanban import get_board
+from isaac.config.settings import get_settings
+from isaac.memory.long_term import LongTermMemory
+from isaac.memory.skill_library import SkillLibrary
+
+name, home = sys.argv[1], Path(sys.argv[2])
+settings = get_settings()
+assert settings.agent_name == name
+assert settings.email_smtp_password == name + '-test-secret'
+assert settings.openai_api_key == name + '-test-key'
+assert settings.llm.model_name == name + '-model'
+assert settings.isaac_home == home
+assert settings.skills_dir == home / 'skills'
+assert SkillLibrary(settings.skills_dir).list_names() == []
+with LongTermMemory() as memory:
+    assert (home / 'long_term_memory.db').is_file()
+    assert memory.size == 0
+    memory.remember(name)
+board = get_board()
+assert board.db_path == home / 'kanban.db'
+assert board.get_board_state()['total'] == 0
+board.create_task(name)
+board.close()
+"""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "EMAIL_SMTP_PASSWORD",
+            "ISAAC_EMAIL_SMTP_PASSWORD",
+            "ISAAC_MODEL_NAME",
+            "ISAAC_KANBAN_DB",
+            "OPENAI_API_KEY",
+            "ISAAC_OPENAI_API_KEY",
+        }
+    }
+    for name, root in roots.items():
+        result = cli.invoke(app, ["profile", "switch", name])
+        assert result.exit_code == 0, result.output
+        child = subprocess.run(
+            [sys.executable, "-c", probe, name, str(root)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert child.returncode == 0, child.stderr
+
+
 def test_config_check_accepts_valid_selected_profile(runner):
     cli, app = runner
     profiles.save_profile_overrides("work", {"llm": {"temperature": 0.5}})

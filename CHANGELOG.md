@@ -11,6 +11,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Added persistent profile selection with `isaac profile create`, `list`,
+  `current`, and `switch`. Named profiles separate dotenv, skills, memory,
+  and the default Kanban board without moving existing default-profile data.
 - Added `isaac config check` for read-only profile YAML validation and
   `isaac config edit` for validated edits that preserve comments and formatting.
 

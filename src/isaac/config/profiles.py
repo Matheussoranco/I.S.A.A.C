@@ -5,9 +5,8 @@ a ``config.yaml`` whose keys mirror the Settings schema (nested, e.g.
 ``llm: {model_name: ...}``).  Profile overrides are layered on top of
 environment variables and defaults (precedence: profile > env > default).
 
-The active profile is chosen via the ``ISAAC_PROFILE`` env var
-(default ``"default"``).  ``ISAAC_HOME``, when set, relocates the
-``~/.isaac`` root — mostly useful for hermetic tests.
+An explicit ``ISAAC_PROFILE`` overrides the saved selection. ``ISAAC_HOME``
+relocates the installation root, not an individual profile.
 """
 
 from __future__ import annotations
@@ -25,6 +24,10 @@ DEFAULT_PROFILE = "default"
 
 _MAX_PROFILE_NAME_LENGTH = 64
 _INVALID_PROFILE_CHARS = frozenset('/\\:*?"<>|')
+_RESERVED_PROFILE_NAMES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
+    f"{prefix}{digit}" for prefix in ("COM", "LPT") for digit in "123456789¹²³"
+}
+_runtime_profile: str | None = None
 
 
 def validate_profile_name(name: str) -> str:
@@ -35,13 +38,15 @@ def validate_profile_name(name: str) -> str:
         or len(name) > _MAX_PROFILE_NAME_LENGTH
         or name.startswith(".")
         or name.endswith((".", " "))
+        or (name.casefold() == DEFAULT_PROFILE and name != DEFAULT_PROFILE)
+        or name.split(".", 1)[0].rstrip().upper() in _RESERVED_PROFILE_NAMES
         or any(char in _INVALID_PROFILE_CHARS or ord(char) < 32 for char in name)
     ):
         raise ValueError(f"Invalid profile name: {name!r}")
     return name
 
 
-def _isaac_root() -> Path:
+def isaac_root() -> Path:
     """Root ISAAC data dir; honours ISAAC_HOME for tests/sandboxes."""
     override = (os.environ.get("ISAAC_HOME") or os.environ.get("ISAAC_ISAAC_HOME") or "").strip()
     if override:
@@ -50,14 +55,34 @@ def _isaac_root() -> Path:
 
 
 def get_active_profile() -> str:
-    """Return the active profile name (``ISAAC_PROFILE`` or ``"default"``)."""
-    return (os.environ.get("ISAAC_PROFILE") or "").strip() or DEFAULT_PROFILE
+    """Return the pinned, environment-selected, or saved profile, in that order."""
+    if _runtime_profile is not None:
+        return _runtime_profile
+    explicit = os.environ.get("ISAAC_PROFILE", "").strip()
+    if explicit:
+        return validate_profile_name(explicit)
+    try:
+        saved = (isaac_root() / "active_profile").read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return DEFAULT_PROFILE
+    except (OSError, UnicodeError):
+        raise ProfileConfigError("Could not read the saved profile selection.") from None
+    return _existing_profile(saved)
+
+
+def pin_active_profile() -> None:
+    """Keep a running CLI process on its startup profile until it exits."""
+    global _runtime_profile
+    _runtime_profile = get_active_profile()
 
 
 def profile_dir(name: str, *, create: bool = True) -> Path:
     """Return the directory for profile *name*, optionally creating it."""
     name = validate_profile_name(name)
-    d = _isaac_root() / "profiles" / name
+    root = isaac_root().resolve() / "profiles"
+    d = root / name
+    if d.resolve() != d:
+        raise ProfileConfigError("Profile directories must not be filesystem links.")
     if create:
         d.mkdir(parents=True, exist_ok=True)
     return d
@@ -70,10 +95,28 @@ def profile_config_path(name: str, *, create: bool = True) -> Path:
 
 def list_profiles() -> list[str]:
     """List profile names (subdirs of ``~/.isaac/profiles/``)."""
-    root = _isaac_root() / "profiles"
+    root = isaac_root().resolve() / "profiles"
     if not root.is_dir():
         return []
-    return sorted(p.name for p in root.iterdir() if p.is_dir())
+    if root.resolve() != root:
+        raise ProfileConfigError("Profile directories must not be filesystem links.")
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and p.resolve() == p)
+
+
+def _existing_profile(name: str) -> str:
+    if not name.strip():
+        raise ProfileConfigError("A profile name is required.")
+    name = validate_profile_name(name)
+    if name != DEFAULT_PROFILE and not profile_dir(name, create=False).is_dir():
+        raise ProfileConfigError("Profile does not exist. Create it with 'isaac profile create'.")
+    return name
+
+
+def switch_profile(name: str) -> str:
+    """Save the profile for future processes without changing a running agent."""
+    name = _existing_profile(name)
+    write_text(isaac_root() / "active_profile", f"{name}\n", overwrite=True)
+    return name
 
 
 class _ProfileLoader(yaml.SafeLoader):

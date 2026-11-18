@@ -35,7 +35,6 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -245,12 +244,9 @@ def _llm_critic(
 
 def load_constitution() -> list[str]:
     """Load the constitution from disk if present, else built-in default."""
-    try:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        path = get_settings().isaac_home / "security" / "constitution.json"
-    except Exception:
-        path = Path.home() / ".isaac" / "security" / "constitution.json"
+    path = get_settings().isaac_home / "security" / "constitution.json"
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
