@@ -31,17 +31,12 @@ class LongTermMemory:
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         if db_path is None or not str(db_path).strip():
-            try:
-                from isaac.config.settings import settings
+            from isaac.config.settings import get_settings
 
-                configured = str(settings.memory_db_path).strip()
-                db_path = (
-                    Path(configured).expanduser()
-                    if configured
-                    else settings.isaac_home / "long_term_memory.db"
-                )
-            except Exception:
-                db_path = Path.home() / ".isaac" / "long_term_memory.db"
+            settings = get_settings()
+            db_path = str(settings.memory_db_path).strip() or (
+                settings.isaac_home / "long_term_memory.db"
+            )
 
         self._db_path = Path(db_path).expanduser()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)

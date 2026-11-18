@@ -94,12 +94,9 @@ class AuditLog:
         self._prev_hash = _GENESIS_HASH
 
         if log_dir is None:
-            try:
-                from isaac.config.settings import get_settings
+            from isaac.config.settings import get_settings
 
-                log_dir = get_settings().isaac_home / "audit"
-            except Exception:
-                log_dir = Path.home() / ".isaac" / "audit"
+            log_dir = get_settings().isaac_home / "audit"
 
         log_dir.mkdir(parents=True, exist_ok=True)
         self._log_path = log_dir / "audit.jsonl"

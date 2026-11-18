@@ -12,6 +12,10 @@ relocates the installation root, not an individual profile.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +32,11 @@ _RESERVED_PROFILE_NAMES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
     f"{prefix}{digit}" for prefix in ("COM", "LPT") for digit in "123456789¹²³"
 }
 _runtime_profile: str | None = None
+_scoped_profile: ContextVar[str | None] = ContextVar("scoped_profile", default=None)
+
+
+class _SaveMode(Enum):
+    UNCONDITIONAL = 0
 
 
 def validate_profile_name(name: str) -> str:
@@ -55,7 +64,10 @@ def isaac_root() -> Path:
 
 
 def get_active_profile() -> str:
-    """Return the pinned, environment-selected, or saved profile, in that order."""
+    """Return the scoped, pinned, environment-selected, or saved profile."""
+    scoped = _scoped_profile.get()
+    if scoped is not None:
+        return scoped
     if _runtime_profile is not None:
         return _runtime_profile
     explicit = os.environ.get("ISAAC_PROFILE", "").strip()
@@ -71,9 +83,19 @@ def get_active_profile() -> str:
 
 
 def pin_active_profile() -> None:
-    """Keep a running CLI process on its startup profile until it exits."""
+    """Keep a running process on its startup profile until it exits."""
     global _runtime_profile
     _runtime_profile = get_active_profile()
+
+
+@contextmanager
+def use_profile(profile: str) -> Iterator[None]:
+    """Bind a running interface's startup profile for the current context."""
+    token = _scoped_profile.set(profile)
+    try:
+        yield
+    finally:
+        _scoped_profile.reset(token)
 
 
 def profile_dir(name: str, *, create: bool = True) -> Path:
@@ -200,20 +222,28 @@ def save_profile_yaml(name: str, content: bytes, *, expected: bytes | None) -> b
     if content == (expected or b""):
         return False
     path = profile_config_path(name)
-    with process_file_lock(path.with_suffix(".lock")):
-        if _read_profile_file(path) != expected:
-            raise ProfileConfigError("config.yaml changed while editing. Run config edit again.")
-        publish_file(path, lambda stream: stream.write(content), overwrite=expected is not None)
+    _publish_profile_yaml(path, content, expected)
     return True
 
 
-def save_profile_overrides(name: str, data: dict[str, Any]) -> Path:
-    """Validate and atomically replace the profile's YAML."""
+def _publish_profile_yaml(path: Path, content: bytes, expected: bytes | None | _SaveMode) -> None:
+    with process_file_lock(path.with_suffix(".lock")):
+        if expected is not _SaveMode.UNCONDITIONAL and _read_profile_file(path) != expected:
+            raise ProfileConfigError("config.yaml changed while editing. Review it and try again.")
+        publish_file(path, lambda stream: stream.write(content), overwrite=expected is not None)
+
+
+def save_profile_overrides(
+    name: str,
+    data: dict[str, Any],
+    *,
+    expected: bytes | None | _SaveMode = _SaveMode.UNCONDITIONAL,
+) -> Path:
+    """Validate and replace profile YAML, optionally requiring a matching snapshot."""
     validate_profile_overrides(data)
     path = profile_config_path(name)
-    content = yaml.safe_dump(data, sort_keys=True, allow_unicode=True)
-    with process_file_lock(path.with_suffix(".lock")):
-        write_text(path, content, overwrite=True)
+    content = yaml.safe_dump(data, sort_keys=True, allow_unicode=True).encode("utf-8")
+    _publish_profile_yaml(path, content, expected)
     return path
 
 

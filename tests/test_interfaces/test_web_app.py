@@ -71,6 +71,34 @@ def test_index_and_status_do_not_expose_secrets(tmp_path) -> None:
     assert "api_key" not in status.text.lower()
 
 
+def test_app_keeps_startup_profile_after_saved_switch(tmp_path, monkeypatch) -> None:
+    from isaac.config import profiles
+    from isaac.config.settings import clear_settings_cache
+
+    monkeypatch.setenv("ISAAC_HOME", str(tmp_path))
+    monkeypatch.delenv("ISAAC_PROFILE", raising=False)
+    for name in ("research", "coding"):
+        profiles.save_profile_overrides(name, {"agent_name": name})
+
+    def configured(provider: str) -> bool:
+        return provider == "openai" and profiles.get_active_profile() == "research"
+
+    monkeypatch.setattr(web_app_module, "credential_available", configured)
+    profiles.switch_profile("research")
+    try:
+        research = TestClient(_app(tmp_path))
+        profiles.switch_profile("coding")
+        coding = TestClient(_app(tmp_path))
+
+        assert research.get("/api/status").json()["name"] == "research"
+        assert research.get("/api/status").json()["openai_configured"] is True
+        assert coding.get("/api/status").json()["name"] == "coding"
+        assert coding.get("/api/status").json()["openai_configured"] is False
+        assert profiles.get_active_profile() == "coding"
+    finally:
+        clear_settings_cache()
+
+
 def test_agent_ui_uses_masculine_copy(tmp_path) -> None:
     client = TestClient(_app(tmp_path))
 

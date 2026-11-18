@@ -71,12 +71,9 @@ class TokenStore:
 
     def __init__(self, store_path: Path | None = None) -> None:
         if store_path is None:
-            try:
-                from isaac.config.settings import get_settings
+            from isaac.config.settings import get_settings
 
-                store_path = get_settings().isaac_home / "security" / "tokens.json"
-            except Exception:
-                store_path = Path.home() / ".isaac" / "security" / "tokens.json"
+            store_path = get_settings().isaac_home / "security" / "tokens.json"
 
         self._path = store_path
         self._path.parent.mkdir(parents=True, exist_ok=True)

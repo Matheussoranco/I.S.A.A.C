@@ -38,12 +38,9 @@ _REQUIRED_PERSONALITY = "personality"
 
 
 def _isaac_home() -> Path:
-    try:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        return Path(get_settings().isaac_home)
-    except Exception:  # pragma: no cover - settings should always load
-        return Path.home() / ".isaac"
+    return get_settings().isaac_home
 
 
 def personas_dir() -> Path:

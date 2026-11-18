@@ -23,10 +23,12 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from isaac.agents.agent_loop import AgentLoop, build_default_agent
 from isaac.agents.computer_agent import ComputerAgentRunner
 from isaac.agents.trace import TraceStore
+from isaac.config.profiles import get_active_profile, use_profile
 from isaac.config.settings import get_settings
 from isaac.interfaces.conversation_store import ConversationStore
 from isaac.interfaces.desktop_api import router as desktop_router
@@ -154,6 +156,16 @@ def create_app(
     )
 
 
+class _StartupProfileMiddleware:
+    def __init__(self, app: ASGIApp, *, profile: str) -> None:
+        self.app = app
+        self.profile = profile
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        with use_profile(self.profile):
+            await self.app(scope, receive, send)
+
+
 def _create_app(
     *,
     agent_builder: AgentBuilder = build_default_agent,
@@ -161,11 +173,14 @@ def _create_app(
     conversation_store: ConversationStore | None = None,
     llm_builder: ProfileLLMBuilder = build_llm_for_profile,
 ) -> FastAPI:
-    settings = get_settings()
+    profile = get_active_profile()
+    with use_profile(profile):
+        settings = get_settings()
     store = conversation_store or ConversationStore(
         settings.isaac_home / "ui" / "conversations.sqlite3"
     )
     app = FastAPI(title=_APP_TITLE, version=_APP_VERSION, docs_url=None, redoc_url=None)
+    app.add_middleware(_StartupProfileMiddleware, profile=profile)
     app.mount("/assets", StaticFiles(directory=_ASSETS), name="assets")
     app.include_router(desktop_router)
 

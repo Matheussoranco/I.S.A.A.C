@@ -24,6 +24,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Prevent `isaac config set` and `unset` from overwriting newer profile saves.
+- Keep running desktop sessions on their startup profile and stop opening
+  default-profile storage when a named profile's settings cannot be loaded.
 - Validate profile YAML in the CLI, dashboard, and runtime. Keep credential
   fields out of profile files and preserve existing files on invalid edits.
 - Enforced scoped, expiring capability tokens at agent-tool and connector

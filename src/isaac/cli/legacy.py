@@ -1695,8 +1695,10 @@ if TYPE_CHECKING or typer is not None:
             get_active_profile,
             list_profiles,
             load_profile_overrides,
+            parse_profile_yaml,
             profile_config_path,
             profile_dir,
+            read_profile_yaml,
             save_profile_overrides,
             sniff_scalar,
         )
@@ -1765,10 +1767,18 @@ if TYPE_CHECKING or typer is not None:
             typer.echo(f"Created profile '{name}' at {created}")
             return
 
+        snapshot = None
         try:
-            data = load_profile_overrides(active, strict=True)
-        except ProfileConfigError as exc:
-            typer.echo(str(exc), err=True)
+            if act in {"set", "unset"}:
+                snapshot = read_profile_yaml(active)
+                data = parse_profile_yaml(snapshot or b"")
+            else:
+                data = load_profile_overrides(active, strict=True)
+        except (ValueError, OSError) as exc:
+            detail = (
+                str(exc) if isinstance(exc, ProfileConfigError) else "Could not read config.yaml."
+            )
+            typer.echo(detail, err=True)
             raise typer.Exit(1) from exc
 
         if act in {"set", "unset"}:
@@ -1791,7 +1801,7 @@ if TYPE_CHECKING or typer is not None:
             else:
                 node.pop(parts[-1], None)
             try:
-                save_profile_overrides(active, data)
+                save_profile_overrides(active, data, expected=snapshot)
             except ProfileConfigError as exc:
                 typer.echo(str(exc), err=True)
                 raise typer.Exit(2) from exc
