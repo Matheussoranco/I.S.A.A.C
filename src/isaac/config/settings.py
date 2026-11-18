@@ -469,7 +469,7 @@ class Settings(BaseSettings):
 # Lazy module-level singleton — use get_settings(); ``settings`` stays as a
 # backwards-compatible alias resolved via PEP 562 __getattr__ so importing
 # this module never constructs Settings (nor emits warnings) as a side effect.
-_settings: Settings | None = None
+_settings: tuple[str, Settings] | None = None
 
 
 def _deep_merge(base: Any, override: Any) -> Any:
@@ -563,30 +563,33 @@ def clear_settings_cache() -> None:
 
 
 def get_settings() -> Settings:
-    """Return the process-wide Settings singleton (created on first use).
+    """Return the cached settings for the active profile.
 
     The workspace directory (``allowed_paths[0]`` when it is the default
     ``~/.isaac/workspace``) is created here so import has no filesystem
     side effects.
     """
-    global _settings
-    if _settings is None:
-        from isaac.config.profiles import get_active_profile
+    from isaac.config.profiles import get_active_profile
 
-        _settings = load_profile_settings(get_active_profile())
+    global _settings
+    profile = get_active_profile()
+    cached = _settings
+    if cached is None or cached[0] != profile:
+        active = load_profile_settings(profile)
         try:
-            for p in _settings.allowed_paths:
+            for p in active.allowed_paths:
                 pp = Path(p)
                 try:
-                    if pp.resolve().is_relative_to(_settings.isaac_home):
+                    if pp.resolve().is_relative_to(active.isaac_home):
                         pp.mkdir(parents=True, exist_ok=True)
                 except Exception:
-                    if str(pp).startswith(str(_settings.isaac_home)):
+                    if str(pp).startswith(str(active.isaac_home)):
                         pp.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
+        cached = _settings = (profile, active)
     warn_on_legacy_env()
-    return _settings
+    return cached[1]
 
 
 def __getattr__(name: str):

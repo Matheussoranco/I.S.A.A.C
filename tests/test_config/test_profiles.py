@@ -360,6 +360,74 @@ def test_named_profiles_do_not_share_keyring_credentials(monkeypatch):
     assert get_credential("openai") == "default-test-key"
 
 
+@pytest.mark.parametrize(
+    ("dotenv_key", "exported_key", "keyring_key", "expected"),
+    [
+        ("dotenv-test-key", "", "keyring-test-key", "dotenv-test-key"),
+        ("dotenv-test-key", "exported-test-key", "keyring-test-key", "exported-test-key"),
+        ("changeme", "", "keyring-test-key", "keyring-test-key"),
+        ("changeme", "", "", ""),
+    ],
+)
+def test_cloud_stt_and_availability_use_the_same_profile_credential(
+    monkeypatch, tmp_path, dotenv_key, exported_key, keyring_key, expected
+):
+    from types import SimpleNamespace
+
+    from isaac.multimodal.voice.stt import STTManager
+    from isaac.security.credentials import credential_available, get_credential, set_credential
+
+    monkeypatch.delenv("ISAAC_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    passwords = {}
+    monkeypatch.setitem(
+        sys.modules,
+        "keyring",
+        SimpleNamespace(
+            get_password=lambda service, provider: passwords.get((service, provider)),
+            set_password=lambda service, provider, value: passwords.update(
+                {(service, provider): value}
+            ),
+        ),
+    )
+    set_credential("openai", "default-test-key")
+    profile = profiles.profile_dir("research")
+    (profile / ".env").write_text(f"ISAAC_OPENAI_API_KEY={dotenv_key}\n", encoding="utf-8")
+    profiles.switch_profile("research")
+    if keyring_key:
+        set_credential("openai", keyring_key)
+    if exported_key:
+        monkeypatch.setenv("OPENAI_API_KEY", exported_key)
+
+    # Disable only the local backend and replace the remote SDK at its boundary.
+    monkeypatch.setattr("isaac.multimodal.voice.stt.WhisperModel", None)
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key):
+            assert api_key == expected
+            self.audio = SimpleNamespace(
+                transcriptions=SimpleNamespace(create=lambda **_: SimpleNamespace(text="heard"))
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    audio = tmp_path / "prompt.wav"
+    audio.write_bytes(b"test audio")
+    assert get_credential("openai") == expected
+    assert credential_available("openai") is bool(expected)
+    stt = STTManager()
+    if expected:
+        assert stt.transcribe(audio) == "heard"
+    else:
+        with pytest.raises(RuntimeError, match="All STT providers failed"):
+            stt.transcribe(audio)
+
+
 def test_profile_switch_preserves_selection_on_error_and_respects_env(runner, monkeypatch):
     cli, app = runner
     assert cli.invoke(app, ["profile", "create", "research"]).exit_code == 0
@@ -442,6 +510,34 @@ board.close()
             timeout=30,
         )
         assert child.returncode == 0, child.stderr
+
+
+@pytest.mark.parametrize("store", ["kanban", "long_term_memory", "user_profile"])
+def test_profile_storage_fails_closed_on_invalid_dotenv(store, tmp_path, monkeypatch):
+    from isaac.background.kanban import KanbanBoard
+    from isaac.config.settings import ProfileConfigError
+    from isaac.memory.long_term import LongTermMemory
+    from isaac.memory.user_profile import UserProfile
+
+    default_home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: default_home)
+    monkeypatch.delenv("ISAAC_KANBAN_DB", raising=False)
+    monkeypatch.delenv("ISAAC_HEARTBEAT_INTERVAL_MINUTES", raising=False)
+    profile = profiles.profile_dir("research")
+    (profile / ".env").write_text("ISAAC_HEARTBEAT_INTERVAL_MINUTES=invalid\n", encoding="utf-8")
+    profiles.switch_profile("research")
+
+    open_store = {
+        "kanban": KanbanBoard,
+        "long_term_memory": LongTermMemory,
+        "user_profile": UserProfile,
+    }[store]
+    with pytest.raises(ProfileConfigError, match="Invalid environment settings"):
+        # Close any unexpectedly opened SQLite store, including when testing the old behavior.
+        opened = open_store()
+        if isinstance(opened, (KanbanBoard, LongTermMemory)):
+            opened.close()
+    assert not default_home.exists()
 
 
 def test_config_check_accepts_valid_selected_profile(runner):
@@ -572,6 +668,22 @@ def test_config_edit_preserves_a_save_made_while_editor_is_open(runner, config_e
     assert result.exit_code == 1
     assert "changed while editing" in result.output
     assert path.read_bytes() == b"agent_name: Concurrent\n"
+
+
+def test_config_set_does_not_overwrite_a_newer_save(runner, monkeypatch):
+    cli, app = runner
+    profiles.save_profile_overrides("default", {"agent_name": "Before"})
+
+    def parse_after_concurrent_save(value):
+        profiles.save_profile_overrides("default", {"agent_name": "Concurrent"})
+        return float(value)
+
+    monkeypatch.setattr(profiles, "sniff_scalar", parse_after_concurrent_save)
+    result = cli.invoke(app, ["config", "set", "llm.temperature", "0.4"])
+
+    assert result.exit_code != 0
+    assert "changed while editing" in result.output
+    assert profiles.load_profile_overrides("default") == {"agent_name": "Concurrent"}
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows system editor")

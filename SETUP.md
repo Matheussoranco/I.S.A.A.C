@@ -94,8 +94,8 @@ editor paths that contain spaces and use a wait flag when required by
 the editor. The draft replaces the profile file only after the editor
 exits successfully and the draft passes validation. Comments and formatting
 are preserved; invalid drafts are discarded, not written to the profile.
-If another I.S.A.A.C. process saves the profile while you are editing, rerun
-`edit` against the saved version.
+If another I.S.A.A.C. process saves the profile after `edit`, `set`, or `unset`
+reads it, the stale change is rejected. Review the saved file and try again.
 
 Use `edit` to repair invalid YAML, including duplicate keys. Move any
 credential to `.env` before removing it from the YAML. The runtime ignores

@@ -31,6 +31,8 @@ from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
+from isaac.security.credentials import is_usable_key
+
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -298,23 +300,6 @@ def get_llm(tier: ModelTier = "default") -> BaseChatModel:
     raise ValueError(msg)
 
 
-def _usable_key(value: str) -> bool:
-    value = value.strip().lower()
-    return bool(value) and value not in {
-        "...",
-        "changeme",
-        "change-me",
-        "your-api-key",
-        "your_api_key",
-        "sk-...",
-        "sk-your-key-here",
-        "your-key-here",
-        "not-needed",
-        "none",
-        "null",
-    }
-
-
 def _local_endpoint(base_url: str) -> bool:
     try:
         parsed = urlsplit(base_url)
@@ -333,11 +318,11 @@ def provider_api_key(provider: str, settings: Any) -> str:
     from isaac.security.credentials import get_credential
 
     value = getattr(settings, f"{provider}_api_key", "").strip()
-    if not _usable_key(value):
+    if not is_usable_key(value):
         value = get_credential(provider)
     base_url = settings.llm.base_url if provider == "openai" else ""
     _require_key(value, provider, f"{provider.upper()}_API_KEY", base_url=base_url)
-    return value.strip() if _usable_key(value) else "not-needed"
+    return value.strip() if is_usable_key(value) else "not-needed"
 
 
 def _require_key(value: str, provider: str, env_var: str, *, base_url: str | None = None) -> None:
@@ -345,7 +330,7 @@ def _require_key(value: str, provider: str, env_var: str, *, base_url: str | Non
         from isaac.config.settings import settings
 
         base_url = settings.llm.base_url
-    if _usable_key(value):
+    if is_usable_key(value):
         return
     if provider == "openai" and _local_endpoint(base_url):
         return

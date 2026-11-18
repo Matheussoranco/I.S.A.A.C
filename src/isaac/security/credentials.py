@@ -8,19 +8,45 @@ _SERVICE = "I.S.A.A.C. Agent"
 _ENV_NAMES = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
 
 
+def is_usable_key(value: str) -> bool:
+    """Reject blank credentials and known placeholders."""
+    value = value.strip().lower()
+    return bool(value) and value not in {
+        "...",
+        "changeme",
+        "change-me",
+        "your-api-key",
+        "your_api_key",
+        "sk-...",
+        "sk-your-key",
+        "sk-your-key-here",
+        "your-key-here",
+        "not-needed",
+        "none",
+        "null",
+    }
+
+
 def get_credential(provider: str) -> str:
-    """Return an exported credential first, then the active profile's keyring value."""
+    """Resolve a provider credential from the environment, profile, or keyring."""
+    from isaac.config.settings import get_settings
+
     provider = _validated_provider(provider)
-    from_env = os.environ.get(_ENV_NAMES[provider], "").strip()
-    if from_env:
-        return from_env
+    for name in (f"ISAAC_{_ENV_NAMES[provider]}", _ENV_NAMES[provider]):
+        exported = os.environ.get(name, "").strip()
+        if is_usable_key(exported):
+            return exported
+    configured = getattr(get_settings(), f"{provider}_api_key").strip()
+    if is_usable_key(configured):
+        return configured
     service = _profile_service()
     try:
         import keyring
 
-        return (keyring.get_password(service, provider) or "").strip()
+        stored = (keyring.get_password(service, provider) or "").strip()
     except Exception:
         return ""
+    return stored if is_usable_key(stored) else ""
 
 
 def set_credential(provider: str, value: str) -> None:
@@ -48,11 +74,8 @@ def set_credential(provider: str, value: str) -> None:
 
 
 def credential_available(provider: str) -> bool:
-    """Return whether the provider has a credential in the active profile."""
-    from isaac.config.settings import get_settings
-
-    provider = _validated_provider(provider)
-    return bool(getattr(get_settings(), f"{provider}_api_key").strip() or get_credential(provider))
+    """Return whether a usable credential exists for the provider in the active profile."""
+    return bool(get_credential(provider))
 
 
 def _profile_service() -> str:
