@@ -269,7 +269,6 @@ class PerformanceTracker:
             if runs == 0 or not task_type:
                 continue
             wins = int(wins or 0)
-            losses = runs - wins
             # Posterior mean of Beta(alpha + wins, beta + losses)
             post_mean = (alpha + wins) / (alpha + beta + runs)
             if skill_name not in result:
