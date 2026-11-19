@@ -2113,7 +2113,59 @@ def kanban_cmd(
     limit: int = typer.Option(0, "--limit", "-l", help="Limit results"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ) -> None:
-    """Kanban board management: init/create/list/show/assign/complete/block/stats."""
+    """
+    Kanban board management command.
+
+    Manages SQLite-backed task boards with support for:
+    - Board creation and listing
+    - Column management
+    - Task CRUD operations with priorities, assignees, due dates, tags
+    - Task dependencies and blocking
+    - Worker claims with stale detection and reclamation
+    - Comments on tasks
+    - Board statistics
+
+    Args:
+        action: Subcommand to execute. One of:
+            init/create/new  - Create a new board (requires --name)
+            board/boards/list - Show board info or list all boards
+            column/columns/cols - List columns or create new column (--title)
+            task/tasks/show - Create task (--title), show task, update, move, list
+            assign/complete/block/unblock - Task state transitions
+            dep/depends/dependency - Add task dependency (--title)
+            rmdep/removedep - Remove task dependency (--title)
+            claim/claims - Claim task for worker (--worker, --profile)
+            release/unclaim - Release claim on task
+            reclaim-stale - Reclaim all stale claims
+            comment/comments - Add comment (--body) or list comments
+            stats/statistics - Show board statistics
+        name: Board name, task ID, or column name depending on action
+        db: Path to kanban database file (default: ~/.isaac/kanban.db)
+        title: Task title (for create) or dependency target task ID
+        description: Task description
+        priority: Task priority (higher = more urgent)
+        assignee: Assignee name for task
+        due: Due date in YYYY-MM-DD format
+        tags: Comma-separated tags
+        column: Column name for move operations
+        worker: Worker ID for claim operations
+        profile: Worker profile for claim (default: "default")
+        stale_minutes: Minutes after which a claim is considered stale (default: 60)
+        body: Comment body text
+        author: Comment author (default: "cli")
+        json_output: Output results as JSON
+        limit: Limit number of results
+        verbose: Enable verbose output
+
+    Examples:
+        isaac kanban init my-board
+        isaac kanban board my-board
+        isaac kanban task my-board --title "New task" --priority 5
+        isaac kanban task TASK-123 --column done
+        isaac kanban claim TASK-123 --worker worker-1 --profile coder
+        isaac kanban comment TASK-123 --body "Working on this"
+        isaac kanban stats my-board --json
+    """
     import json as _json
     from pathlib import Path as _Path
 
