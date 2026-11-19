@@ -48,9 +48,11 @@ CREATE TABLE IF NOT EXISTS skill_runs (
     duration_ms  REAL    NOT NULL,
     success      INTEGER NOT NULL,
     error        TEXT    NOT NULL DEFAULT '',
-    task_context TEXT    NOT NULL DEFAULT ''
+    task_context TEXT    NOT NULL DEFAULT '',
+    task_type    TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_skill_runs_name ON skill_runs(skill_name);
+CREATE INDEX IF NOT EXISTS idx_skill_runs_type ON skill_runs(task_type);
 
 CREATE TABLE IF NOT EXISTS prompt_runs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,28 +129,30 @@ class PerformanceTracker:
             self._conn.commit()
 
     def record_skill(
-        self,
-        skill_name: str,
-        duration_ms: float,
-        success: bool | None,
-        error: str = "",
-        task_context: str = "",
-    ) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO skill_runs "
-                "(ts, skill_name, duration_ms, success, error, task_context) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    time.time(),
-                    skill_name,
-                    duration_ms,
-                    -1 if success is None else int(success),
-                    error[:500],
-                    task_context[:500],
-                ),
-            )
-            self._conn.commit()
+            self,
+            skill_name: str,
+            duration_ms: float,
+            success: bool | None,
+            error: str = "",
+            task_context: str = "",
+            task_type: str = "",
+        ) -> None:
+            with self._lock:
+                self._conn.execute(
+                    "INSERT INTO skill_runs "
+                    "(ts, skill_name, duration_ms, success, error, task_context, task_type) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        time.time(),
+                        skill_name,
+                        duration_ms,
+                        -1 if success is None else int(success),
+                        error[:500],
+                        task_context[:500],
+                        task_type[:100],
+                    ),
+                )
+                self._conn.commit()
 
     def record_prompt(
         self,
@@ -233,6 +237,62 @@ class PerformanceTracker:
                 )
                 for name, runs, sr, avg_d, last_ts in rows
             ]
+
+    def skill_stats_by_type(
+        self, since_ts: float = 0.0, alpha: float = 1.0, beta: float = 1.0
+    ) -> dict[str, dict[str, float]]:
+        """Return hierarchical Bayesian win-rates per (skill, task_type).
+
+        Uses a Beta(alpha, beta) prior for each skill's win-rate per task type.
+        The posterior is Beta(alpha + wins, beta + losses). Returns the posterior
+        mean for each (skill, task_type) pair.
+
+        Args:
+            since_ts: Only consider runs after this timestamp.
+            alpha: Prior pseudo-count for successes (default 1.0 = uniform).
+            beta: Prior pseudo-count for failures (default 1.0 = uniform).
+
+        Returns:
+            Dict mapping skill_name -> {task_type: posterior_mean_win_rate}.
+            Task types with zero runs are omitted.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT skill_name, task_type, COUNT(*) runs, SUM(success) wins "
+                "FROM skill_runs WHERE ts >= ? AND success >= 0 "
+                "GROUP BY skill_name, task_type",
+                (since_ts,),
+            ).fetchall()
+
+        result: dict[str, dict[str, float]] = {}
+        for skill_name, task_type, runs, wins in rows:
+            if runs == 0 or not task_type:
+                continue
+            wins = int(wins or 0)
+            losses = runs - wins
+            # Posterior mean of Beta(alpha + wins, beta + losses)
+            post_mean = (alpha + wins) / (alpha + beta + runs)
+            if skill_name not in result:
+                result[skill_name] = {}
+            result[skill_name][task_type] = post_mean
+
+        return result
+
+    def task_type_summary(self, since_ts: float = 0.0) -> dict[str, dict]:
+        """Return summary statistics per task type across all skills."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT task_type, COUNT(*) runs, AVG(success) sr, "
+                "COUNT(DISTINCT skill_name) skills "
+                "FROM skill_runs WHERE ts >= ? AND success >= 0 AND task_type <> '' "
+                "GROUP BY task_type ORDER BY runs DESC",
+                (since_ts,),
+            ).fetchall()
+
+        return {
+            task_type: {"runs": runs, "success_rate": float(sr or 0.0), "skills": skills}
+            for task_type, runs, sr, skills in rows
+        }
 
     def prompt_leaderboard(self, prompt_id: str) -> list[tuple[str, float, int]]:
         """Return ``[(variant, score, runs), ...]`` for a prompt."""
