@@ -606,9 +606,35 @@ def get_board_stats(db_path: Path, board_id: str) -> BoardStats:
         )
 
 
-# High-level board initialization
+# Dispatcher exports
+from isaac.kanban.dispatcher import (
+    WorkerProfile,
+    WorkerRegistry,
+    get_worker_registry,
+    TaskGateway,
+    LoggingGateway,
+    HTTPGateway,
+    Dispatcher,
+    DispatchConfig,
+    get_dispatcher,
+    start_dispatcher,
+    stop_dispatcher,
+    run_dispatcher_once,
+)
 
-def init_kanban_board(db_path: Path, name: str) -> tuple[Board, list[Column]]:
+__all__ = [
+    "Board", "Column", "Task", "Claim", "Comment", "BoardStats",
+    "init_db", "init_kanban_board", "create_board", "get_board", "list_boards",
+    "get_columns", "create_column", "create_task", "get_task", "list_tasks",
+    "move_task", "update_task", "add_task_dep", "remove_task_dep",
+    "get_task_deps", "get_dependents", "claim_task", "release_claim",
+    "release_task_claims", "get_active_claim", "reclaim_stale_claims",
+    "is_claim_stale", "add_comment", "get_comments", "get_board_stats",
+    "WorkerProfile", "WorkerRegistry", "get_worker_registry",
+    "TaskGateway", "LoggingGateway", "HTTPGateway",
+    "Dispatcher", "DispatchConfig", "get_dispatcher",
+    "start_dispatcher", "stop_dispatcher", "run_dispatcher_once",
+]
     """Create a new board with default columns."""
     board = create_board(db_path, name)
     columns = create_default_columns(db_path, board.id)
