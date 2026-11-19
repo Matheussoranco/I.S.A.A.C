@@ -2,7 +2,7 @@
 
 I.S.A.A.C. is local-first. The question that decides how well it works is not
 "which framework" but "which model, on the GPU you actually have". This page
-gives five rungs, what each one costs, and — for tool calling, the thing that
+gives four rungs, what each one costs, and — for tool calling, the thing that
 most often breaks small-model agents — what was measured rather than assumed.
 
 ```bash
@@ -19,7 +19,6 @@ isaac models use good         # prints the .env block to paste
 | Preset | Model | VRAM | Constrained decoding | Test-time samples |
 |---|---|---|---|---|
 | `minimal` | `gemma3:1b` | ~1.5 GB | **yes** (required) | 3 |
-| `small` | `qwen3.5:2b` | ~2.5 GB | no | 3 |
 | `good` | `nemotron-3-nano:4b` | ~4 GB | no | 3 |
 | `better` | `ornith:9b` | ~7 GB | no | 3 |
 | `best` | `claude-sonnet-5` (API) | — | no | 1 |
@@ -28,7 +27,8 @@ A preset pins more than a model name. It also sets the loop settings that model
 needs: a 1B model with no tool-calling support needs a grammar to be usable at
 all, while a frontier model is only slowed down by the same machinery. That is
 why `test_time_samples` drops to 1 at the top of the ladder — spend the budget
-on a stronger model instead of on resampling a weaker one.
+on a stronger model instead of on resampling a weaker one. The four rungs are:
+minimal, good, better, best.
 
 `best` is the only rung that leaves your machine. It needs `ANTHROPIC_API_KEY`
 and sends task content to a third party. `isaac models recommend` will not

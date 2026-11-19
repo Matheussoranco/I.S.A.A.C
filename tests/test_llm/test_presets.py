@@ -16,7 +16,7 @@ from isaac.llm.presets import (
 
 class TestPresetCatalogue:
     def test_the_documented_rungs_exist(self) -> None:
-        assert {"minimal", "small", "good", "better", "best"} <= set(PRESETS)
+        assert {"minimal", "good", "better", "best"} <= set(PRESETS)
 
     @pytest.mark.parametrize("name", list(PRESETS))
     def test_every_preset_is_self_consistent(self, name: str) -> None:
@@ -36,12 +36,12 @@ class TestPresetCatalogue:
             assert preset.sampling_temperature > 0
 
     def test_vram_increases_across_the_local_ladder(self) -> None:
-        ladder = [PRESETS[n].vram_gb for n in ("minimal", "small", "good", "better")]
+        ladder = [PRESETS[n].vram_gb for n in ("minimal", "good", "better")]
         assert ladder == sorted(ladder), "local rungs must be ordered by memory need"
 
     def test_only_the_api_rung_has_no_vram_figure(self) -> None:
         assert PRESETS["best"].vram_gb == 0.0
-        assert all(PRESETS[n].vram_gb > 0 for n in ("minimal", "small", "good", "better"))
+        assert all(PRESETS[n].vram_gb > 0 for n in ("minimal", "good", "better"))
 
     def test_constrained_decoding_is_on_where_tools_are_unsupported(self) -> None:
         # gemma3:1b reports no tool capability, so the envelope is mandatory.
