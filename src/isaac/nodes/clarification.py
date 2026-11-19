@@ -7,7 +7,7 @@ Sits between Perception and Planning. Looks at the perception output
 * emits a *single* concise clarifying question to the user and short-circuits
   the loop, waiting for the next user message.
 
-Why this matters: a SOTA agent must know when to *ask* rather than *guess*.
+Why this matters: a top-tier agent must know when to *ask* rather than *guess*.
 Asking once at the start prevents long, mistaken trajectories — a common
 failure mode of fully-autonomous agents.
 

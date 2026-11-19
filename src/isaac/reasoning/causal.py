@@ -20,7 +20,7 @@ available for nicer graph queries.
 
 This is not a full do-calculus engine, but it's a real causal layer that
 makes I.S.A.A.C. capable of reasoning about *why* and *what-if* — a
-distinguishing feature of SOTA neuro-symbolic systems.
+distinguishing feature of top-tier neuro-symbolic systems.
 """
 
 from __future__ import annotations
