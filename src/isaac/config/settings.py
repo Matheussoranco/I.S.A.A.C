@@ -282,6 +282,29 @@ class Settings(BaseSettings):
     Empty by default: I.S.A.A.C. never falls back to a billable cloud API
     unless you name one here."""
 
+    # Frontier fallback cost controls
+    frontier_fallback_opt_in: bool = False
+    """When True, enables automatic fallback to the configured frontier provider
+    when local models are unavailable or fail. Requires explicit opt-in to
+    prevent accidental billable API usage."""
+
+    frontier_fallback_daily_budget_usd: float = Field(default=10.0, ge=0.0, le=1000.0)
+    """Maximum daily spend in USD for frontier fallback API calls. 0 = unlimited."""
+
+    frontier_fallback_monthly_budget_usd: float = Field(default=100.0, ge=0.0, le=10000.0)
+    """Maximum monthly spend in USD for frontier fallback API calls. 0 = unlimited."""
+
+    frontier_fallback_max_tokens_per_request: int = Field(default=4096, ge=0, le=128000)
+    """Maximum output tokens per request for frontier fallback. 0 = model default."""
+
+    frontier_fallback_log_fallbacks: bool = True
+    """When True, logs every frontier fallback event with timestamp, provider,
+    model, and estimated cost."""
+
+    frontier_fallback_cost_per_1k_tokens_usd: float = Field(default=0.01, ge=0.0, le=10.0)
+    """Estimated cost per 1000 tokens for the frontier provider. Used for budget
+    enforcement and logging. Set to 0 to disable cost estimation."""
+
     # llama.cpp HTTP server
     llamacpp_base_url: str = "http://localhost:8080"
     llamacpp_model: str = "local-model"
