@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -36,6 +37,12 @@ from isaac.kanban import (
     stop_dispatcher,
     update_task,
 )
+
+
+# Dependency for kanban database path
+def get_kanban_db_path() -> Path:
+    """Get the kanban database path from settings."""
+    return get_settings().isaac_home / "kanban.db"
 
 app = FastAPI(title="I.S.A.A.C. Kanban Dashboard")
 
@@ -98,13 +105,14 @@ async def dashboard(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "dashboard.html")
 
 
+DBDep = Annotated[Path, Depends(get_kanban_db_path)]
+
 # API Routes - Boards
 
 
 @app.get("/api/boards")
-async def api_list_boards() -> list[dict]:
+async def api_list_boards(db_path: DBDep) -> list[dict]:
     """List all boards."""
-    db_path = get_settings().isaac_home / "kanban.db"
     boards = list_boards(db_path)
     return [
         {"id": b.id, "name": b.name, "created_at": b.created_at, "updated_at": b.updated_at}
@@ -113,9 +121,8 @@ async def api_list_boards() -> list[dict]:
 
 
 @app.post("/api/boards")
-async def api_create_board(board: BoardCreate) -> dict:
+async def api_create_board(board: BoardCreate, db_path: DBDep) -> dict:
     """Create a new board."""
-    db_path = get_settings().isaac_home / "kanban.db"
     board_obj, columns = init_kanban_board(db_path, board.name)
     return {
         "board": {"id": board_obj.id, "name": board_obj.name, "created_at": board_obj.created_at},
@@ -127,9 +134,8 @@ async def api_create_board(board: BoardCreate) -> dict:
 
 
 @app.get("/api/boards/{board_id}")
-async def api_get_board(board_id: str) -> dict:
+async def api_get_board(board_id: str, db_path: DBDep) -> dict:
     """Get board details."""
-    db_path = get_settings().isaac_home / "kanban.db"
     board = get_board(db_path, board_id)
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
