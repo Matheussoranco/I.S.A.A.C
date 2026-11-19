@@ -2190,12 +2190,12 @@ def kanban_cmd(
 
     if act in {"board", "boards", "list"}:
         if name:
-            board = get_board(db_path, name)
+            board = get_board(db_path, name)  # type: ignore[assignment]
             if not board:
                 typer.echo(f"Board not found: {name}")
                 raise typer.Exit(1)
             # board is guaranteed to be not None here due to the check above
-            board_ = board  # type: ignore[assignment]
+            board_ = board
             if json_output:
                 typer.echo(
                     _json.dumps(
@@ -2243,10 +2243,12 @@ def kanban_cmd(
         if not name:
             typer.echo("Board name required for column actions.")
             raise typer.Exit(2)
-        board = get_board(db_path, name)
+        board = get_board(db_path, name)  # type: ignore[assignment]
         if not board:
             typer.echo(f"Board not found: {name}")
             raise typer.Exit(1)
+        # board is guaranteed to be not None here due to the check above
+        board_ = board
         if not title:
             cols = get_columns(db_path, board.id)
             if json_output:
@@ -2304,7 +2306,7 @@ def kanban_cmd(
                 target_board.id,
                 title,
                 description,
-                priority,
+                priority if priority is not None else 0,
                 assignee or None,
                 due or None,
                 tags,
@@ -2335,9 +2337,11 @@ def kanban_cmd(
                 deps = get_task_deps(db_path, name)
                 dependents = get_dependents(db_path, name)
                 claim = get_active_claim(db_path, name)
-                comments = get_comments(db_path, name)
-                cols = {c.id: c.name for c in get_columns(db_path, target_board.id)}
-                col_name = cols.get(task.column_id, task.column_id)
+                task_comments_1: list[Comment] = get_comments(db_path, name)
+                col_names_1: dict[str, str] = {
+                    c.id: c.name for c in get_columns(db_path, target_board.id)
+                }
+                col_name = col_names_1.get(task.column_id, task.column_id)
 
                 if json_output:
                     typer.echo(
@@ -2369,7 +2373,7 @@ def kanban_cmd(
                                 else None,
                                 "comments": [
                                     {"author": c.author, "body": c.body, "created_at": c.created_at}
-                                    for c in comments
+                                    for c in task_comments_1
                                 ],
                             },
                             indent=2,
@@ -2396,15 +2400,17 @@ def kanban_cmd(
                             f"  Claimed by: {claim.worker_id} "
                             f"({claim.profile}) at {claim.claimed_at}{stale}"
                         )
-                    if comments:
+                    if task_comments_1:
                         typer.echo("  Comments:")
-                        for c in comments:
-                            body_preview = c.body[:80]
-                            suffix = "..." if len(c.body) > 80 else ""
-                            typer.echo(f"    [{c.created_at}] {c.author}: {body_preview}{suffix}")
+                        for c in task_comments_1:  # type: ignore[assignment, attr-defined]
+                            body_preview = c.body[:80]  # type: ignore[attr-defined]
+                            suffix = "..." if len(c.body) > 80 else ""  # type: ignore[attr-defined]
+                            typer.echo(f"    [{c.created_at}] {c.author}: {body_preview}{suffix}")  # type: ignore[attr-defined]
             elif column:
-                cols = {c.name.lower(): c.id for c in get_columns(db_path, target_board.id)}
-                col_id = cols.get(column.lower())
+                col_ids: dict[str, str] = {
+                    c.name.lower(): c.id for c in get_columns(db_path, target_board.id)
+                }
+                col_id = col_ids.get(column.lower())
                 if not col_id:
                     typer.echo(f"Column not found: {column}")
                     raise typer.Exit(1)
@@ -2456,9 +2462,11 @@ def kanban_cmd(
                 if not tasks:
                     typer.echo("No tasks.")
                 else:
-                    cols = {c.id: c.name for c in get_columns(db_path, board_obj.id)}
+                    col_names_2: dict[str, str] = {
+                        c.id: c.name for c in get_columns(db_path, board_obj.id)
+                    }
                     for t in tasks:
-                        col_name = cols.get(t.column_id, t.column_id)
+                        col_name = col_names_2.get(t.column_id, t.column_id)
                         blocked = " 🚫" if t.is_blocked else ""
                         typer.echo(f"  [{col_name}] {t.id} {t.title}{blocked} (prio={t.priority})")
         else:
@@ -2475,10 +2483,12 @@ def kanban_cmd(
         if not name:
             typer.echo("Task ID required.")
             raise typer.Exit(2)
-        task = get_task(db_path, name)
+        task = get_task(db_path, name)  # type: ignore[assignment]
         if not task:
             typer.echo(f"Task not found: {name}")
             raise typer.Exit(1)
+        # task is guaranteed to be not None here due to the check above
+        _ = task
 
         if act == "assign":
             if not assignee:
@@ -2548,10 +2558,10 @@ def kanban_cmd(
         return
 
     if act == "reclaim-stale":
-        reclaimed = reclaim_stale_claims(db_path)
-        typer.echo(f"Reclaimed {len(reclaimed)} stale claim(s)")
-        for c in reclaimed:
-            typer.echo(f"  {c.task_id} (was claimed by {c.worker_id})")
+        reclaimed_claims = reclaim_stale_claims(db_path)  # type: ignore[assignment]
+        typer.echo(f"Reclaimed {len(reclaimed_claims)} stale claim(s)")
+        for c in reclaimed_claims:  # type: ignore[assignment, attr-defined]
+            typer.echo(f"  {c.task_id} (was claimed by {c.worker_id})")  # type: ignore[attr-defined]
         return
 
     # Comment actions
@@ -2563,7 +2573,7 @@ def kanban_cmd(
             _ = add_comment(db_path, name, author, body)
             typer.echo(f"Added comment to task {name}")
         else:
-            comments: list[Comment] = get_comments(db_path, name)
+            task_comments_2: list[Comment] = get_comments(db_path, name)
             if json_output:
                 typer.echo(
                     _json.dumps(
@@ -2573,14 +2583,14 @@ def kanban_cmd(
                                 "body": c.body,
                                 "created_at": c.created_at,
                             }
-                            for c in comments
+                            for c in task_comments_2
                         ],
                         indent=2,
                     )
                 )
             else:
-                for c in comments:
-                    typer.echo(f"  [{c.created_at}] {c.author}: {c.body}")
+                for c in task_comments_2:  # type: ignore[assignment, attr-defined]
+                    typer.echo(f"  [{c.created_at}] {c.author}: {c.body}")  # type: ignore[attr-defined]
             return
 
     # Stats
@@ -2588,10 +2598,12 @@ def kanban_cmd(
         if not name:
             typer.echo("Board name required for stats.")
             raise typer.Exit(2)
-        board = get_board(db_path, name)
+        board = get_board(db_path, name)  # type: ignore[assignment]
         if not board:
             typer.echo(f"Board not found: {name}")
             raise typer.Exit(1)
+        # board is guaranteed to be not None here due to the check above
+        board_ = board
         stats = get_board_stats(db_path, board.id)
         if json_output:
             typer.echo(
@@ -2616,7 +2628,7 @@ def kanban_cmd(
             typer.echo(f"  Claimed: {stats.claimed_count}")
             typer.echo(f"  Stale claims: {stats.stale_claims}")
             typer.echo("  By column:")
-            for col, count in stats.by_column.items():
+            for col, count in stats.by_column.items():  # type: ignore[assignment]
                 typer.echo(f"    {col}: {count}")
             if stats.by_priority:
                 typer.echo("  By priority:")
