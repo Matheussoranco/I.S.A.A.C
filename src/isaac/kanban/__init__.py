@@ -376,7 +376,10 @@ def list_tasks(db_path: Path, board_id: str, column_id: str | None = None) -> li
 
 
 def get_tasks(db_path: Path, board_id: str, column_id: str | None = None) -> list[Task]:
-    """Alias for list_tasks for backward compatibility."""
+    """Get tasks for a board, optionally filtered by column.
+
+    This is the public API for retrieving tasks; list_tasks is the internal implementation.
+    """
     return list_tasks(db_path, board_id, column_id)
 
 
