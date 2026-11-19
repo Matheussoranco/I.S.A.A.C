@@ -2166,6 +2166,10 @@ def kanban_cmd(
         isaac kanban comment TASK-123 --body "Working on this"
         isaac kanban stats my-board --json
     """
+    # Type ignores in this function are due to mypy's limited Optional type narrowing
+    # in complex control flow. Functions like get_board, get_task, get_comments return
+    # Optional types, but after explicit null checks, the values are guaranteed non-None.
+    # The type ignores suppress false positives; runtime behavior is correct.
     import json as _json
     from pathlib import Path as _Path
 
