@@ -2389,11 +2389,11 @@ def kanban_cmd(
                 deps = get_task_deps(db_path, name)
                 dependents = get_dependents(db_path, name)
                 claim = get_active_claim(db_path, name)
-                task_comments_1: list[Comment] = get_comments(db_path, name)
-                col_names_1: dict[str, str] = {
+                task_comments_for_display: list[Comment] = get_comments(db_path, name)
+                col_names_for_task_show: dict[str, str] = {
                     c.id: c.name for c in get_columns(db_path, target_board.id)
                 }
-                col_name = col_names_1.get(task.column_id, task.column_id)
+                col_name = col_names_for_task_show.get(task.column_id, task.column_id)
 
                 if json_output:
                     typer.echo(
@@ -2425,7 +2425,7 @@ def kanban_cmd(
                                 else None,
                                 "comments": [
                                     {"author": c.author, "body": c.body, "created_at": c.created_at}
-                                    for c in task_comments_1
+                                    for c in task_comments_for_display
                                 ],
                             },
                             indent=2,
@@ -2452,18 +2452,18 @@ def kanban_cmd(
                             f"  Claimed by: {claim.worker_id} "
                             f"({claim.profile}) at {claim.claimed_at}{stale}"
                         )
-                    if task_comments_1:
+                    if task_comments_for_display:
                         typer.echo("  Comments:")
-                        for c in task_comments_1:  # type: ignore[assignment, attr-defined]
+                        for c in task_comments_for_display:  # type: ignore[assignment, attr-defined]
                             body_preview = c.body[:80]  # type: ignore[attr-defined]
                             suffix = "..." if len(c.body) > 80 else ""  # type: ignore[attr-defined]
-                            preview = f"[{c.created_at}] {c.author}: {body_preview}{suffix}"
+                            preview = f"[{c.created_at}] {c.author}: {body_preview}{suffix}"  # type: ignore[attr-defined]
                             typer.echo(f"    {preview}")  # type: ignore[attr-defined]
             elif column:
-                col_ids: dict[str, str] = {
+                col_name_to_id: dict[str, str] = {
                     c.name.lower(): c.id for c in get_columns(db_path, target_board.id)
                 }
-                col_id = col_ids.get(column.lower())
+                col_id = col_name_to_id.get(column.lower())
                 if not col_id:
                     typer.echo(f"Column not found: {column}")
                     raise typer.Exit(1)
@@ -2515,11 +2515,11 @@ def kanban_cmd(
                 if not tasks:
                     typer.echo("No tasks.")
                 else:
-                    col_names_2: dict[str, str] = {
+                    col_names_for_task_list: dict[str, str] = {
                         c.id: c.name for c in get_columns(db_path, board_obj.id)
                     }
                     for t in tasks:
-                        col_name = col_names_2.get(t.column_id, t.column_id)
+                        col_name = col_names_for_task_list.get(t.column_id, t.column_id)
                         blocked = " 🚫" if t.is_blocked else ""
                         typer.echo(f"  [{col_name}] {t.id} {t.title}{blocked} (prio={t.priority})")
         else:
@@ -2611,10 +2611,10 @@ def kanban_cmd(
         return
 
     if act == "reclaim-stale":
-        reclaimed_claims = reclaim_stale_claims(db_path)  # type: ignore[assignment]
-        typer.echo(f"Reclaimed {len(reclaimed_claims)} stale claim(s)")
-        for c in reclaimed_claims:  # type: ignore[assignment, attr-defined]
-            msg = f"  {c.task_id} (was claimed by {c.worker_id})"
+        stale_claims_reclaimed = reclaim_stale_claims(db_path)  # type: ignore[assignment]
+        typer.echo(f"Reclaimed {len(stale_claims_reclaimed)} stale claim(s)")
+        for c in stale_claims_reclaimed:  # type: ignore[assignment, attr-defined]
+            msg = f"  {c.task_id} (was claimed by {c.worker_id})"  # type: ignore[attr-defined]
             typer.echo(msg)  # type: ignore[attr-defined]
         return
 
@@ -2627,7 +2627,7 @@ def kanban_cmd(
             _ = add_comment(db_path, name, author, body)
             typer.echo(f"Added comment to task {name}")
         else:
-            task_comments_2: list[Comment] = get_comments(db_path, name)
+            task_comments_for_list: list[Comment] = get_comments(db_path, name)
             if json_output:
                 typer.echo(
                     _json.dumps(
@@ -2637,14 +2637,14 @@ def kanban_cmd(
                                 "body": c.body,
                                 "created_at": c.created_at,
                             }
-                            for c in task_comments_2
+                            for c in task_comments_for_list
                         ],
                         indent=2,
                     )
                 )
             else:
-                for c in task_comments_2:  # type: ignore[assignment, attr-defined]
-                    preview = f"[{c.created_at}] {c.author}: {c.body}"
+                for c in task_comments_for_list:  # type: ignore[assignment, attr-defined]
+                    preview = f"[{c.created_at}] {c.author}: {c.body}"  # type: ignore[attr-defined]
                     typer.echo(f"  {preview}")  # type: ignore[attr-defined]
             return
 
