@@ -2175,23 +2175,25 @@ def kanban_cmd(
 
     from isaac.config.settings import get_settings
     from isaac.kanban import (
-        Comment,
-        add_comment,
-        add_task_dep,
-        claim_task,
-        create_column,
-        create_task,
-        get_active_claim,
-        get_board,
-        get_board_stats,
-        get_columns,
-        get_comments,
-        get_dependents,
-        get_task,
-        get_task_deps,
-        init_db,
-        init_kanban_board,
-        is_claim_stale,
+            Board,
+            Comment,
+            Task,
+            add_comment,
+            add_task_dep,
+            claim_task,
+            create_column,
+            create_task,
+            get_active_claim,
+            get_board,
+            get_board_stats,
+            get_columns,
+            get_comments,
+            get_dependents,
+            get_task,
+            get_task_deps,
+            init_db,
+            init_kanban_board,
+            is_claim_stale,
         list_boards,
         list_tasks,
         move_task,
@@ -2200,6 +2202,21 @@ def kanban_cmd(
         remove_task_dep,
         update_task,
     )
+
+    # Helper functions for Optional type narrowing
+    def _require_board(board_name: str) -> Board:
+        board = get_board(db_path, board_name)
+        if not board:
+            typer.echo(f"Board not found: {board_name}")
+            raise typer.Exit(1)
+        return board  # type: ignore[return-value]
+
+    def _require_task(task_id: str) -> Task:
+        task = get_task(db_path, task_id)
+        if not task:
+            typer.echo(f"Task not found: {task_id}")
+            raise typer.Exit(1)
+        return task  # type: ignore[return-value]
 
     db_path = _Path(db) if db else get_settings().isaac_home / "kanban.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2246,28 +2263,23 @@ def kanban_cmd(
 
     if act in {"board", "boards", "list"}:
         if name:
-            board = get_board(db_path, name)  # type: ignore[assignment]
-            if not board:
-                typer.echo(f"Board not found: {name}")
-                raise typer.Exit(1)
-            # board is guaranteed to be not None here due to the check above
-            board_ = board
+            board = _require_board(name)
             if json_output:
                 typer.echo(
                     _json.dumps(
                         {
-                            "id": board_.id,
-                            "name": board_.name,
-                            "created_at": board_.created_at,
-                            "updated_at": board_.updated_at,
+                            "id": board.id,
+                            "name": board.name,
+                            "created_at": board.created_at,
+                            "updated_at": board.updated_at,
                         },
                         indent=2,
                     )
                 )
             else:
-                typer.echo(f"Board: {board_.name} ({board_.id})")
-                typer.echo(f"  Created: {board_.created_at}")
-                typer.echo(f"  Updated: {board_.updated_at}")
+                typer.echo(f"Board: {board.name} ({board.id})")
+                typer.echo(f"  Created: {board.created_at}")
+                typer.echo(f"  Updated: {board.updated_at}")
         else:
             boards = list_boards(db_path)
             if json_output:
@@ -2299,12 +2311,7 @@ def kanban_cmd(
         if not name:
             typer.echo("Board name required for column actions.")
             raise typer.Exit(2)
-        board = get_board(db_path, name)  # type: ignore[assignment]
-        if not board:
-            typer.echo(f"Board not found: {name}")
-            raise typer.Exit(1)
-        # board is guaranteed to be not None here due to the check above
-        board_ = board
+        board = _require_board(name)
         if not title:
             cols = get_columns(db_path, board.id)
             if json_output:
@@ -2657,12 +2664,7 @@ def kanban_cmd(
         if not name:
             typer.echo("Board name required for stats.")
             raise typer.Exit(2)
-        board = get_board(db_path, name)  # type: ignore[assignment]
-        if not board:
-            typer.echo(f"Board not found: {name}")
-            raise typer.Exit(1)
-        # board is guaranteed to be not None here due to the check above
-        board_ = board
+        board = _require_board(name)
         stats = get_board_stats(db_path, board.id)
         if json_output:
             typer.echo(
