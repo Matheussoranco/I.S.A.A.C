@@ -44,6 +44,7 @@ def get_kanban_db_path() -> Path:
     """Get the kanban database path from settings."""
     return get_settings().isaac_home / "kanban.db"
 
+
 app = FastAPI(title="I.S.A.A.C. Kanban Dashboard")
 
 # Setup templates
