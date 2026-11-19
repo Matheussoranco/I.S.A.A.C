@@ -44,6 +44,12 @@ jobs:
       - name: Forbidden terms check (ADR-001)
         run: python scripts/forbidden_terms.py
 
+      - name: Security audit (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --desc --format=json --output=pip-audit-report.json || true
+          cat pip-audit-report.json | jq -r '.vulnerabilities[] | "\(.package) \(.installed_version) \(.vulnerabilities[0].id) \(.vulnerabilities[0].description)"' || true
+
   test:
     name: Test Suite (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
