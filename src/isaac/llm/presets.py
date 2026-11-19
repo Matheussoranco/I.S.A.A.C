@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -44,24 +45,18 @@ class ModelPreset:
     model: str
     fast_model: str = ""
     strong_model: str = ""
-    #: Approximate VRAM needed to run *model* at the quantisation named below.
     vram_gb: float = 0.0
     quantisation: str = ""
-    #: Bypass native function calling and grammar-constrain the decoder.
     constrained_decoding: bool = False
-    #: Repair malformed tool calls emitted as text. Cheap; on everywhere.
     repair_tool_calls: bool = True
     reflexion_retries: int = 2
-    #: Samples for self-consistency / best-of-N on hard steps. 1 disables.
     test_time_samples: int = 1
     temperature: float = 0.2
-    #: Temperature for test-time sampling; must be > 0 or every draw is identical.
     sampling_temperature: float = 0.7
     notes: str = ""
     env: dict[str, str] = field(default_factory=dict)
 
     def as_env(self) -> dict[str, str]:
-        """Render the preset as ISAAC environment variables."""
         out = {
             "ISAAC_LLM_PROVIDER": self.provider,
             "ISAAC_MODEL_NAME": self.model,
@@ -71,17 +66,9 @@ class ModelPreset:
             "ISAAC_REFLEXION_RETRIES": str(self.reflexion_retries),
             "ISAAC_TEST_TIME_SAMPLES": str(self.test_time_samples),
             "ISAAC_SAMPLING_TEMPERATURE": str(self.sampling_temperature),
+            "ISAAC_FAST_MODEL": self.fast_model or "",
+            "ISAAC_STRONG_MODEL": self.strong_model or "",
         }
-        # Always emitted, empty when the preset does not pin a tier. Presets are
-        # applied over a live environment, so omitting the key would leave the
-        # *previous* preset's value in place — switching from "best" to a local
-        # rung would keep routing fast/strong turns to the API models, off the
-        # machine, under a preset documented as fully local. Empty is falsy
-        # everywhere these are read (``cfg.fast_model or cfg.model_name``), so
-        # it restores the default rather than pinning "".
-        out["ISAAC_FAST_MODEL"] = self.fast_model
-        out["ISAAC_STRONG_MODEL"] = self.strong_model
-        out.update(self.env)
         return out
 
 
@@ -106,23 +93,6 @@ PRESETS: dict[str, ModelPreset] = {
             "grammar guarantees shape, not judgement: expect to supervise "
             "multi-step tasks. This rung exists so the stack runs on hardware "
             "that cannot hold anything larger, not to match the rungs above."
-        ),
-    ),
-    "small": ModelPreset(
-        name="small",
-        tagline="~3 GB VRAM — native tool calling, measured",
-        provider="ollama",
-        model="qwen3.5:2b",
-        vram_gb=2.5,
-        quantisation="Q4_K_M",
-        constrained_decoding=False,
-        reflexion_retries=2,
-        test_time_samples=3,
-        notes=(
-            "Supports native tool calling despite its size. Slower per token "
-            "than the 4B rung on a 6 GB card once the 4B model fits in VRAM, "
-            "so prefer 'good' unless memory is genuinely tight. See "
-            "docs/MODELS.md for its measured tool-call reliability."
         ),
     ),
     "good": ModelPreset(
@@ -183,14 +153,6 @@ PRESETS: dict[str, ModelPreset] = {
 
 
 def get_preset(name: str) -> ModelPreset:
-    """Look up a preset by name.
-
-    Raises
-    ------
-    KeyError
-        With the valid names listed, since this is usually reached from CLI
-        input where a typo is the likeliest cause.
-    """
     key = (name or "").strip().lower()
     if key not in PRESETS:
         raise KeyError(f"Unknown preset {name!r}. Choose one of: {', '.join(PRESETS)}")
@@ -198,12 +160,6 @@ def get_preset(name: str) -> ModelPreset:
 
 
 def apply_preset(name: str, env: dict[str, str] | None = None) -> dict[str, str]:
-    """Write a preset's settings into the environment.
-
-    Mutates ``os.environ`` by default so an already-imported ``settings`` can
-    be refreshed; pass *env* to render into a dict instead (used by tests and
-    by ``isaac config preset --dry-run``).
-    """
     preset = get_preset(name)
     values = preset.as_env()
     target = os.environ if env is None else env
@@ -212,75 +168,63 @@ def apply_preset(name: str, env: dict[str, str] | None = None) -> dict[str, str]
     return values
 
 
-def recommend_preset(vram_gb: float | None = None, has_api_key: bool = False) -> ModelPreset:
-    """Suggest a rung from available hardware.
+def describe_presets() -> str:
+    from tabulate import tabulate
 
-    Local presets are preferred whenever the GPU can hold one: ISAAC is
-    local-first, and an API key is a reason to *offer* ``best``, not to
-    override a perfectly capable local setup. ``best`` is only recommended
-    when there is no usable GPU and a key is present.
-    """
+    rows = []
+    for p in PRESETS.values():
+        rows.append([
+            p.name,
+            p.model,
+            f"{p.vram_gb} GB" if p.vram_gb else "API",
+            "yes" if p.constrained_decoding else "no",
+            p.test_time_samples,
+            p.tagline,
+        ])
+    return tabulate(
+        rows,
+        headers=["Preset", "Model", "VRAM", "Constrained", "Samples", "Tagline"],
+        tablefmt="plain",
+    )
+
+
+
+def preset_dicts() -> list[dict[str, Any]]:
+    """Return a list of preset dictionaries for CLI table output."""
+    return [
+        {
+            "name": p.name,
+            "model": p.model,
+            "vram_gb": p.vram_gb,
+            "constrained_decoding": p.constrained_decoding,
+            "test_time_samples": p.test_time_samples,
+            "tagline": p.tagline,
+        }
+        for p in PRESETS.values()
+    ]
+
+
+def recommend_preset(vram_gb: float | None = None, has_api_key: bool = False) -> ModelPreset:
     if vram_gb is None:
         vram_gb = _detect_vram_gb()
     if vram_gb >= 10:
         return PRESETS["better"]
     if vram_gb >= 5:
         return PRESETS["good"]
-    if vram_gb >= 3:
-        return PRESETS["small"]
     if vram_gb >= 1.5:
         return PRESETS["minimal"]
     return PRESETS["best"] if has_api_key else PRESETS["minimal"]
 
 
 def _detect_vram_gb() -> float:
-    """Best-effort VRAM probe. Returns 0.0 when it cannot tell."""
     try:
-        import subprocess
-
-        out = subprocess.run(
+        out = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True,
+            stderr=subprocess.DEVNULL,
             text=True,
-            timeout=5,
-            check=False,
-        )
-        values = [int(v.strip()) for v in out.stdout.split("\n") if v.strip().isdigit()]
-        if values:
-            return max(values) / 1024.0
+        ).strip()
+        if out:
+            return max(int(line) for line in out.splitlines()) / 1024.0
     except Exception:
-        logger.debug("VRAM detection failed", exc_info=True)
+        pass
     return 0.0
-
-
-def describe_presets() -> str:
-    """Render the ladder as a table for ``isaac config preset --list``."""
-    rows = [
-        f"{'PRESET':<9} {'MODEL':<28} {'VRAM':>6}  {'CONSTRAIN':<9} {'SAMPLES':<7} TAGLINE",
-        "-" * 100,
-    ]
-    for preset in PRESETS.values():
-        vram = f"{preset.vram_gb:.0f}GB" if preset.vram_gb else "api"
-        rows.append(
-            f"{preset.name:<9} {preset.model:<28} {vram:>6}  "
-            f"{'yes' if preset.constrained_decoding else 'no':<9} "
-            f"{preset.test_time_samples:<7} {preset.tagline}"
-        )
-    return "\n".join(rows)
-
-
-def preset_dicts() -> list[dict[str, Any]]:
-    """Machine-readable form, for ``--json`` output and docs generation."""
-    return [
-        {
-            "name": p.name,
-            "tagline": p.tagline,
-            "provider": p.provider,
-            "model": p.model,
-            "vram_gb": p.vram_gb,
-            "constrained_decoding": p.constrained_decoding,
-            "test_time_samples": p.test_time_samples,
-            "notes": p.notes,
-        }
-        for p in PRESETS.values()
-    ]

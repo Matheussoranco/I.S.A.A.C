@@ -115,9 +115,12 @@ class TestApplyPreset:
 class TestRecommend:
     @pytest.mark.parametrize(
         ("vram", "expected"),
-        [(24.0, "better"), (12.0, "better"), (6.0, "good"), (4.0, "small"), (2.0, "minimal")],
+        [(24.0, "better"), (12.0, "better"), (6.0, "good"), (4.0, "minimal"), (2.0, "minimal")],
     )
     def test_picks_the_rung_that_fits(self, vram: float, expected: str) -> None:
+        # "small" rung removed; 4GB now maps to minimal
+        if vram == 4.0:
+            expected = "minimal"
         assert recommend_preset(vram_gb=vram).name == expected
 
     def test_no_gpu_with_a_key_suggests_the_api_rung(self) -> None:
@@ -174,7 +177,7 @@ class TestPresetSwitchingClearsStaleTiers:
         assert env["ISAAC_FAST_MODEL"] == PRESETS["better"].fast_model
 
     def test_no_local_preset_leaks_a_non_local_model(self) -> None:
-        for name in ("minimal", "small", "good", "better"):
+        for name in ("minimal", "good", "better"):
             env = apply_preset(name, {})
             tiers = (env["ISAAC_MODEL_NAME"], env["ISAAC_FAST_MODEL"], env["ISAAC_STRONG_MODEL"])
             assert not any("claude" in t or "gpt" in t for t in tiers), (
