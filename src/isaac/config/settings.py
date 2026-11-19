@@ -321,7 +321,7 @@ class Settings(BaseSettings):
     """Base speech rate in words/min for the pyttsx3 engine."""
 
     # ── Self-improvement engine ────────────────────────────────────────
-    improvement_enabled: bool = False
+    improvement_enabled: bool = True
     """When True, the scheduler runs a periodic improvement cycle."""
     improvement_interval_minutes: int = Field(default=240, ge=10, le=10080)
     improvement_promote_runs: int = 10
