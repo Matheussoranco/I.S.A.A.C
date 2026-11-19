@@ -2398,10 +2398,7 @@ def kanban_cmd(
                         for c in comments:
                             body_preview = c.body[:80]
                             suffix = "..." if len(c.body) > 80 else ""
-                            typer.echo(
-                                f"    [{c.created_at}] {c.author}: "
-                                f"{body_preview}{suffix}"
-                            )
+                            typer.echo(f"    [{c.created_at}] {c.author}: {body_preview}{suffix}")
             elif column:
                 cols = {c.name.lower(): c.id for c in get_columns(db_path, target_board.id)}
                 col_id = cols.get(column.lower())

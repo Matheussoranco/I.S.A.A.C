@@ -306,11 +306,11 @@ def create_task(
         task_id = gen_id("t_")
         now = now_iso()
         conn.execute(
-                    (
-                        "INSERT INTO task (id, board_id, column_id, title, description, "
-                        "priority, assignee, created_at, updated_at, due_at, blocked, tags) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                    ),
+            (
+                "INSERT INTO task (id, board_id, column_id, title, description, "
+                "priority, assignee, created_at, updated_at, due_at, blocked, tags) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            ),
             (
                 task_id,
                 board_id,

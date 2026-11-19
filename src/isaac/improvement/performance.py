@@ -129,30 +129,30 @@ class PerformanceTracker:
             self._conn.commit()
 
     def record_skill(
-            self,
-            skill_name: str,
-            duration_ms: float,
-            success: bool | None,
-            error: str = "",
-            task_context: str = "",
-            task_type: str = "",
-        ) -> None:
-            with self._lock:
-                self._conn.execute(
-                    "INSERT INTO skill_runs "
-                    "(ts, skill_name, duration_ms, success, error, task_context, task_type) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        time.time(),
-                        skill_name,
-                        duration_ms,
-                        -1 if success is None else int(success),
-                        error[:500],
-                        task_context[:500],
-                        task_type[:100],
-                    ),
-                )
-                self._conn.commit()
+        self,
+        skill_name: str,
+        duration_ms: float,
+        success: bool | None,
+        error: str = "",
+        task_context: str = "",
+        task_type: str = "",
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO skill_runs "
+                "(ts, skill_name, duration_ms, success, error, task_context, task_type) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    time.time(),
+                    skill_name,
+                    duration_ms,
+                    -1 if success is None else int(success),
+                    error[:500],
+                    task_context[:500],
+                    task_type[:100],
+                ),
+            )
+            self._conn.commit()
 
     def record_prompt(
         self,

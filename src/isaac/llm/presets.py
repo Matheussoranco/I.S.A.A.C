@@ -173,20 +173,21 @@ def describe_presets() -> str:
 
     rows = []
     for p in PRESETS.values():
-        rows.append([
-            p.name,
-            p.model,
-            f"{p.vram_gb} GB" if p.vram_gb else "API",
-            "yes" if p.constrained_decoding else "no",
-            p.test_time_samples,
-            p.tagline,
-        ])
+        rows.append(
+            [
+                p.name,
+                p.model,
+                f"{p.vram_gb} GB" if p.vram_gb else "API",
+                "yes" if p.constrained_decoding else "no",
+                p.test_time_samples,
+                p.tagline,
+            ]
+        )
     return tabulate(
         rows,
         headers=["Preset", "Model", "VRAM", "Constrained", "Samples", "Tagline"],
         tablefmt="plain",
     )
-
 
 
 def preset_dicts() -> list[dict[str, Any]]:

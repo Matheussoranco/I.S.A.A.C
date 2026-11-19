@@ -44,6 +44,7 @@ templates_dir = Path(__file__).parent / "templates"
 templates_dir.mkdir(exist_ok=True)
 templates = Jinja2Templates(directory=str(templates_dir))
 
+
 # Ensure DB is initialized on startup
 @app.on_event("startup")
 async def startup() -> None:
@@ -52,6 +53,7 @@ async def startup() -> None:
 
 
 # Pydantic models for API
+
 
 class BoardCreate(BaseModel):
     name: str
@@ -89,6 +91,7 @@ class CommentCreate(BaseModel):
 
 # HTML Routes
 
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     """Main dashboard page."""
@@ -96,6 +99,7 @@ async def dashboard(request: Request) -> HTMLResponse:
 
 
 # API Routes - Boards
+
 
 @app.get("/api/boards")
 async def api_list_boards() -> list[dict]:
@@ -138,6 +142,7 @@ async def api_get_board(board_id: str) -> dict:
 
 # API Routes - Columns
 
+
 @app.get("/api/boards/{board_id}/columns")
 async def api_get_columns(board_id: str) -> list[dict]:
     """Get columns for a board."""
@@ -171,6 +176,7 @@ async def api_create_column(
 
 
 # API Routes - Tasks
+
 
 @app.get("/api/boards/{board_id}/tasks")
 async def api_list_tasks(board_id: str, column_id: str | None = None) -> list[dict]:
@@ -208,8 +214,14 @@ async def api_create_task(board_id: str, task: TaskCreate) -> dict:
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
     t = create_task(
-        db_path, board.id, task.title, task.description, task.priority,
-        task.assignee, task.due, task.tags
+        db_path,
+        board.id,
+        task.title,
+        task.description,
+        task.priority,
+        task.assignee,
+        task.due,
+        task.tags,
     )
     return {"id": t.id, "title": t.title, "column_id": t.column_id}
 
@@ -249,11 +261,12 @@ async def api_get_task(board_id: str, task_id: str) -> dict:
             "worker_id": claim.worker_id,
             "profile": claim.profile,
             "claimed_at": claim.claimed_at,
-            "stale": claim.is_claim_stale(claim) if hasattr(claim, 'is_claim_stale') else False,
-        } if claim else None,
+            "stale": claim.is_claim_stale(claim) if hasattr(claim, "is_claim_stale") else False,
+        }
+        if claim
+        else None,
         "comments": [
-            {"author": c.author, "body": c.body, "created_at": c.created_at}
-            for c in comments
+            {"author": c.author, "body": c.body, "created_at": c.created_at} for c in comments
         ],
     }
 
@@ -275,7 +288,8 @@ async def api_update_task(board_id: str, task_id: str, task: TaskUpdate) -> dict
 
     new_priority = task.priority
     updated = update_task(
-        db_path, task_id,
+        db_path,
+        task_id,
         title=task.title,
         description=task.description,
         priority=new_priority,
@@ -316,15 +330,16 @@ async def api_add_comment(board_id: str, task_id: str, comment: CommentCreate) -
     db_path = get_settings().isaac_home / "kanban.db"
     c = add_comment(db_path, task_id, comment.author, comment.body)
     return {
-            "id": c.id,
-            "task_id": c.task_id,
-            "author": c.author,
-            "body": c.body,
-            "created_at": c.created_at,
-        }
+        "id": c.id,
+        "task_id": c.task_id,
+        "author": c.author,
+        "body": c.body,
+        "created_at": c.created_at,
+    }
 
 
 # API Routes - Dependencies
+
 
 @app.post("/api/boards/{board_id}/tasks/{task_id}/deps")
 async def api_add_dep(board_id: str, task_id: str, depends_on: str = Query(...)) -> dict:
@@ -344,6 +359,7 @@ async def api_remove_dep(board_id: str, task_id: str, depends_on: str = Query(..
 
 # API Routes - Stats
 
+
 @app.get("/api/boards/{board_id}/stats")
 async def api_get_stats(board_id: str) -> dict:
     """Get board statistics."""
@@ -362,6 +378,7 @@ async def api_get_stats(board_id: str) -> dict:
 
 
 # API Routes - Dispatcher
+
 
 @app.post("/api/dispatcher/run")
 async def api_run_dispatcher(board_name: str = Query("default")) -> dict:
@@ -388,4 +405,5 @@ async def api_stop_dispatcher() -> dict:
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="127.0.0.1", port=8080)
