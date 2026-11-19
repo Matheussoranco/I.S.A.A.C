@@ -55,6 +55,7 @@ dev = [
     "ruff==0.15.2",
     "mypy==1.19.1",
     "tabulate>=0.9,<1.0",
+    "types-tabulate>=0.9,<1.0",
 ]
 browser = [
     "playwright>=1.44,<2.0",
