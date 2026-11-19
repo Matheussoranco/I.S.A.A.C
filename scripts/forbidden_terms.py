@@ -47,6 +47,8 @@ ALLOWLIST = [
     (r"LIMITATIONS\.md", r".*", "Limitations document discusses SOTA gate"),
     # PRODUCT_ROADMAP.md references the gate
     (r"PRODUCT_ROADMAP\.md", r".*", "Product roadmap documents SOTA gate"),
+    # The script itself defines the patterns and messages
+    (r"scripts/forbidden_terms\.py", r".*", "Script defines forbidden patterns and messages"),
 ]
 
 
