@@ -622,6 +622,12 @@ from isaac.kanban.dispatcher import (
     run_dispatcher_once,
 )
 
+# Dashboard exports
+try:
+    from isaac.kanban.dashboard import app as dashboard_app
+except ImportError:
+    dashboard_app = None
+
 __all__ = [
     "Board", "Column", "Task", "Claim", "Comment", "BoardStats",
     "init_db", "init_kanban_board", "create_board", "get_board", "list_boards",
@@ -635,6 +641,8 @@ __all__ = [
     "Dispatcher", "DispatchConfig", "get_dispatcher",
     "start_dispatcher", "stop_dispatcher", "run_dispatcher_once",
 ]
+if dashboard_app:
+    __all__.append("dashboard_app")
     """Create a new board with default columns."""
     board = create_board(db_path, name)
     columns = create_default_columns(db_path, board.id)

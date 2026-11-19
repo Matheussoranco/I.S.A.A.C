@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I.S.A.A.C. Kanban Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+        .header { background: #2c3e50; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1.5rem; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+        .board-selector { margin-bottom: 1rem; padding: 0.5rem; background: white; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .board-selector select { padding: 0.5rem; font-size: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+        .kanban-board { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; }
+        .column { background: #ebecf0; border-radius: 8px; min-width: 300px; max-width: 350px; flex: 1; display: flex; flex-direction: column; max-height: calc(100vh - 200px); }
+        .column-header { padding: 1rem; background: white; border-radius: 8px 8px 0 0; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+        .column-title { font-weight: 600; font-size: 1.1rem; }
+        .column-count { background: #0079bf; color: white; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem; }
+        .task-list { flex: 1; overflow-y: auto; padding: 0.5rem; min-height: 200px; }
+        .task { background: white; border: 1px solid #dfe1e6; border-radius: 4px; padding: 0.75rem; margin-bottom: 0.5rem; box-shadow: 0 1px 1px rgba(0,0,0,0.05); cursor: pointer; transition: box-shadow 0.2s; }
+        .task:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .task-title { font-weight: 500; margin-bottom: 0.25rem; }
+        .task-meta { display: flex; gap: 0.5rem; font-size: 0.75rem; color: #666; flex-wrap: wrap; }
+        .tag { background: #e2e4e8; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+        .priority { background: #ffeb3b; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+        .blocked { background: #ffcdd2; color: #c62828; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+        .assignee { background: #e3f2fd; color: #1565c0; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+        .claimed { background: #e8f5e9; color: #2e7d32; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+        .stale { background: #fff3e0; color: #e65100; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal.show { display: flex; }
+        .modal-content { background: white; border-radius: 8px; padding: 1.5rem; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .modal-title { font-size: 1.25rem; font-weight: 600; }
+        .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #666; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
+        .form-group textarea { min-height: 100px; resize: vertical; }
+        .form-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+        .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        .btn-primary { background: #0079bf; color: white; }
+        .btn-secondary { background: #e2e4e8; color: #333; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-small { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+        .task-detail { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .task-detail-section { margin-bottom: 1rem; }
+        .task-detail-title { font-weight: 600; margin-bottom: 0.5rem; }
+        .comment { background: #f8f9fa; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem; }
+        .comment-header { display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.85rem; color: #666; }
+        .comment-author { font-weight: 500; }
+        .dep-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .dep-item { background: #fff3e0; color: #e65100; padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.8rem; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+        .stat-card { background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .stat-value { font-size: 2rem; font-weight: 700; color: #0079bf; }
+        .stat-label { font-size: 0.9rem; color: #666; }
+        .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+        .toolbar button { padding: 0.5rem 1rem; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>I.S.A.A.C. Kanban Dashboard</h1>
+        <div>
+            <button class="btn btn-secondary" onclick="createBoard()">New Board</button>
+            <button class="btn btn-primary" onclick="createTask()">New Task</button>
+        </div>
+    </div>
+    <div class="container">
+        <div class="board-selector">
+            <label for="boardSelect">Board: </label>
+            <select id="boardSelect" onchange="loadBoard()">
+                <option value="">Select a board...</option>
+            </select>
+            <span id="boardStats" style="margin-left: 1rem; color: #666;"></span>
+        </div>
+        
+        <div id="statsGrid" class="stats-grid" style="display: none;"></div>
+        
+        <div class="kanban-board" id="kanbanBoard"></div>
+    </div>
+
+    <!-- Task Modal -->
+    <div class="modal" id="taskModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modalTitle">Task Details</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <!-- Create/Edit Task Modal -->
+    <div class="modal" id="taskFormModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="taskFormTitle">New Task</h3>
+                <button class="modal-close" onclick="closeTaskForm()">&times;</button>
+            </div>
+            <form id="taskForm" onsubmit="saveTask(event)">
+                <input type="hidden" id="taskFormBoardId" name="board_id">
+                <input type="hidden" id="taskFormTaskId" name="task_id">
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" name="title" required>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea name="description"></textarea>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Priority</label>
+                        <input type="number" name="priority" value="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Assignee</label>
+                        <input type="text" name="assignee">
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Due Date</label>
+                        <input type="date" name="due">
+                    </div>
+                    <div class="form-group">
+                        <label>Tags (comma-separated)</label>
+                        <input type="text" name="tags" placeholder="tag1, tag2">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Column</label>
+                    <select name="column" id="taskFormColumn"></select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeTaskForm()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Board Modal -->
+    <div class="modal" id="boardModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">New Board</h3>
+                <button class="modal-close" onclick="closeBoardModal()">&times;</button>
+            </div>
+            <form onsubmit="createBoardSubmit(event)">
+                <div class="form-group">
+                    <label>Board Name</label>
+                    <input type="text" name="name" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeBoardModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentBoardId = null;
+        let currentColumns = [];
+
+        // Load boards on startup
+        async function loadBoards() {
+            const response = await fetch('/api/boards');
+            const boards = await response.json();
+            const select = document.getElementById('boardSelect');
+            select.innerHTML = '<option value="">Select a board...</option>';
+            boards.forEach(board => {
+                const option = document.createElement('option');
+                option.value = board.id;
+                option.textContent = `${board.name} (${board.id.slice(0,8)})`;
+                select.appendChild(option);
+            });
+        }
+
+        async function loadBoard() {
+            const select = document.getElementById('boardSelect');
+            const boardId = select.value;
+            if (!boardId) {
+                document.getElementById('kanbanBoard').innerHTML = '';
+                document.getElementById('statsGrid').style.display = 'none';
+                return;
+            }
+            currentBoardId = select.value;
+            await Promise.all([
+                loadColumns(),
+                loadTasks(),
+                loadStats()
+            ]);
+        }
+
+        async function loadColumns() {
+            const response = await fetch(`/api/boards/${currentBoardId}/columns`);
+            const columns = await response.json();
+            currentColumns = columns;
+            renderBoard(columns);
+            // Update column select in task form
+            const columnSelect = document.getElementById('taskFormColumn');
+            columnSelect.innerHTML = '';
+            currentColumns.forEach(col => {
+                const option = document.createElement('option');
+                option.value = col.id;
+                option.textContent = col.name;
+                columnSelect.appendChild(option);
+            });
+        }
+
+        async function loadTasks() {
+            const response = await fetch(`/api/boards/${currentBoardId}/tasks`);
+            const tasks = await response.json();
+            renderTasks(tasks);
+        }
+
+        async function loadStats() {
+            const response = await fetch(`/api/boards/${currentBoardId}/stats`);
+            const stats = await response.json();
+            renderStats(stats);
+        }
+
+        function renderBoard(columns) {
+            const board = document.getElementById('kanbanBoard');
+            board.innerHTML = '';
+            columns.forEach(col => {
+                const columnDiv = document.createElement('div');
+                columnDiv.className = 'column';
+                columnDiv.dataset.columnId = col.id;
+                columnDiv.innerHTML = `
+                    <div class="column-header">
+                        <span class="column-title">${col.name}</span>
+                        <span class="column-count" id="count-${col.id}">0</span>
+                    </div>
+                    <div class="task-list" id="tasks-${col.id}" data-column-id="${col.id}"></div>
+                `;
+                board.appendChild(columnDiv);
+            });
+            // Add drag-and-drop later
+        }
+
+        function renderTasks(tasks) {
+            // Clear all task lists
+            currentColumns.forEach(col => {
+                document.getElementById(`tasks-${col.id}`).innerHTML = '';
+                document.getElementById(`count-${col.id}`).textContent = '0';
+            });
+            // Group tasks by column
+            const tasksByColumn = {};
+            tasks.forEach(task => {
+                if (!tasksByColumn[task.column_id]) tasksByColumn[task.column_id] = [];
+                tasksByColumn[task.column_id].push(task);
+            });
+            // Render tasks
+            Object.entries(tasksByColumn).forEach(([colId, colTasks]) => {
+                const container = document.getElementById(`tasks-${colId}`);
+                const countEl = document.getElementById(`count-${colId}`);
+                if (container) {
+                    container.innerHTML = colTasks.map(task => renderTaskCard(task)).join('');
+                    if (countEl) countEl.textContent = colTasks.length;
+                }
+            });
+            // Update counts for empty columns
+            currentColumns.forEach(col => {
+                if (!tasksByColumn[col.id]) {
+                    const countEl = document.getElementById(`count-${col.id}`);
+                    if (countEl) countEl.textContent = '0';
+                }
+            });
+        }
+
+        function renderTaskCard(task) {
+            const tagsHtml = task.tags.map(t => `<span class="tag">${t}</span>`).join(' ');
+            const priorityHtml = task.priority > 0 ? `<span class="priority">P${task.priority}</span>` : '';
+            const blockedHtml = task.blocked ? '<span class="blocked">BLOCKED</span>' : '';
+            const assigneeHtml = task.assignee ? `<span class="assignee">${task.assignee}</span>` : '';
+            const claimedHtml = ''; // Would need claim info
+            
+            return `
+                <div class="task" onclick="openTaskModal('${task.id}')" data-task-id="${task.id}">
+                    <div class="task-title">${escapeHtml(task.title)}</div>
+                    <div class="task-meta">
+                        ${priorityHtml}
+                        ${blockedHtml}
+                        ${assigneeHtml}
+                        ${tagsHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderStats(stats) {
+            const grid = document.getElementById('statsGrid');
+            grid.style.display = 'grid';
+            grid.innerHTML = `
+                <div class="stat-card"><div class="stat-value">${stats.total_tasks}</div><div class="stat-label">Total Tasks</div></div>
+                <div class="stat-card"><div class="stat-value">${stats.blocked_count}</div><div class="stat-label">Blocked</div></div>
+                <div class="stat-card"><div class="stat-value">${stats.claimed_count}</div><div class="stat-label">Claimed</div></div>
+                <div class="stat-card"><div class="stat-value">${stats.stale_claims}</div><div class="stat-label">Stale Claims</div></div>
+            `;
+            // Add column stats
+            Object.entries(stats.by_column).forEach(([col, count]) => {
+                const card = document.createElement('div');
+                card.className = 'stat-card';
+                card.innerHTML = `<div class="stat-value">${count}</div><div class="stat-label">${col}</div>`;
+                grid.appendChild(card);
+            });
+        }
+
+        async function openTaskModal(taskId) {
+            const response = await fetch(`/api/boards/${currentBoardId}/tasks/${taskId}`);
+            const data = await response.json();
+            renderTaskModal(data);
+            document.getElementById('taskModal').classList.add('show');
+        }
+
+        function renderTaskModal(data) {
+            const task = data.task;
+            const claim = data.claim;
+            const comments = data.comments;
+            const deps = task.depends_on || [];
+            const dependents = task.dependents || [];
+
+            let html = `
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+                    <h3 style="margin: 0;">${escapeHtml(task.title)}</h3>
+                    <div style="display: flex; gap: 0.5rem;">
+                        ${task.priority > 0 ? `<span class="priority">Priority ${task.priority}</span>` : ''}
+                        ${task.blocked ? '<span class="blocked">BLOCKED</span>' : ''}
+                        ${task.assignee ? `<span class="assignee">Assignee: ${escapeHtml(task.assignee)}</span>` : ''}
+                    </div>
+                </div>
+                <div class="task-detail-section">
+                    <div class="task-detail-title">Description</div>
+                    <div>${escapeHtml(task.description || '(no description)').replace(/\n/g, '<br>')}</div>
+                </div>
+                <div class="task-detail-section">
+                    <div class="task-detail-title">Details</div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem; font-size: 0.9rem;">
+                        <div><strong>Column:</strong> ${task.column}</div>
+                        <div><strong>Priority:</strong> ${task.priority}</div>
+                        <div><strong>Created:</strong> ${task.created_at}</div>
+                        <div><strong>Updated:</strong> ${task.updated_at}</div>
+                        ${task.due_at ? `<div><strong>Due:</strong> ${task.due_at}</div>` : ''}
+                    </div>
+                </div>
+                <div class="task-detail-section">
+                    <div class="task-detail-title">Tags</div>
+                    <div>${task.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join(' ') || '(none)'}</div>
+                </div>
+            `;
+
+            if (claim) {
+                html += `
+                    <div class="task-detail-section">
+                        <div class="task-detail-title">Claim</div>
+                        <div>
+                            <strong>Worker:</strong> ${claim.worker_id} (${claim.profile})<br>
+                            <strong>Claimed:</strong> ${claim.claimed_at}<br>
+                            <strong>Status:</strong> ${claim.stale ? '<span class="stale">STALE</span>' : '<span class="claimed">Active</span>'}
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (deps.length > 0) {
+                html += `
+                    <div class="task-detail-section">
+                        <div class="task-detail-title">Depends On</div>
+                        <div class="dep-list">${deps.map(d => `<span class="dep-item">${escapeHtml(d)}</span>`).join('')}</div>
+                    </div>
+                `;
+            }
+
+            if (dependents.length > 0) {
+                html += `
+                    <div class="task-detail-section">
+                        <div class="task-detail-title">Dependents</div>
+                        <div class="dep-list">${dependents.map(d => `<span class="dep-item">${escapeHtml(d)}</span>`).join('')}</div>
+                    </div>
+                `;
+            }
+
+            if (comments.length > 0) {
+                html += `
+                    <div class="task-detail-section">
+                        <div class="task-detail-title">Comments</div>
+                        ${comments.map(c => `
+                            <div class="comment">
+                                <div class="comment-header">
+                                    <span class="comment-author">${escapeHtml(c.author)}</span>
+                                    <span>${c.created_at}</span>
+                                </div>
+                                <div>${escapeHtml(c.body).replace(/\n/g, '<br>')}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            html += `
+                <div class="form-actions" style="margin-top: 1.5rem;">
+                    <button class="btn btn-secondary" onclick="openEditTask('${data.task.id}')">Edit</button>
+                    <button class="btn btn-primary" onclick="addCommentPrompt('${data.task.id}')">Add Comment</button>
+                    <button class="btn btn-danger" onclick="deleteTask('${data.task.id}')">Delete</button>
+                </div>
+            `;
+
+            document.getElementById('modalContent').innerHTML = html;
+        }
+
+        function closeModal() {
+            document.getElementById('taskModal').classList.remove('show');
+        }
+
+        function openEditTask(taskId) {
+            closeModal();
+            openTaskForm(taskId);
+        }
+
+        async function openTaskForm(taskId = null) {
+            const boardId = currentBoardId;
+            if (taskId) {
+                const response = await fetch(`/api/boards/${boardId}/tasks/${taskId}`);
+                const data = await response.json();
+                document.getElementById('taskFormTitle').textContent = 'Edit Task';
+                document.getElementById('taskFormTaskId').value = taskId;
+                document.getElementById('taskFormBoardId').value = boardId;
+                document.querySelector('#taskForm [name="title"]').value = data.task.title;
+                document.querySelector('#taskForm [name="description"]').value = data.task.description;
+                document.querySelector('#taskForm [name="priority"]').value = data.task.priority;
+                document.querySelector('#taskForm [name="assignee"]').value = data.task.assignee || '';
+                document.querySelector('#taskForm [name="due"]').value = data.task.due_at ? data.task.due_at.split('T')[0] : '';
+                document.querySelector('#taskForm [name="tags"]').value = data.task.tags.join(', ');
+                document.querySelector('#taskForm [name="column"]').value = data.task.column_id;
+            } else {
+                document.getElementById('taskFormTitle').textContent = 'New Task';
+                document.getElementById('taskFormTaskId').value = '';
+                document.getElementById('taskFormBoardId').value = currentBoardId;
+                document.getElementById('taskForm').reset();
+            }
+            document.getElementById('taskFormModal').classList.add('show');
+        }
+
+        function closeTaskForm() {
+            document.getElementById('taskFormModal').classList.remove('show');
+        }
+
+        async function saveTask(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            const taskId = formData.get('task_id');
+            const boardId = formData.get('board_id');
+            const data = {
+                title: formData.get('title'),
+                description: formData.get('description'),
+                priority: parseInt(formData.get('priority')) || 0,
+                assignee: formData.get('assignee') || null,
+                due: formData.get('due') || null,
+                tags: formData.get('tags') || '',
+                column: formData.get('column') || null,
+            };
+            const taskId = formData.get('task_id');
+            const url = taskId ? `/api/boards/${boardId}/tasks/${taskId}` : `/api/boards/${boardId}/tasks`;
+            const method = taskId ? 'PATCH' : 'POST';
+            const response = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            if (response.ok) {
+                closeTaskForm();
+                await loadTasks();
+                if (taskId) closeModal();
+            } else {
+                alert('Failed to save task');
+            }
+        }
+
+        function createBoard() {
+            document.getElementById('boardModal').classList.add('show');
+        }
+
+        function closeBoardModal() {
+            document.getElementById('boardModal').classList.remove('show');
+        }
+
+        async function createBoardSubmit(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const response = await fetch('/api/boards', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: formData.get('name') }),
+            });
+            if (response.ok) {
+                closeBoardModal();
+                await loadBoards();
+            } else {
+                alert('Failed to create board');
+            }
+        }
+
+        function createTask() {
+            if (!currentBoardId) {
+                alert('Please select a board first');
+                return;
+            }
+            openTaskForm();
+        }
+
+        function closeTaskForm() {
+            document.getElementById('taskFormModal').classList.remove('show');
+        }
+
+        async function addCommentPrompt(taskId) {
+            const body = prompt('Enter comment:');
+            if (!body) return;
+            const response = await fetch(`/api/boards/${currentBoardId}/tasks/${taskId}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ author: 'dashboard', body }),
+            });
+            if (response.ok) {
+                // Refresh task modal
+                const response = await fetch(`/api/boards/${currentBoardId}/tasks/${taskId}`);
+                const data = await response.json();
+                renderTaskModal(data);
+            }
+        }
+
+        async function deleteTask(taskId) {
+            if (!confirm('Delete this task?')) return;
+            // No delete API yet, just close modal
+            alert('Delete not implemented yet');
+        }
+
+        // Initialize
+        loadBoards();
+
+        // Close modals on overlay click
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', e => {
+                if (e.target === modal) modal.classList.remove('show');
+            });
+        });
+    </script>
+</body>
+</html>
