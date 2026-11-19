@@ -27,12 +27,31 @@ from itertools import islice
 from pathlib import Path
 from typing import Any
 
+from isaac.security.constitution import review
 from isaac.security.file_mutation import copy_file, write_text
 from isaac.security.path_policy import is_sensitive_path
 from isaac.security.workspace import allowed_roots, resolve_allowed, resolve_allowed_link
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+def _constitutional_review(action_kind: str, action: str, path: str) -> ToolResult | None:
+    """Run constitutional review on a file operation. Returns error ToolResult if blocked."""
+    try:
+        decision = review(action_kind, action, context={"path": path}, use_llm=False)
+        if not decision.allow or decision.requires_approval:
+            violated = ", ".join(v.rule for v in decision.violations) or decision.reason
+            return ToolResult(
+                success=False,
+                error=f"BLOCKED by safety critic: {violated}",
+                metadata={"constitution": decision.to_dict()},
+            )
+    except Exception as exc:
+        logger.error("Constitution review unavailable — blocking operation: %s", exc)
+        return ToolResult(success=False, error=f"BLOCKED: safety review unavailable ({exc})")
+    return None
+
 
 _MAX_READ_CHARS = 50_000
 _MAX_LIST_ENTRIES = 2_000
@@ -100,6 +119,12 @@ class FsListTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str = str(kwargs.get("path", ""))
+
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("fs_list", f"list {path_str}", path_str)
+        if blocked:
+            return blocked
+
         target = _resolve(path_str)
         if target is None:
             return _denied(path_str)
@@ -157,6 +182,12 @@ class FsInfoTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str = str(kwargs.get("path", ""))
+
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("fs_list", f"list {path_str}", path_str)
+        if blocked:
+            return blocked
+
         target = _resolve(path_str)
         if target is None:
             return _denied(path_str)
@@ -204,6 +235,12 @@ class FsReadTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str = str(kwargs.get("path", ""))
+
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("fs_list", f"list {path_str}", path_str)
+        if blocked:
+            return blocked
+
         target = _resolve(path_str)
         if target is None:
             return _denied(path_str)
@@ -257,6 +294,12 @@ class FsWriteTool(IsaacTool):
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str = str(kwargs.get("path", ""))
         content = str(kwargs.get("content", ""))
+
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("fs_write", f"write {path_str}", path_str)
+        if blocked:
+            return blocked
+
         target = _resolve(path_str)
         if target is None:
             return _denied(path_str)
@@ -296,6 +339,12 @@ class FsMkdirTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str = str(kwargs.get("path", ""))
+
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("fs_list", f"list {path_str}", path_str)
+        if blocked:
+            return blocked
+
         target = _resolve(path_str)
         if target is None:
             return _denied(path_str)
@@ -334,6 +383,15 @@ class FsMoveTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         src_str, dest_str = str(kwargs.get("src", "")), str(kwargs.get("dest", ""))
+
+        # Gate 1: constitutional review for both source and destination
+        blocked = _constitutional_review("fs_move", f"move {src_str} -> {dest_str}", src_str)
+        if blocked:
+            return blocked
+        blocked = _constitutional_review("fs_move", f"move {src_str} -> {dest_str}", dest_str)
+        if blocked:
+            return blocked
+
         src = resolve_allowed_link(src_str)
         dest = resolve_allowed_link(dest_str)
         if src is None:
@@ -437,6 +495,15 @@ class FsCopyTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         src_str, dest_str = str(kwargs.get("src", "")), str(kwargs.get("dest", ""))
+
+        # Gate 1: constitutional review for both source and destination
+        blocked = _constitutional_review("fs_copy", f"copy {src_str} -> {dest_str}", src_str)
+        if blocked:
+            return blocked
+        blocked = _constitutional_review("fs_copy", f"copy {src_str} -> {dest_str}", dest_str)
+        if blocked:
+            return blocked
+
         src, dest = _resolve(src_str), _resolve(dest_str)
         if src is None:
             return _denied(src_str)
