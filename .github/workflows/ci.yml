@@ -41,6 +41,9 @@ jobs:
       - name: Mypy type check
         run: mypy src/isaac scripts/doctor_smoke.py --ignore-missing-imports
 
+      - name: Forbidden terms check (ADR-001)
+        run: python scripts/forbidden_terms.py
+
   test:
     name: Test Suite (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

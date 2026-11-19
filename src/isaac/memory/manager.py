@@ -130,7 +130,7 @@ class MemoryManager:
 
         # Semantic: knowledge graph facts
         try:
-            # SOTA Embedding-based semantic search
+            # Embedding-based semantic search
             all_facts: list[dict[str, Any]] = []
             if hasattr(self.semantic, "search_similar_facts"):
                 facts_semantic = self.semantic.search_similar_facts(query, top_k=k * 2)

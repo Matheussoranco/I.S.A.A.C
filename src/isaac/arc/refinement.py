@@ -4,7 +4,7 @@ Implements test-time compute scaling via iterative hypothesis revision:
 
   generate → validate → diagnose failures → revise → repeat
 
-This is the most important ingredient for SOTA ARC performance: rather than
+This is the most important ingredient for top-tier ARC performance: rather than
 making one LLM call and hoping it's correct, we use the training data as a
 *verifiable oracle* and iterate until the program passes all training pairs
 (or we exhaust the compute budget).
