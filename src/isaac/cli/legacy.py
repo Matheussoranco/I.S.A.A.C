@@ -2457,7 +2457,8 @@ def kanban_cmd(
                         for c in task_comments_1:  # type: ignore[assignment, attr-defined]
                             body_preview = c.body[:80]  # type: ignore[attr-defined]
                             suffix = "..." if len(c.body) > 80 else ""  # type: ignore[attr-defined]
-                            typer.echo(f"    [{c.created_at}] {c.author}: {body_preview}{suffix}")  # type: ignore[attr-defined]
+                            preview = f"[{c.created_at}] {c.author}: {body_preview}{suffix}"
+                            typer.echo(f"    {preview}")  # type: ignore[attr-defined]
             elif column:
                 col_ids: dict[str, str] = {
                     c.name.lower(): c.id for c in get_columns(db_path, target_board.id)
@@ -2613,7 +2614,8 @@ def kanban_cmd(
         reclaimed_claims = reclaim_stale_claims(db_path)  # type: ignore[assignment]
         typer.echo(f"Reclaimed {len(reclaimed_claims)} stale claim(s)")
         for c in reclaimed_claims:  # type: ignore[assignment, attr-defined]
-            typer.echo(f"  {c.task_id} (was claimed by {c.worker_id})")  # type: ignore[attr-defined]
+            msg = f"  {c.task_id} (was claimed by {c.worker_id})"
+            typer.echo(msg)  # type: ignore[attr-defined]
         return
 
     # Comment actions
@@ -2642,7 +2644,8 @@ def kanban_cmd(
                 )
             else:
                 for c in task_comments_2:  # type: ignore[assignment, attr-defined]
-                    typer.echo(f"  [{c.created_at}] {c.author}: {c.body}")  # type: ignore[attr-defined]
+                    preview = f"[{c.created_at}] {c.author}: {c.body}"
+                    typer.echo(f"  {preview}")  # type: ignore[attr-defined]
             return
 
     # Stats
