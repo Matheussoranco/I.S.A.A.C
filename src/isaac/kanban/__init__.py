@@ -38,9 +38,12 @@ from isaac.kanban.dispatcher import (
 
 # Dashboard exports
 try:
-    from isaac.kanban.dashboard import app as dashboard_app
+    from fastapi import FastAPI
+
+    from isaac.kanban.dashboard import app
 except ImportError:
-    dashboard_app = None
+    app = None  # type: ignore[assignment]
+dashboard_app: FastAPI | None = app  # type: ignore[assignment]
 
 DB_SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -211,7 +214,8 @@ def create_default_columns(db_path: Path, board_id: str) -> list[Column]:
             col_id = gen_id("c_")
             conn.execute(
                 "INSERT INTO column (id, board_id, name, position, wip_limit) "
-                "VALUES (?, ?, ?, ?, ?)"(col_id, board_id, name, position, wip_limit),
+                "VALUES (?, ?, ?, ?, ?)",
+                (col_id, board_id, name, position, wip_limit),
             )
             columns.append(
                 Column(
@@ -371,6 +375,11 @@ def list_tasks(db_path: Path, board_id: str, column_id: str | None = None) -> li
         return [Task(**row) for row in rows]
 
 
+def get_tasks(db_path: Path, board_id: str, column_id: str | None = None) -> list[Task]:
+    """Alias for list_tasks for backward compatibility."""
+    return list_tasks(db_path, board_id, column_id)
+
+
 def move_task(db_path: Path, task_id: str, new_column_id: str) -> Task:
     with connect(db_path) as conn:
         now = now_iso()
@@ -399,8 +408,8 @@ def update_task(
 ) -> Task:
     with connect(db_path) as conn:
         now = now_iso()
-        fields = []
-        params = []
+        fields: list[str] = []
+        params: list[str | int] = []
         if title is not None:
             fields.append("title = ?")
             params.append(title)
@@ -695,9 +704,9 @@ def get_board_stats(db_path: Path, board_id: str) -> BoardStats:
 
 
 try:
-    from isaac.kanban.dashboard import app as dashboard_app
+    from isaac.kanban.dashboard import app
 except ImportError:
-    dashboard_app = None
+    app = None  # type: ignore[assignment]
 
 __all__ = [
     "Board",

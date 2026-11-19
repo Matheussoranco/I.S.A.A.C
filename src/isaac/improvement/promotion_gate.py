@@ -102,7 +102,7 @@ def synthesize_test_args(param_names: list[str], code: str) -> list[dict]:
 
     # Generate 3 test cases with different value patterns
     for i in range(3):
-        args = {}
+        args: dict[str, Any] = {}
         for param in param_names:
             hint = type_hints.get(param, "").lower()
             if (

@@ -39,7 +39,7 @@ class WorkerProfile:
     max_concurrent: int = 1
     active_task_count: int = 0
     last_heartbeat: float = 0.0
-    metadata: dict[str, Any] = None
+    metadata: dict[str, Any] = None  # type: ignore[assignment]
 
     def __post_init__(self):
         if self.metadata is None:

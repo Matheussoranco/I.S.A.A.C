@@ -2194,22 +2194,24 @@ def kanban_cmd(
             if not board:
                 typer.echo(f"Board not found: {name}")
                 raise typer.Exit(1)
+            # board is guaranteed to be not None here due to the check above
+            board_ = board  # type: ignore[assignment]
             if json_output:
                 typer.echo(
                     _json.dumps(
                         {
-                            "id": board.id,
-                            "name": board.name,
-                            "created_at": board.created_at,
-                            "updated_at": board.updated_at,
+                            "id": board_.id,
+                            "name": board_.name,
+                            "created_at": board_.created_at,
+                            "updated_at": board_.updated_at,
                         },
                         indent=2,
                     )
                 )
             else:
-                typer.echo(f"Board: {board.name} ({board.id})")
-                typer.echo(f"  Created: {board.created_at}")
-                typer.echo(f"  Updated: {board.updated_at}")
+                typer.echo(f"Board: {board_.name} ({board_.id})")
+                typer.echo(f"  Created: {board_.created_at}")
+                typer.echo(f"  Updated: {board_.updated_at}")
         else:
             boards = list_boards(db_path)
             if json_output:

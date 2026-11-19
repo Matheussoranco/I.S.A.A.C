@@ -95,7 +95,7 @@ class CommentCreate(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     """Main dashboard page."""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "dashboard.html")
 
 
 # API Routes - Boards
@@ -104,7 +104,8 @@ async def dashboard(request: Request) -> HTMLResponse:
 @app.get("/api/boards")
 async def api_list_boards() -> list[dict]:
     """List all boards."""
-    boards = list_boards()
+    db_path = get_settings().isaac_home / "kanban.db"
+    boards = list_boards(db_path)
     return [
         {"id": b.id, "name": b.name, "created_at": b.created_at, "updated_at": b.updated_at}
         for b in boards
