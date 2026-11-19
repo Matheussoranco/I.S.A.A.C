@@ -18,8 +18,8 @@ from dataclasses import asdict, dataclass, field
 from threading import Lock
 from typing import Any
 
-from isaac.improvement.skill_curation import SkillCurator
 from isaac.improvement.promotion_gate import run_promotion_gate_for_tracked_skill
+from isaac.improvement.skill_curation import SkillCurator
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,7 @@ class ImprovementEngine:
         # 1.5. Behavioural promotion gate — validate promoted skills in sandbox
         try:
             from isaac.memory.manager import get_memory_manager
+
             mm = get_memory_manager()
             proc = mm.procedural
 
@@ -100,22 +101,31 @@ class ImprovementEngine:
                     if not gate_result.passed:
                         # If behavioural gate fails, revert the promotion
                         if hasattr(proc, "set_status"):
-                            proc.set_status(decision.skill_name, "quarantine",
-                                reason=f"Behavioural gate failed: {gate_result.reason}")
+                            proc.set_status(
+                                decision.skill_name,
+                                "quarantine",
+                                reason=f"Behavioural gate failed: {gate_result.reason}",
+                            )
                         elif hasattr(proc, "annotate"):
-                            proc.annotate(decision.skill_name, {
-                                "status": "quarantine",
-                                "reason": f"Behavioural gate failed: {gate_result.reason}",
-                            })
+                            proc.annotate(
+                                decision.skill_name,
+                                {
+                                    "status": "quarantine",
+                                    "reason": f"Behavioural gate failed: {gate_result.reason}",
+                                },
+                            )
                         logger.warning(
                             "Promotion gate failed for '%s', quarantined: %s",
-                            decision.skill_name, gate_result.reason
+                            decision.skill_name,
+                            gate_result.reason,
                         )
-                        result.errors.append(f"promotion_gate: {decision.skill_name} - {gate_result.reason}")
+                        msg = f"promotion_gate: {decision.skill_name} - {gate_result.reason}"
+                        result.errors.append(msg)
                     else:
                         logger.info(
                             "Promotion gate passed for '%s': %s",
-                            decision.skill_name, gate_result.reason
+                            decision.skill_name,
+                            gate_result.reason,
                         )
         except Exception as exc:
             logger.exception("Improvement: promotion gate failed.")

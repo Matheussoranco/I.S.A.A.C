@@ -2085,40 +2085,63 @@ if TYPE_CHECKING or typer is not None:
 # kanban — SQLite-backed task boards with deps, claims, comments
 # ──────────────────────────────────────────────────────────────────────────
 
+
 @app.command(name="kanban", no_args_is_help=True)
 def kanban_cmd(
-    action: str = typer.Argument(..., help="Action: init, board, column, task, claim, comment, stats, show"),
-        name: str = typer.Argument(None, help="Board name, task ID, or column name"),
-        db: str = typer.Option("", "--db", help="Kanban DB path (default ~/.isaac/kanban.db)"),
-        title: str = typer.Option("", "--title", help="Task title (for create)"),
-        description: str = typer.Option("", "--desc", help="Task description"),
-        priority: int | None = typer.Option(None, "--priority", "-p", help="Task priority (higher = more urgent)"),
-        assignee: str = typer.Option("", "--assignee", "-a", help="Assignee name"),
-        due: str = typer.Option("", "--due", help="Due date (YYYY-MM-DD)"),
-        tags: str = typer.Option("", "--tags", help="Comma-separated tags"),
-        column: str = typer.Option("", "--column", "-c", help="Column name (for move)"),
-        worker: str = typer.Option("", "--worker", "-w", help="Worker ID (for claim)"),
-        profile: str = typer.Option("default", "--profile", help="Worker profile (for claim)"),
-        stale_minutes: int = typer.Option(60, "--stale-minutes", help="Claim stale threshold (minutes)"),
-        body: str = typer.Option("", "--body", "-b", help="Comment body"),
-        author: str = typer.Option("cli", "--author", help="Comment author"),
-        json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-        limit: int = typer.Option(0, "--limit", "-l", help="Limit results"),
-        verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-    ) -> None:
+    action: str = typer.Argument(
+        ..., help="Action: init, board, column, task, claim, comment, stats, show"
+    ),
+    name: str = typer.Argument(None, help="Board name, task ID, or column name"),
+    db: str = typer.Option("", "--db", help="Kanban DB path (default ~/.isaac/kanban.db)"),
+    title: str = typer.Option("", "--title", help="Task title (for create)"),
+    description: str = typer.Option("", "--desc", help="Task description"),
+    priority: int | None = typer.Option(
+        None, "--priority", "-p", help="Task priority (higher = more urgent)"
+    ),
+    assignee: str = typer.Option("", "--assignee", "-a", help="Assignee name"),
+    due: str = typer.Option("", "--due", help="Due date (YYYY-MM-DD)"),
+    tags: str = typer.Option("", "--tags", help="Comma-separated tags"),
+    column: str = typer.Option("", "--column", "-c", help="Column name (for move)"),
+    worker: str = typer.Option("", "--worker", "-w", help="Worker ID (for claim)"),
+    profile: str = typer.Option("default", "--profile", help="Worker profile (for claim)"),
+    stale_minutes: int = typer.Option(
+        60, "--stale-minutes", help="Claim stale threshold (minutes)"
+    ),
+    body: str = typer.Option("", "--body", "-b", help="Comment body"),
+    author: str = typer.Option("cli", "--author", help="Comment author"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+    limit: int = typer.Option(0, "--limit", "-l", help="Limit results"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+) -> None:
     """Kanban board management: init/create/list/show/assign/complete/block/stats."""
-    from pathlib import Path as _Path
     import json as _json
+    from pathlib import Path as _Path
 
     from isaac.config.settings import get_settings
     from isaac.kanban import (
-        init_kanban_board, create_board, get_board, list_boards, update_board_timestamp,
-        get_columns, create_column, create_task, get_task, list_tasks, move_task,
-        update_task, add_task_dep, remove_task_dep, get_task_deps, get_dependents,
-        claim_task, release_claim, release_task_claims, get_active_claim,
-        reclaim_stale_claims, is_claim_stale, add_comment, get_comments,
-        get_board_stats, Board, Column, Task, Claim, Comment,
+        add_comment,
+        add_task_dep,
+        claim_task,
+        create_column,
+        create_task,
+        get_active_claim,
+        get_board,
+        get_board_stats,
+        get_columns,
+        get_comments,
+        get_dependents,
+        get_task,
+        get_task_deps,
         init_db,
+        init_kanban_board,
+        is_claim_stale,
+        list_boards,
+        list_tasks,
+        move_task,
+        reclaim_stale_claims,
+        release_task_claims,
+        remove_task_dep,
+        update_task,
     )
 
     db_path = _Path(db) if db else get_settings().isaac_home / "kanban.db"
@@ -2136,10 +2159,27 @@ def kanban_cmd(
             raise typer.Exit(2)
         board, columns = init_kanban_board(db_path, name)
         if json_output:
-            typer.echo(_json.dumps({
-                "board": {"id": board.id, "name": board.name, "created_at": board.created_at},
-                "columns": [{"id": c.id, "name": c.name, "position": c.position, "wip_limit": c.wip_limit} for c in columns],
-            }, indent=2))
+            typer.echo(
+                _json.dumps(
+                    {
+                        "board": {
+                            "id": board.id,
+                            "name": board.name,
+                            "created_at": board.created_at,
+                        },
+                        "columns": [
+                            {
+                                "id": c.id,
+                                "name": c.name,
+                                "position": c.position,
+                                "wip_limit": c.wip_limit,
+                            }
+                            for c in columns
+                        ],
+                    },
+                    indent=2,
+                )
+            )
         else:
             typer.echo(f"Created board '{board.name}' ({board.id}) with {len(columns)} columns:")
             for c in columns:
@@ -2154,7 +2194,17 @@ def kanban_cmd(
                 typer.echo(f"Board not found: {name}")
                 raise typer.Exit(1)
             if json_output:
-                typer.echo(_json.dumps({"id": board.id, "name": board.name, "created_at": board.created_at, "updated_at": board.updated_at}, indent=2))
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "id": board.id,
+                            "name": board.name,
+                            "created_at": board.created_at,
+                            "updated_at": board.updated_at,
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 typer.echo(f"Board: {board.name} ({board.id})")
                 typer.echo(f"  Created: {board.created_at}")
@@ -2162,7 +2212,20 @@ def kanban_cmd(
         else:
             boards = list_boards(db_path)
             if json_output:
-                typer.echo(_json.dumps([{"id": b.id, "name": b.name, "created_at": b.created_at, "updated_at": b.updated_at} for b in boards], indent=2))
+                typer.echo(
+                    _json.dumps(
+                        [
+                            {
+                                "id": b.id,
+                                "name": b.name,
+                                "created_at": b.created_at,
+                                "updated_at": b.updated_at,
+                            }
+                            for b in boards
+                        ],
+                        indent=2,
+                    )
+                )
             else:
                 if not boards:
                     typer.echo("No boards yet. Run 'isaac kanban init <name>' to create one.")
@@ -2184,7 +2247,20 @@ def kanban_cmd(
         if not title:
             cols = get_columns(db_path, board.id)
             if json_output:
-                typer.echo(_json.dumps([{"id": c.id, "name": c.name, "position": c.position, "wip_limit": c.wip_limit} for c in cols], indent=2))
+                typer.echo(
+                    _json.dumps(
+                        [
+                            {
+                                "id": c.id,
+                                "name": c.name,
+                                "position": c.position,
+                                "wip_limit": c.wip_limit,
+                            }
+                            for c in cols
+                        ],
+                        indent=2,
+                    )
+                )
             else:
                 typer.echo(f"Columns for board '{board.name}':")
                 for c in cols:
@@ -2193,7 +2269,17 @@ def kanban_cmd(
         else:
             col = create_column(db_path, board.id, title)
             if json_output:
-                typer.echo(_json.dumps({"id": col.id, "name": col.name, "position": col.position, "wip_limit": col.wip_limit}, indent=2))
+                typer.echo(
+                    _json.dumps(
+                        {
+                            "id": col.id,
+                            "name": col.name,
+                            "position": col.position,
+                            "wip_limit": col.wip_limit,
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 typer.echo(f"Created column '{col.name}' ({col.id}) at position {col.position}")
         return
@@ -2206,14 +2292,26 @@ def kanban_cmd(
         if title and (board_obj or not name):
             target_board = board_obj or get_board(db_path, "default")
             if not target_board:
-                typer.echo("Board not found. Specify a board name or create one with 'kanban init'.")
+                typer.echo(
+                    "Board not found. Specify a board name or create one with 'kanban init'."
+                )
                 raise typer.Exit(1)
             task = create_task(
-                db_path, target_board.id, title, description, priority,
-                assignee or None, due or None, tags
+                db_path,
+                target_board.id,
+                title,
+                description,
+                priority,
+                assignee or None,
+                due or None,
+                tags,
             )
             if json_output:
-                typer.echo(_json.dumps({"id": task.id, "title": task.title, "column_id": task.column_id}, indent=2))
+                typer.echo(
+                    _json.dumps(
+                        {"id": task.id, "title": task.title, "column_id": task.column_id}, indent=2
+                    )
+                )
             else:
                 typer.echo(f"Created task {task.id}: {task.title}")
         elif task_obj:
@@ -2223,7 +2321,14 @@ def kanban_cmd(
                 typer.echo(f"Task's board not found: {task.board_id}")
                 raise typer.Exit(1)
 
-            if act == "show" or (not title and not column and not assignee and not due and priority is None and not tags):
+            if act == "show" or (
+                not title
+                and not column
+                and not assignee
+                and not due
+                and priority is None
+                and not tags
+            ):
                 deps = get_task_deps(db_path, name)
                 dependents = get_dependents(db_path, name)
                 claim = get_active_claim(db_path, name)
@@ -2232,19 +2337,41 @@ def kanban_cmd(
                 col_name = cols.get(task.column_id, task.column_id)
 
                 if json_output:
-                    typer.echo(_json.dumps({
-                        "task": {
-                            "id": task.id, "title": task.title, "description": task.description,
-                            "column": col_name, "column_id": task.column_id,
-                            "priority": task.priority, "assignee": task.assignee,
-                            "blocked": task.is_blocked, "tags": task.tag_list,
-                            "created_at": task.created_at, "updated_at": task.updated_at,
-                            "due_at": task.due_at,
-                            "depends_on": deps, "dependents": dependents,
-                        },
-                        "claim": {"worker_id": claim.worker_id, "profile": claim.profile, "claimed_at": claim.claimed_at, "stale": is_claim_stale(claim)} if claim else None,
-                        "comments": [{"author": c.author, "body": c.body, "created_at": c.created_at} for c in comments],
-                    }, indent=2))
+                    typer.echo(
+                        _json.dumps(
+                            {
+                                "task": {
+                                    "id": task.id,
+                                    "title": task.title,
+                                    "description": task.description,
+                                    "column": col_name,
+                                    "column_id": task.column_id,
+                                    "priority": task.priority,
+                                    "assignee": task.assignee,
+                                    "blocked": task.is_blocked,
+                                    "tags": task.tag_list,
+                                    "created_at": task.created_at,
+                                    "updated_at": task.updated_at,
+                                    "due_at": task.due_at,
+                                    "depends_on": deps,
+                                    "dependents": dependents,
+                                },
+                                "claim": {
+                                    "worker_id": claim.worker_id,
+                                    "profile": claim.profile,
+                                    "claimed_at": claim.claimed_at,
+                                    "stale": is_claim_stale(claim),
+                                }
+                                if claim
+                                else None,
+                                "comments": [
+                                    {"author": c.author, "body": c.body, "created_at": c.created_at}
+                                    for c in comments
+                                ],
+                            },
+                            indent=2,
+                        )
+                    )
                 else:
                     typer.echo(f"Task {task.id}: {task.title}")
                     typer.echo(f"  Column: {col_name}")
@@ -2262,11 +2389,19 @@ def kanban_cmd(
                         typer.echo(f"  Dependents: {', '.join(dependents)}")
                     if claim:
                         stale = " (STALE)" if is_claim_stale(claim) else ""
-                        typer.echo(f"  Claimed by: {claim.worker_id} ({claim.profile}) at {claim.claimed_at}{stale}")
+                        typer.echo(
+                            f"  Claimed by: {claim.worker_id} "
+                            f"({claim.profile}) at {claim.claimed_at}{stale}"
+                        )
                     if comments:
                         typer.echo("  Comments:")
                         for c in comments:
-                            typer.echo(f"    [{c.created_at}] {c.author}: {c.body[:80]}{'...' if len(c.body) > 80 else ''}")
+                            body_preview = c.body[:80]
+                            suffix = "..." if len(c.body) > 80 else ""
+                            typer.echo(
+                                f"    [{c.created_at}] {c.author}: "
+                                f"{body_preview}{suffix}"
+                            )
             elif column:
                 cols = {c.name.lower(): c.id for c in get_columns(db_path, target_board.id)}
                 col_id = cols.get(column.lower())
@@ -2278,7 +2413,8 @@ def kanban_cmd(
             else:
                 new_priority = priority if priority != 0 else None
                 task = update_task(
-                    db_path, name,
+                    db_path,
+                    name,
                     title=title or None,
                     description=description or None,
                     priority=new_priority,
@@ -2296,13 +2432,26 @@ def kanban_cmd(
             if limit:
                 tasks = tasks[:limit]
             if json_output:
-                typer.echo(_json.dumps([{
-                    "id": t.id, "title": t.title, "column_id": t.column_id,
-                    "priority": t.priority, "assignee": t.assignee,
-                    "blocked": t.is_blocked, "tags": t.tag_list,
-                    "created_at": t.created_at, "updated_at": t.updated_at,
-                    "due_at": t.due_at,
-                } for t in tasks], indent=2))
+                typer.echo(
+                    _json.dumps(
+                        [
+                            {
+                                "id": t.id,
+                                "title": t.title,
+                                "column_id": t.column_id,
+                                "priority": t.priority,
+                                "assignee": t.assignee,
+                                "blocked": t.is_blocked,
+                                "tags": t.tag_list,
+                                "created_at": t.created_at,
+                                "updated_at": t.updated_at,
+                                "due_at": t.due_at,
+                            }
+                            for t in tasks
+                        ],
+                        indent=2,
+                    )
+                )
             else:
                 if not tasks:
                     typer.echo("No tasks.")
@@ -2315,7 +2464,10 @@ def kanban_cmd(
         else:
             typer.echo('Usage: isaac kanban task <board> --title "Task title"  (create)')
             typer.echo("       isaac kanban task <board>                  (list)")
-            typer.echo("       isaac kanban task <task-id> [--column <col>] [--title <new>] ... (update/move)")
+            typer.echo(
+                "       isaac kanban task <task-id> "
+                "[--column <col>] [--title <new>] ... (update/move)"
+            )
             raise typer.Exit(2)
         return
 
@@ -2384,7 +2536,7 @@ def kanban_cmd(
             typer.echo(f"Claimed task {name} by {worker} ({profile})")
         except ValueError as e:
             typer.echo(f"Claim failed: {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         return
 
     if act in {"release", "unclaim"}:
@@ -2408,16 +2560,28 @@ def kanban_cmd(
             typer.echo("Task ID required.")
             raise typer.Exit(2)
         if body:
-            comment = add_comment(db_path, name, author, body)
+            _ = add_comment(db_path, name, author, body)
             typer.echo(f"Added comment to task {name}")
         else:
             comments = get_comments(db_path, name)
             if json_output:
-                typer.echo(_json.dumps([{"author": c.author, "body": c.body, "created_at": c.created_at} for c in comments], indent=2))
+                typer.echo(
+                    _json.dumps(
+                        [
+                            {
+                                "author": c.author,
+                                "body": c.body,
+                                "created_at": c.created_at,
+                            }
+                            for c in comments
+                        ],
+                        indent=2,
+                    )
+                )
             else:
                 for c in comments:
                     typer.echo(f"  [{c.created_at}] {c.author}: {c.body}")
-        return
+            return
 
     # Stats
     if act in {"stats", "statistics"}:
@@ -2430,16 +2594,21 @@ def kanban_cmd(
             raise typer.Exit(1)
         stats = get_board_stats(db_path, board.id)
         if json_output:
-            typer.echo(_json.dumps({
-                "board_id": stats.board_id,
-                "board_name": stats.board_name,
-                "total_tasks": stats.total_tasks,
-                "by_column": stats.by_column,
-                "by_priority": stats.by_priority,
-                "blocked_count": stats.blocked_count,
-                "claimed_count": stats.claimed_count,
-                "stale_claims": stats.stale_claims,
-            }, indent=2))
+            typer.echo(
+                _json.dumps(
+                    {
+                        "board_id": stats.board_id,
+                        "board_name": stats.board_name,
+                        "total_tasks": stats.total_tasks,
+                        "by_column": stats.by_column,
+                        "by_priority": stats.by_priority,
+                        "blocked_count": stats.blocked_count,
+                        "claimed_count": stats.claimed_count,
+                        "stale_claims": stats.stale_claims,
+                    },
+                    indent=2,
+                )
+            )
         else:
             typer.echo(f"Board: {stats.board_name} ({stats.board_id})")
             typer.echo(f"  Total tasks: {stats.total_tasks}")
