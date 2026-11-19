@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -39,11 +39,11 @@ class WorkerProfile:
     max_concurrent: int = 1
     active_task_count: int = 0
     last_heartbeat: float = 0.0
-    metadata: dict[str, Any] = None  # type: ignore[assignment]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+        # metadata is initialized by field(default_factory=dict)
+        pass
 
     @property
     def is_available(self) -> bool:
