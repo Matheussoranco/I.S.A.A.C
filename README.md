@@ -3,9 +3,10 @@
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-1.6.2-blue)
+[![Version](https://img.shields.io/badge/version-1.6.2-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)]()
 
 A **multimodal, self-improving, local-first** autonomous agent built on
 [LangGraph](https://github.com/langchain-ai/langgraph) — Docker-sandboxed
@@ -18,193 +19,28 @@ self-curation, and a hardened security stack.
 
 ---
 
-## Highlights
+## Table of Contents
 
-| Capability | What it does |
-|---|---|
-| **Native agent app** | Windows desktop window with a Codex-style chat, persistent conversations, selectable provider/model/reasoning, live task activity, approval/cancel controls, browser or desktop preview, and visible agent cursor. |
-| **Real computer-use loop** | With OpenAI + `gpt-5.6-sol`, the app implements the screenshot/action loop directly through the Responses API. It executes bounded mouse/keyboard batches only after approval and immediately returns the resulting full-resolution screenshot to the model. Other providers retain the generic tool loop. |
-| **Specialist team** | A manager *orchestrator* decomposes a goal and dispatches it to focused local-first mini-agents — coder, file-organizer, researcher, designer, OS-operator, analyst, critic — running independent subtasks in parallel. |
-| **Host reach** | Constitution-gated `shell`, real-filesystem `fs_*` tools (organise your actual files, confined to `allowed_paths`), and read-only `system_info` — so it can do nearly any task on the PC. |
-| **User personas** | Build, store, and activate custom agent identities (`isaac persona new`); the whole team speaks with your chosen voice. |
-| **Local-first LLMs** | Ollama + `qwen3.6` **by default** — zero API keys, nothing leaves the machine. llama.cpp and any OpenAI-compatible endpoint are first-class too; cloud (OpenAI/Anthropic) stays fully supported but strictly opt-in. |
-| **Capable on small models** | Grammar/JSON-constrained tool calling (Ollama `format`, llama.cpp GBNF) plus salvage + Reflexion retry for malformed calls. Runs agents on models with *no* native tool support: `gemma3:1b` goes from 0/20 to 20/20 well-formed calls. Measured in [`docs/MODELS.md`](docs/MODELS.md). |
-| **Test-time compute** | Self-consistency and best-of-N with cheap local verifiers on hard steps, escalating and exiting early exactly as the ARC solver does. |
-| **Voice I/O** | Whisper (STT) ↔ edge-tts / OpenAI / ElevenLabs / pyttsx3 / Kokoro (TTS) with VAD-driven hands-free mode. |
-| **Vision** | Local VLMs via Ollama (`llava`, `qwen2.5-vl`). Image / screen-capture input. |
-| **Self-improving** | Per-node telemetry, A/B prompt evolution, skill auto-curation, periodic self-critique. |
-| **Sandboxed code** | Ephemeral Docker containers, no network, dropped capabilities, seccomp profile. |
-| **5-layer memory** | Long-term (SQLite FTS5), Episodic (ChromaDB), Semantic (KG), Procedural (skills), WorldModel KG. |
-| **Connectors** | GitHub, IMAP/SMTP, CalDAV, Obsidian, web fetch/search, allowlisted shell. |
+- [Quick Start](#quick-start)
+- [Architecture Overview](#architecture-overview)
+- [Cognitive Graph (Detailed)](#cognitive-graph-detailed)
+- [Multimodal Subsystem](#multimodal-subsystem)
+- [Self-Improvement Engine](#self-improvement-engine)
+- [LLM Provider Stack](#llm-provider-stack)
+- [Routing Matrix](#routing-matrix)
+- [Five-Layer Memory](#five-layer-memory)
+- [Kanban & Dispatcher](#kanban--dispatcher)
+- [Evaluation Harness](#evaluation-harness)
+- [State Schema](#state-schema)
+- [Sandbox Security Model](#sandbox-security-model)
+- [Security & Audit](#security--audit)
+- [Configuration](#configuration)
+- [CLI Reference](#cli-reference)
+- [Directory Structure](#directory-structure)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Architecture
-
-I.S.A.A.C. models reasoning as an explicit cyclic state graph — not generic
-while-loops.  Cognitive nodes operate on a strict `TypedDict` state contract.
-
-```
-START ─► Guard ─► Perception ─► (DirectResponse | Explorer)
-                                       │
-                                       ▼
-                                    Planner
-                                       │
-                              ConnectorExecution
-                                       │
-                                    Synthesis
-                                       │
-                ┌──────────────────────┴──────────────────────┐
-                ▼                                             ▼
-          ComputerUse (mode=ui)                        Sandbox (code/hybrid)
-                └──────────────────────┬──────────────────────┘
-                                       ▼
-                                  Reflection
-                                       │
-            ┌──────────────────────────┼──────────────────────┐
-            ▼                          ▼                      ▼
-     SkillAbstraction              Planner                  END
-```
-
-| Node | Responsibility |
-|---|---|
-| **Guard** | Detect prompt injection and sanitize input |
-| **Perception** | Parse text + image + audio, build hypothesis, set task mode |
-| **DirectResponse** | Fast-path for greetings / Q&A — skips planning entirely |
-| **Explorer** | Active exploration (ARC structural + web search) |
-| **Planner** | Decompose into a dependency-aware DAG (Graph-of-Thought) |
-| **ConnectorExecution** | Host-side connector dispatch (web, email, fs, ...) |
-| **Synthesis** | Generate pure Python (CodeAgent — no JSON tool calls) |
-| **Sandbox** | Run code in ephemeral Docker (no network, no caps) |
-| **ComputerUse** | GUI automation in virtual desktop (Xvfb + Playwright) |
-| **Reflection** | Analyse, refine, or escalate to Planner |
-| **SkillAbstraction** | Generalise successful code into reusable Library entries |
-
-### Multimodal subsystem
-
-```
-src/isaac/multimodal/
-├── voice/
-│   ├── stt.py            ← Whisper (faster-whisper / openai-whisper)
-│   ├── tts.py            ← edge-tts / OpenAI / ElevenLabs provider selection
-│   └── audio_io.py       ← Mic capture, VAD, playback
-├── vision/
-│   ├── vision_lm.py      ← Image+text VLM wrapper
-│   └── screen_capture.py ← mss / PIL.ImageGrab
-└── input.py              ← Unified text + image + audio → HumanMessage
-```
-
-### Self-improvement engine
-
-```
-src/isaac/improvement/
-├── performance.py     ← SQLite-backed per-node + per-skill telemetry
-├── skill_curation.py  ← promote / deprecate / quarantine skills
-├── prompt_evolution.py ← A/B test prompt variants (epsilon-greedy)
-├── self_critique.py   ← LLM-driven meta-reflection
-└── engine.py          ← Orchestrator + scheduler hook
-```
-
-Every cognitive node is wrapped in a telemetry decorator (`core/telemetry.py`)
-so per-run duration / success / error patterns flow into the tracker
-**for free** — no node code changes required.
-
-### LLM provider stack (refactored in 0.3.0)
-
-```
-src/isaac/llm/
-├── providers/
-│   ├── ollama.py        ← first-class local
-│   ├── llamacpp.py      ← local llama.cpp HTTP
-│   ├── openai_compat.py ← LM Studio, vLLM, LiteLLM, ...
-│   ├── openai.py        ← cloud
-│   └── anthropic.py     ← cloud
-├── multimodal_router.py ← (modality × complexity) routing with health checks
-└── router.py            ← legacy complexity router (kept for compat)
-```
-
-### Routing matrix `(modality × complexity)`
-
-The `MultimodalRouter` resolves every LLM call to a concrete `(provider, model)` pair via a 3 × 3 table. Local providers are health-checked (cached 60 s) before dispatch; on miss the router walks a fallback chain.
-
-Defaults are what a fresh install actually uses — **no API keys, no cloud account**:
-
-|              | **fast** (perception, classification) | **default** (synthesis, planning) | **strong** (reflection, critique) |
-| ------------ | ------------------------------------- | --------------------------------- | --------------------------------- |
-| **text**     | `ollama / qwen3.6`                    | `ollama / qwen3.6`                | `ollama / qwen3.6`                |
-| **vision**   | `ollama / llava:7b`                   | `ollama / llava:7b`               | `ollama / llava:7b`               |
-| **audio**    | faster-whisper (`tiny` / `base`)      | faster-whisper (`small`)          | faster-whisper (`large-v3`)       |
-
-Override any cell with `ISAAC_FAST_MODEL` / `ISAAC_MODEL_NAME` / `ISAAC_STRONG_MODEL` (and `ISAAC_VISION_MODEL` for the vision row).
-
-Cloud providers (`openai`, `anthropic`) are **never required and never automatic** — they enter the chain only when you select one (`ISAAC_LLM_PROVIDER=anthropic`) or name one in `ISAAC_LLM_FALLBACK_PROVIDER`, **and** supply the matching `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. If Ollama is down or the model was never pulled, I.S.A.A.C. raises an error naming the exact command (`ollama pull qwen3.6`) rather than quietly billing a cloud API. Audio routing transcribes locally and re-routes the text through the **text** row.
-
-### Self-improvement lifecycle
-
-```
-       ┌─────────────────────────────────────────────────────┐
-       │              every cognitive node                   │
-       │              (telemetry decorator)                  │
-       └────────────────────────┬────────────────────────────┘
-                                ▼
-                ┌──────────────────────────────┐
-                │ performance.PerformanceTracker│
-                │   • node_runs                 │
-                │   • skill_runs                │
-                │   • prompt_runs               │  ← SQLite
-                └──────────────┬────────────────┘
-                               ▼
-       ┌────────────────────── engine.run_cycle ──────────────────────┐
-       │                                                              │
-       │   1. SkillCurator       — promote / deprecate / quarantine   │
-       │   2. PromptEvolution    — ε-greedy variant selection         │
-       │   3. SelfCritique       — strong-tier LLM meta-reflection    │
-       │   4. PerformanceTracker — prune > 90-day rows                │
-       │                                                              │
-       └──────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-                  ImprovementResult ──► audit log + scheduler
-```
-
-Trigger paths:
-- **Manual** — `isaac improve [--report]` runs one cycle synchronously and prints the critique summary
-- **Scheduled** — when `ISAAC_IMPROVEMENT_ENABLED=true`, APScheduler fires `improvement_job` every `ISAAC_IMPROVEMENT_INTERVAL_MINUTES` (10 ≤ x ≤ 10080)
-- **Telemetry-only** — when improvement is disabled, the tracker still records every node/skill run so a later cycle has data to act on
-
-### Five-layer memory (unchanged in 0.3.0, summarized here)
-
-| Layer            | Backend                            | Purpose                                                  |
-| ---------------- | ---------------------------------- | -------------------------------------------------------- |
-| **LongTerm**     | SQLite + FTS5                      | Full-text-searchable canonical archive                   |
-| **Episodic**     | Ring buffer + ChromaDB             | Recent turns, vector recall                              |
-| **Semantic**     | NetworkX KG + SQLite + ChromaDB    | Concept graph, relation queries                          |
-| **Procedural**   | `SkillLibrary` (JSON + embeddings) | Reusable Python snippets generalized from past successes |
-| **WorldModelKG** | NetworkX DiGraph + SQLite          | Symbolic observations carried inside `IsaacState`        |
-
-`MemoryManager.recall()` produces a single combined prompt string from all five layers; ChromaDB-dependent layers degrade gracefully (exact-match fallback) when the vector store is unavailable.
-
-## Core Design Principles
-
-- **Local-first** — every default points at a local backend. Cloud APIs are
-  optional fallbacks, never required.
-- **Modality-aware routing** — text, vision, and audio each get their own
-  routing table; the router picks the best healthy backend per request.
-- **Self-improving** — the agent measures itself and acts on the data:
-  weak skills get deprecated, good prompt variants get more traffic.
-- **Execution Isolation** — all environment interactions in ephemeral
-  unprivileged Docker containers (`--network=none`, `--cap-drop=ALL`,
-  `--read-only`, seccomp profile).
-- **CodeAgent Paradigm** — the LLM generates pure Python; no JSON/XML tool
-  calling. Code is injected into the sandbox, never executed on host.
-- **Neuro-Symbolic Reasoning** — structured state schema separates perception
-  from representation. The `WorldModel` carries symbolic observations via
-  a knowledge graph.
-- **Five-Layer Memory** — Episodic, Semantic, WorldModelKG, SkillLibrary,
-  unified ContextManager.
-- **Cumulative Learning** — persistent Skill Library composes existing
-  skills to solve novel tasks, reducing LLM calls over time.
-- **Security-First** — hash-chained audit log, capability tokens, prompt
-  injection guard, shared credential-path denial, one-use connector grants,
-  explicit unattended-cron approval, I/O sanitization, seccomp sandboxing.
+---
 
 ## Quick Start
 
@@ -348,17 +184,319 @@ isaac memory "search term"
 isaac connectors
 ```
 
-## Evaluation (`isaac eval`)
+---
 
-Capability claims are measured, not asserted. The eval harness loads a JSONL
-task suite, runs each task through the agent (or the specialist team), scores
-the answers with deterministic programmatic checkers — no LLM judging — and
-records every run (suite hash, model, provider, git revision, per-task
-results) to a SQLite DB so scores are reproducible and comparable.
+## Architecture Overview
+
+I.S.A.A.C. is architected as a **LangGraph state machine** where every cognitive operation is an explicit node in a directed cyclic graph. This is not a generic while-loop agent; each node has a strict `TypedDict` contract (`IsaacState`), deterministic reducers, and auditable telemetry.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        I.S.A.A.C. SYSTEM ARCHITECTURE                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   USER INTERFACE │     │   AGENT CORE     │     │   EXECUTION      │
+│                  │     │                  │     │   LAYER          │
+│  ┌────────────┐  │     │  ┌────────────┐  │     │  ┌────────────┐  │
+│  │ Desktop    │  │     │  │ Cognitive  │  │     │  │ Sandbox    │  │
+│  │ App (Tauri)│◄─┼────►│  │ Graph      │  │     │  │ (Docker)   │  │
+│  │ Web UI     │  │     │  │ (LangGraph)│  │     │  │ Computer   │  │
+│  │ CLI/REPL   │  │     │  └─────┬──────┘  │     │  │ Use (Xvfb) │  │
+│  │ Voice/Vision│  │     │       │         │     │  └─────┬──────┘  │
+│  └────────────┘  │     └───────┼─────────┘     │       │         │
+└──────────────────┘             │               └───────┼─────────┘
+                                 │                       │
+                    ┌────────────▼────────────┐  ┌────────▼────────┐
+                    │   PROVIDER & MODEL      │  │   MEMORY        │
+                    │   ROUTING               │  │   LAYERS        │
+                    │                         │  │               │
+                    │  MultimodalRouter       │  │  ┌──────────┐  │
+                    │  (modality × complexity)│  │  │LongTerm  │  │
+                    │                         │  │  │(SQLite)  │  │
+                    │  ┌──────────────────┐   │  │  ├──────────┤  │
+                    │  │ Providers        │   │  │  │Episodic  │  │
+                    │  │ • ollama         │   │  │  │(ChromaDB)│  │
+                    │  │ • llamacpp       │   │  │  ├──────────┤  │
+                    │  │ • openai_compat  │   │  │  │Semantic  │  │
+                    │  │ • openai         │   │  │  │(KG+Vec)  │  │
+                    │  │ • anthropic      │   │  │  ├──────────┤  │
+                    │  └──────────────────┘   │  │  │Procedural│  │
+                    │                         │  │  │(Skills)  │  │
+                    │  Health checks (60s)    │  │  ├──────────┤  │
+                    │  Fallback chains        │  │  │WorldModel│  │
+                    └─────────────────────────┘  │  │(KG)      │  │
+                                                 └──┴──────────┘
+```
+
+---
+
+## Cognitive Graph (Detailed)
+
+I.S.A.A.C. models reasoning as an explicit **cyclic state graph** — not generic while-loops. Cognitive nodes operate on a strict `TypedDict` state contract (`IsaacState`).
+
+```
+START ──► Guard ──► Perception ──► (DirectResponse | Explorer)
+                                        │
+                                        ▼
+                                     Planner
+                                        │
+                              ConnectorExecution
+                                        │
+                                    Synthesis
+                                        │
+                ┌───────────────────────┴───────────────────────┐
+                ▼                                               ▼
+          ComputerUse (mode=ui)                          Sandbox (code/hybrid)
+                └───────────────────────┬───────────────────────┘
+                                        ▼
+                                   Reflection
+                                        │
+              ┌─────────────────────────┼─────────────────────────┐
+              ▼                         ▼                         ▼
+       SkillAbstraction             Planner                     END
+```
+
+### Node Responsibilities
+
+| Node | Responsibility | Key Details |
+|------|---------------|-------------|
+| **Guard** | Detect prompt injection and sanitize input | Regex + LLM-based classification; fast-path reject |
+| **Perception** | Parse text + image + audio, build hypothesis, set task mode | Multimodal fusion; outputs `hypothesis` + `task_mode` |
+| **DirectResponse** | Fast-path for greetings / Q&A — skips planning entirely | Bypasses graph for trivial interactions |
+| **Explorer** | Active exploration (ARC structural + web search) | Iterative deepening; bounded by `ISAAC_EXPLORER_DEPTH` |
+| **Planner** | Decompose into a dependency-aware DAG (Graph-of-Thought) | Outputs `plan: list[PlanStep]` with explicit deps |
+| **ConnectorExecution** | Host-side connector dispatch (web, email, fs, ...) | Sandbox-isolated; capability-token gated |
+| **Synthesis** | Generate pure Python (CodeAgent — no JSON tool calls) | Code-only output; injected into sandbox |
+| **Sandbox** | Run code in ephemeral Docker (no network, no caps) | `network=none`, `cap-drop=ALL`, seccomp, 30s timeout |
+| **ComputerUse** | GUI automation in virtual desktop (Xvfb + Playwright) | Screenshot → action → screenshot loop; approval-gated |
+| **Reflection** | Analyse, refine, or escalate to Planner | Success/failure classification; `should_continue` flag |
+| **SkillAbstraction** | Generalise successful code into reusable Library entries | Creates `SkillCandidate` with signature + tests |
+
+### State Transitions (Reducers)
+
+Every field in `IsaacState` has a declared reducer (`append`, `replace`, `merge`). LangGraph's checkpointing provides **exact replay** and **time-travel debugging**.
+
+---
+
+## Multimodal Subsystem
+
+```
+src/isaac/multimodal/
+├── voice/
+│   ├── stt.py            ← Whisper (faster-whisper / openai-whisper)
+│   ├── tts.py            ← edge-tts / OpenAI / ElevenLabs / pyttsx3 / Kokoro provider selection
+│   └── audio_io.py       ← Mic capture, VAD (silero), playback
+├── vision/
+│   ├── vision_lm.py      ← Image+text VLM wrapper (Ollama llava, qwen2.5-vl)
+│   └── screen_capture.py ← mss / PIL.ImageGrab (multi-monitor)
+└── input.py              ← Unified text + image + audio → HumanMessage
+```
+
+### Voice Pipeline
+
+```
+Audio Input (mic) ──► VAD (silero) ──► faster-whisper ──► Text
+                                                            │
+                                              ┌─────────────┴─────────────┐
+                                              ▼                           ▼
+                                         STT Result                     HumanMessage
+                                              │                           │
+                                              ▼                           ▼
+                                         Cognitive Graph            Conversation History
+                                              │
+                                              ▼
+                                         LLM Response ──► TTS Provider ──► Audio Output
+                                              (edge-tts / OpenAI / ElevenLabs / pyttsx3 / Kokoro)
+```
+
+**Modes:**
+- **Push-to-talk** (`isaac voice`) — manual trigger, single utterance
+- **Hands-free** (`isaac voice --hands-free`) — continuous VAD-driven listening
+
+### Vision Pipeline
+
+```
+Image Input (file / screen / clipboard) ──► VLM (Ollama llava/qwen2.5-vl) ──► Structured Analysis
+                                                                      │
+                                                          ┌───────────┴───────────┐
+                                                          ▼                       ▼
+                                                 Text Description          Bounding Boxes / UI Elements
+                                                          │                       │
+                                                          └───────────┬───────────┘
+                                                                      ▼
+                                                             Cognitive Graph (Perception)
+```
+
+**Supported inputs:** local file paths, clipboard, screen capture (mss), URLs
+
+---
+
+## Self-Improvement Engine
+
+```
+src/isaac/improvement/
+├── performance.py     ← SQLite-backed per-node + per-skill telemetry
+├── skill_curation.py  ← promote / deprecate / quarantine skills
+├── prompt_evolution.py ← A/B test prompt variants (epsilon-greedy)
+├── self_critique.py   ← LLM-driven meta-reflection (strong-tier model)
+└── engine.py          ← Orchestrator + APScheduler hook
+```
+
+### Telemetry Decorator
+
+Every cognitive node is wrapped in a telemetry decorator (`core/telemetry.py`) so per-run duration / success / error patterns flow into the tracker **for free** — no node code changes required.
+
+```python
+@telemetry("node_name")
+async def node_fn(state: IsaacState) -> IsaacState:
+    ...
+```
+
+### Self-Improvement Lifecycle
+
+```
+       ┌─────────────────────────────────────────────────────┐
+       │              every cognitive node                   │
+       │              (telemetry decorator)                  │
+       └────────────────────────┬────────────────────────────┘
+                                ▼
+                ┌──────────────────────────────┐
+                │ performance.PerformanceTracker│
+                │   • node_runs                 │
+                │   • skill_runs                │
+                │   • prompt_runs               │  ← SQLite
+                └──────────────┬────────────────┘
+                               ▼
+       ┌────────────────────── engine.run_cycle ──────────────────────┐
+       │                                                              │
+       │   1. SkillCurator       — promote / deprecate / quarantine   │
+       │   2. PromptEvolution    — ε-greedy variant selection         │
+       │   3. SelfCritique       — strong-tier LLM meta-reflection    │
+       │   4. PerformanceTracker — prune > 90-day rows                │
+       │                                                              │
+       └──────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+                  ImprovementResult ──► audit log + scheduler
+```
+
+**Trigger paths:**
+- **Manual** — `isaac improve [--report]` runs one cycle synchronously and prints the critique summary
+- **Scheduled** — when `ISAAC_IMPROVEMENT_ENABLED=true`, APScheduler fires `improvement_job` every `ISAAC_IMPROVEMENT_INTERVAL_MINUTES` (10 ≤ x ≤ 10080)
+- **Telemetry-only** — when improvement is disabled, the tracker still records every node/skill run so a later cycle has data to act on
+
+---
+
+## LLM Provider Stack (refactored in 0.3.0)
+
+```
+src/isaac/llm/
+├── providers/
+│   ├── ollama.py        ← first-class local
+│   ├── llamacpp.py      ← local llama.cpp HTTP
+│   ├── openai_compat.py ← LM Studio, vLLM, LiteLLM, ...
+│   ├── openai.py        ← cloud
+│   └── anthropic.py     ← cloud
+├── multimodal_router.py ← (modality × complexity) routing with health checks
+└── router.py            ← legacy complexity router (kept for compat)
+```
+
+### Provider Interface
+
+All providers implement a unified async interface:
+
+```python
+class LLMProvider(Protocol):
+    async def complete(self, messages: list[BaseMessage], **kwargs) -> AIMessage: ...
+    async def stream(self, messages: list[BaseMessage], **kwargs) -> AsyncIterator[str]: ...
+    async def health_check(self) -> bool: ...
+    def get_models(self) -> list[str]: ...
+```
+
+### Routing Matrix `(modality × complexity)`
+
+The `MultimodalRouter` resolves every LLM call to a concrete `(provider, model)` pair via a 3 × 3 table. Local providers are health-checked (cached 60 s) before dispatch; on miss the router walks a fallback chain.
+
+Defaults are what a fresh install actually uses — **no API keys, no cloud account**:
+
+|              | **fast** (perception, classification) | **default** (synthesis, planning) | **strong** (reflection, critique) |
+| ------------ | ------------------------------------- | --------------------------------- | --------------------------------- |
+| **text**     | `ollama / qwen3.6`                    | `ollama / qwen3.6`                | `ollama / qwen3.6`                |
+| **vision**   | `ollama / llava:7b`                   | `ollama / llava:7b`               | `ollama / llava:7b`               |
+| **audio**    | faster-whisper (`tiny` / `base`)      | faster-whisper (`small`)          | faster-whisper (`large-v3`)       |
+
+Override any cell with `ISAAC_FAST_MODEL` / `ISAAC_MODEL_NAME` / `ISAAC_STRONG_MODEL` (and `ISAAC_VISION_MODEL` for the vision row).
+
+Cloud providers (`openai`, `anthropic`) are **never required and never automatic** — they enter the chain only when you select one (`ISAAC_LLM_PROVIDER=anthropic`) or name one in `ISAAC_LLM_FALLBACK_PROVIDER`, **and** supply the matching `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. If Ollama is down or the model was never pulled, I.S.A.A.C. raises an error naming the exact command (`ollama pull qwen3.6`) rather than quietly billing a cloud API. Audio routing transcribes locally and re-routes the text through the **text** row.
+
+---
+
+## Five-Layer Memory
+
+| Layer            | Backend                            | Purpose                                                  |
+| ---------------- | ---------------------------------- | -------------------------------------------------------- |
+| **LongTerm**     | SQLite + FTS5                      | Full-text-searchable canonical archive                   |
+| **Episodic**     | Ring buffer + ChromaDB             | Recent turns, vector recall                              |
+| **Semantic**     | NetworkX KG + SQLite + ChromaDB    | Concept graph, relation queries                          |
+| **Procedural**   | `SkillLibrary` (JSON + embeddings) | Reusable Python snippets generalized from past successes |
+| **WorldModelKG** | NetworkX DiGraph + SQLite          | Symbolic observations carried inside `IsaacState`        |
+
+`MemoryManager.recall()` produces a single combined prompt string from all five layers; ChromaDB-dependent layers degrade gracefully (exact-match fallback) when the vector store is unavailable.
+
+### Memory Flow
+
+```
+User Input ──► Perception ──► MemoryManager.recall(query)
+                                                │
+                                ┌───────────────┼───────────────┐
+                                ▼               ▼               ▼
+                         LongTerm           Episodic         Semantic
+                          (FTS5)            (ChromaDB)       (KG+Vec)
+                                │               │               │
+                                └───────────────┼───────────────┘
+                                                ▼
+                                    Combined Context String
+                                                │
+                                                ▼
+                                    Cognitive Graph (Planner, etc.)
+```
+
+---
+
+## Kanban & Dispatcher
+
+### Kanban (SQLite-backed Task Boards)
+
+I.S.A.A.C. includes a built-in Kanban system for task management with:
+- Boards, columns, tasks with priorities, assignees, due dates, tags
+- Task dependencies (DAG) and blocking
+- Worker claims with stale detection and reclamation
+- Comments on tasks
+- Board statistics
+
+**Tables:** `board`, `column`, `task`, `task_dep`, `claim`, `comment`
+
+### Dispatcher (Background Worker Assignment)
+
+The dispatcher runs as a background task that:
+1. Periodically reclaims stale claims
+2. Finds ready tasks that are not claimed
+3. Assigns them to available workers based on profile
+4. Delivers tasks to workers via a gateway (HTTP, message queue, etc.)
+
+**Worker Profiles:** `coder`, `researcher`, `file_organizer`, `designer`, `os_operator`, `analyst`, `critic`
+
+---
+
+## Evaluation Harness
+
+Capability claims are **measured, not asserted**. The eval harness loads a JSONL task suite, runs each task through the agent (or the specialist team), scores the answers with **deterministic programmatic checkers** — no LLM judging — and records every run (suite hash, model, provider, git revision, per-task results) to a SQLite DB so scores are reproducible and comparable.
+
+### Golden Suite (33 tasks)
 
 ```bash
-# Run the bundled golden suite (33 tasks: reasoning, coding, analysis,
-# file-org, writing, research, orchestration, safety)
+# Run the bundled golden suite (reasoning, coding, analysis, file-org, writing, research, orchestration, safety)
 isaac eval evals/golden_v1.jsonl
 
 # Slice it
@@ -367,95 +505,31 @@ isaac eval evals/golden_v1.jsonl --task code-001
 
 # Compare recorded runs (model A vs model B, version N vs N+1)
 isaac eval --report
+```
 
-# GAIA Level 1 (public benchmark, official quasi-exact-match scoring).
-# One-time: accept the terms at huggingface.co/datasets/gaia-benchmark/GAIA
-# and authenticate (hf auth login / HF_TOKEN) — the dataset is gated.
+### Public Benchmarks
+
+```bash
+# GAIA Level 1 (public benchmark, official quasi-exact-match scoring)
 isaac eval --format gaia --download
 isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1
 
-# ARC-AGI-1 (public benchmark, ungated). Downloads the official dataset and
-# runs the bundled symbolic synthesis solver — no LLM or API key required,
-# fully deterministic. This is also the nightly-CI regression benchmark.
+# ARC-AGI-1 (public benchmark, ungated) — LLM-free symbolic solver
 isaac eval --format arc --download
 isaac eval ~/.isaac/datasets/arc-agi-1/evaluation --format arc
 ```
 
-Suites are plain JSONL — one task per line with a prompt and checks
-(`contains`, `regex`, `numeric`, `file_exists`, `file_contains`, ...), plus
-optional seeded workspace files and a tool allow-list. See
-[`evals/golden_v1.jsonl`](evals/golden_v1.jsonl) for the format.
-
-### Recorded results
+### Recorded Results
 
 | Date | Model (driver) | Suite | Score |
 |---|---|---|---|
-| 2026-06-10 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | `golden_v1` · hash `da9b7c08c5bd342a` · run `d5d463aabba3` | **31/33 (93.9%)** |
-| 2026-07-03 | symbolic synthesis solver (no LLM, 1 attempt) | ARC-AGI-1 public evaluation set (400 tasks) · hash `27b8f28a235e1014` · run `8df1af2a87e5` | **2/400 (0.5%)** |
-| 2026-07-05 | `nemotron-3-nano:4b` (fully local, RTX 3050 6GB laptop, via AgentLoop) | GAIA Level 1 validation (53 tasks, official scorer) · hash `d911d7eacf5fbd54` · run `7f8d822279ea` | **8/53 (15.1%)** |
-| 2026-07-04 | `qwen3-coder:480b-cloud` (Ollama Cloud, via AgentLoop) | GAIA Level 1 validation (53 tasks, official scorer) · hash `d911d7eacf5fbd54` · run `ec4683ab1b5f` | **≥4/53 (7.5%)** — quota-truncated lower bound, see below |
+| 2026-06-10 | `qwen3-coder:480b-cloud` (Ollama Cloud) | `golden_v1` | **31/33 (93.9%)** |
+| 2026-07-03 | Symbolic solver (no LLM) | ARC-AGI-1 (400 tasks) | **2/400 (0.5%)** |
+| 2026-07-05 | `nemotron-3-nano:4b` (local, RTX 3050 6GB) | GAIA Level 1 (53 tasks) | **8/53 (15.1%)** |
 
-Golden suite — per category: reasoning 8/9 · coding 4/4 · analysis 4/4 ·
-research 5/5 · text 4/4 · writing 2/2 · file-org 2/2 · orchestration 1/2 ·
-safety 1/1 (the credential-exfiltration probe was refused, as designed). The
-two failures: one date-arithmetic task and one orchestration answer that
-skipped the required numbered-list format.
-Reproduce: `ISAAC_MODEL_NAME=qwen3-coder:480b-cloud isaac eval evals/golden_v1.jsonl`
+See [LIMITATIONS.md](LIMITATIONS.md) for full methodology and honest positioning.
 
-ARC-AGI-1 — the first *public*-benchmark number, measured with the LLM-free
-symbolic solver (strategies 1–3: analogy, beam search, object synthesis) on
-the same 400-task public evaluation set used by published systems. Scoring is
-single-attempt exact match — *stricter* than the official pass@2 protocol.
-For calibration against named systems on the identical task set
-([ARC Prize, Sept 2024](https://arcprize.org/blog/openai-o1-results-arc-prize)):
-GPT-4o 9%, Gemini 1.5 8%, Claude 3.5 Sonnet 21%, o1-preview 21.2%. The
-symbolic-only score is a deterministic floor, tracked as a regression gate in
-nightly CI; raising it with LLM-guided synthesis and test-time compute is the
-1.4 workstream (WS3). Reproduce (no model or key needed):
-`isaac eval --format arc --download`
-
-GAIA L1 — the official 53-task Level 1 validation split, quasi-exact-match
-scoring identical to the leaderboard. The headline result is the **fully
-local** one: a 4-billion-parameter model running entirely on a consumer
-laptop GPU (RTX 3050, 6 GB), driven by the AgentLoop's tools (web search,
-browser, file handling), completed all 53 tasks cleanly and scored
-**15.1%** — above the GAIA paper's baselines on the same split for GPT-4
-(9.1%), GPT-4 Turbo (13.0%), and AutoGPT with a GPT-4 backend (14.4%), and
-half of GPT-4 + manually selected plugins (30.3%); humans score 93.9%
-([Mialon et al., 2023](https://arxiv.org/abs/2311.12983), Table 4). 2025's
-top agents reach 92–98%
-([official public results](https://huggingface.co/datasets/gaia-benchmark/results_public))
-— that gap is stated, not hidden: the claim here is capability *per watt*,
-not absolute capability. The `qwen3-coder:480b-cloud` row is a lower bound
-only — the provider's free-tier quota aborted 40+ of its 53 tasks mid-run
-with 429 errors, so its clean number is still unmeasured.
-Reproduce locally (no cloud, no key):
-`ISAAC_MODEL_NAME=nemotron-3-nano:4b isaac eval ~/.isaac/datasets/gaia/2023/validation --format gaia --level 1 --task-timeout 1200 --auto-approve`
-
-### Self-improvement ablation (1.5.0) — measured, and flat
-
-The MetaLearner has recorded outcomes since 0.4.0. 1.5.0 wired those win-rates
-into specialist selection and then measured whether it helps:
-
-| Date | Model | Setup | ON | OFF | Result |
-|---|---|---|---|---|---|
-| 2026-08-08 | `gpt-oss:120b-cloud` (Ollama Cloud, specialist team) | `golden_v1` 17 tasks · hash `20a461d54e41b709` · 2 warm-up passes · 3 paired trials | **0.647** (sd 0.102) | **0.588** (sd 0.256) | **+0.059, p = 0.53 — FLAT** |
-
-The gap is one task in seventeen and the OFF arm alone ranges 0.294→0.765
-across identical trials, so the noise is about four times the effect. The
-mechanism demonstrably *fired* — dispatch to the top-scored specialist went
-4 → 14 — it simply did not improve outcomes. `ISAAC_META_SPECIALIST_SELECTION`
-therefore ships **off by default**: this project does not enable unproven
-behaviour. The full post-mortem, including why this suite probably cannot
-detect such an effect at all, is in
-[`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §7.
-Reproduce: `isaac ablate --trials 3 --warmup 2`
-
-> Per [`docs/ROADMAP-1.0.md`](docs/ROADMAP-1.0.md) §4, "SOTA" claims require a
-> *competitive* public-benchmark number against a named comparison system —
-> the measured numbers are cited and nowhere near that bar. The honest
-> description remains "a competitive local-first autonomous agent framework"
-> with its capability now measured in public.
+---
 
 ## State Schema
 
@@ -477,7 +551,9 @@ The `IsaacState` TypedDict flows through all graph nodes:
 | `ui_actions` | `list[UIAction]` | append | Pending GUI actions |
 | `ui_results` | `list[UIActionResult]` | append | Screenshot+outcome |
 
-## Sandbox Security
+---
+
+## Sandbox Security Model
 
 | Constraint | Value |
 |---|---|
@@ -485,13 +561,200 @@ The `IsaacState` TypedDict flows through all graph nodes:
 | Memory | 256 MB hard limit |
 | CPU | 1 core |
 | PIDs | 64 max |
-| Capabilities | All dropped |
-| Root FS | Read-only |
+| Capabilities | All dropped (`--cap-drop=ALL`) |
+| Root FS | Read-only (`--read-only`) |
 | User | `nobody` (65534) |
 | Timeout | 30s (application-level `SIGKILL`) |
+| Seccomp | Custom profile (blocks `ptrace`, `bpf`, `clone`, etc.) |
+
+**Docker command template:**
+
+```bash
+docker run --rm   --network=none   --cap-drop=ALL   --read-only   --memory=256m   --cpus=1   --pids-limit=64   --user=65534:65534   --security-opt seccomp=/etc/seccomp/isaac.json   -v /tmp/isaac_sandbox:/workspace:rw   isaac-sandbox:latest   python /workspace/user_code.py
+```
+
+---
+
+## Security & Audit
+
+### Hash-Chained Audit Log
+
+Every consequential action is recorded in an append-only SQLite log with SHA-256 chaining:
+
+```sql
+CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    prev_hash TEXT,
+    curr_hash TEXT NOT NULL
+);
+```
+
+Verification: `isaac audit --verify` recomputes the chain and flags tampering.
+
+### Capability Tokens
+
+Short-lived, scoped tokens for connector access:
+
+```bash
+isaac token create --scope "github:read,fs:write:/home/user/projects" --ttl 3600
+```
+
+### Prompt Injection Guard
+
+The `Guard` node classifies every user input before it reaches the cognitive graph:
+
+- Regex-based fast patterns
+- LLM-based semantic classification (strong-tier model)
+- Structured output: `{"is_injection": bool, "confidence": float, "reason": str}`
+
+### Credential Path Denial
+
+No connector or tool receives credentials via prompt. All secrets are:
+- Stored in platform keyring (Windows Credential Manager, macOS Keychain, libsecret)
+- Injected at runtime via environment or injected files
+- Never logged, never returned to LLM
+
+---
+
+## Configuration
+
+### Environment Variables (`.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `ISAAC_LLM_PROVIDER` | `ollama` | Provider: `ollama`, `llamacpp`, `openai_compat`, `openai`, `anthropic` |
+| `ISAAC_MODEL_NAME` | `qwen3.6` | Default text model |
+| `ISAAC_FAST_MODEL` | `qwen3.6` | Fast-tier model |
+| `ISAAC_STRONG_MODEL` | `qwen3.6` | Strong-tier model |
+| `ISAAC_VISION_MODEL` | `llava:7b` | Vision model |
+| `ISAAC_LLM_FALLBACK_PROVIDER` | (empty) | Fallback provider name |
+| `ISAAC_LLM_FALLBACK_MODEL` | (empty) | Fallback model |
+| `OPENAI_API_KEY` | (empty) | OpenAI API key |
+| `ANTHROPIC_API_KEY` | (empty) | Anthropic API key |
+| `ISAAC_HOME` | `~/.isaac` | Data directory |
+| `ISAAC_IMPROVEMENT_ENABLED` | `false` | Enable scheduled self-improvement |
+| `ISAAC_IMPROVEMENT_INTERVAL_MINUTES` | `1440` | Improvement cycle interval (10–10080) |
+| `ISAAC_SOUL_PATH` | `~/.isaac/soul.yaml` | Persona persistence |
+| `ISAAC_OBSIDIAN_VAULT_PATH` | (empty) | Obsidian vault for connector |
+| `ISAAC_GITHUB_TOKEN` | (empty) | GitHub PAT for connector |
+| `ISAAC_IMAP_HOST` / `ISAAC_SMTP_HOST` | (empty) | Email connector |
+
+See [`.env.example`](.env.example) for complete list.
+
+### Model Presets (`docs/MODELS.md`)
+
+Presets pin a model **and** the loop settings that model needs:
+
+```bash
+isaac models list              # show all presets
+isaac models recommend         # reads your VRAM; stays local when a local rung fits
+isaac models use good          # prints the .env block to paste
+```
+
+---
+
+## CLI Reference
+
+| Command | Description |
+|---|---|
+| `isaac doctor` | Preflight — verify Python, settings, Ollama, Docker, optional extras |
+| `isaac desktop` | Native Windows app (Tauri) |
+| `isaac ui` | Browser-based UI |
+| `isaac agent "task"` | Autonomous tool-use agent |
+| `isaac team "goal"` | Specialist team (manager + specialists) |
+| `isaac run` | Rich text REPL |
+| `isaac voice [--hands-free]` | Voice REPL |
+| `isaac vision <path> --prompt "..."` | Vision query |
+| `isaac improve [--report]` | Run self-improvement cycle |
+| `isaac trace [run_id]` | Inspect past runs |
+| `isaac models [list/recommend/use]` | Model preset management |
+| `isaac eval <suite> [--format gaia\|arc]` | Evaluation harness |
+| `isaac eval-toolcalls --model <m>` | Tool-calling reliability test |
+| `isaac specialists` | List specialist team |
+| `isaac persona [new/activate/examples]` | Persona management |
+| `isaac providers` | List providers + local models |
+| `isaac serve` | Telegram bot + heartbeat |
+| `isaac audit [--last N] [--verify]` | Audit log |
+| `isaac memory "query"` | Search memory |
+| `isaac connectors` | Manage connectors |
+| `isaac kanban <subcommand>` | Task board management |
+
+---
+
+## Directory Structure
+
+```
+I.S.A.A.C/
+├── .github/workflows/       # CI/CD pipelines (CI, nightly-eval, docker)
+├── evals/                   # Evaluation suites (golden_v1.jsonl)
+├── sandbox_image/           # Code sandbox Dockerfile
+├── sandbox_image_ui/        # Computer-use sandbox Dockerfile
+├── scripts/                 # Build/install scripts (Windows, Linux)
+├── src/
+│   └── isaac/
+│       ├── agents/          # Agent loops (AgentLoop, TeamLoop)
+│       ├── cli/             # Typer CLI commands
+│       ├── config/          # Settings, profiles, .env loading
+│       ├── connectors/      # External integrations (GitHub, Email, Obsidian, ...)
+│       ├── core/            # State, telemetry, graph building
+│       ├── eval/            # Evaluation harness, checkers, GAIA/ARC adapters
+│       ├── improvement/     # Self-improvement engine
+│       ├── kanban/          # Kanban board + dispatcher
+│       ├── llm/             # Provider stack + routing
+│       ├── memory/          # Five-layer memory
+│       ├── multimodal/      # Voice, vision, screen capture
+│       ├── nodes/           # Cognitive graph nodes
+│       ├── sandbox/         # Docker sandbox executor
+│       ├── security/        # Audit, tokens, injection guard
+│       ├── skills/          # Skill library + built-in skills
+│       └── soul/            # Persona system
+├── tests/                   # pytest suite (1278 tests)
+├── .env.example             # Template configuration
+├── LIMITATIONS.md           # Honest capability positioning
+├── SETUP.md                 # Detailed setup guide
+├── ROADMAP-1.0.md           # 1.0 release roadmap
+└── MODELS.md                # Model presets + VRAM thresholds
+```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+
+- Branch model (`main` ← `dev` ← `feat/*` / `fix/*`)
+- Development setup
+- Code style (Ruff, mypy, pytest)
+- Pull request checklist
+- Areas actively seeking contributions
+
+### Running Tests
+
+```bash
+pytest tests/ --tb=short
+```
+
+CI runs on every PR: `ruff check`, `ruff format --check`, `mypy src/isaac --ignore-missing-imports`, `pytest tests/`.
+
+---
 
 ## License
 
 I.S.A.A.C. is licensed under the [Apache License, Version 2.0](LICENSE).
-See [NOTICE](NOTICE) for copyright information. Previously published releases
-retain the license they shipped with.
+See [NOTICE](NOTICE) for copyright information. Previously published releases retain the license they shipped with.
+
+---
+
+## Acknowledgments
+
+- [LangGraph](https://github.com/langchain-ai/langgraph) — state graph framework
+- [Ollama](https://ollama.com/) — local LLM serving
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — local STT
+- [edge-tts](https://github.com/rany2/edge-tts) — local TTS
+- [Playwright](https://playwright.dev/) — browser automation
+- [NetworkX](https://networkx.org/) — knowledge graphs
+- [ChromaDB](https://www.trychroma.com/) — vector storage
+- [Tauri](https://tauri.app/) — desktop app framework
