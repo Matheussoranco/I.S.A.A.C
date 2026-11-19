@@ -14,12 +14,31 @@ from pathlib import Path
 from typing import Any
 
 from isaac.config.settings import get_settings
+from isaac.security.constitution import review
 from isaac.security.file_mutation import write_text
 from isaac.security.path_policy import is_sensitive_path
 from isaac.security.workspace import current_workspace
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+def _constitutional_review(action_kind: str, action: str, path: str) -> ToolResult | None:
+    """Run constitutional review on a file operation. Returns error ToolResult if blocked."""
+    try:
+        decision = review(action_kind, action, context={"path": path}, use_llm=False)
+        if not decision.allow or decision.requires_approval:
+            violated = ", ".join(v.rule for v in decision.violations) or decision.reason
+            return ToolResult(
+                success=False,
+                error=f"BLOCKED by safety critic: {violated}",
+                metadata={"constitution": decision.to_dict()},
+            )
+    except Exception as exc:
+        logger.error("Constitution review unavailable — blocking operation: %s", exc)
+        return ToolResult(success=False, error=f"BLOCKED: safety review unavailable ({exc})")
+    return None
+
 
 _MAX_LIST_ENTRIES = 2_000
 
@@ -96,6 +115,11 @@ class FileReadTool(IsaacTool):
         if not path_str:
             return ToolResult(success=False, error="Missing 'path' parameter.")
 
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("file_read", f"read {path_str}", path_str)
+        if blocked:
+            return blocked
+
         target = _safe_resolve(path_str)
         if target is None:
             return ToolResult(success=False, error="Path escapes workspace boundary.")
@@ -147,6 +171,11 @@ class FileWriteTool(IsaacTool):
         if not path_str:
             return ToolResult(success=False, error="Missing 'path' parameter.")
 
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("file_write", f"write {path_str}", path_str)
+        if blocked:
+            return blocked
+
         target = _safe_resolve(path_str)
         if target is None:
             return ToolResult(success=False, error="Path escapes workspace boundary.")
@@ -182,6 +211,11 @@ class FileListTool(IsaacTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         path_str: str = kwargs.get("path", ".")
+
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("file_list", f"list {path_str}", path_str)
+        if blocked:
+            return blocked
 
         target = _safe_resolve(path_str)
         if target is None:
@@ -226,6 +260,11 @@ class FileDeleteTool(IsaacTool):
         path_str: str = kwargs.get("path", "")
         if not path_str:
             return ToolResult(success=False, error="Missing 'path' parameter.")
+
+        # Gate 1: constitutional review
+        blocked = _constitutional_review("file_delete", f"delete {path_str}", path_str)
+        if blocked:
+            return blocked
 
         target = _safe_link_path(path_str)
         if target is None:

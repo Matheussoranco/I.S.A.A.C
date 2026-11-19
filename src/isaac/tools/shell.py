@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
+from pathlib import Path
 from typing import Any
 
+from isaac.security.path_policy import is_sensitive_path
 from isaac.tools.base import IsaacTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -120,7 +123,6 @@ class ShellTool(IsaacTool):
 
             settings = get_settings()
             default_timeout = int(getattr(settings, "shell_tool_timeout", 30))
-            unrestricted = bool(getattr(settings, "shell_unrestricted", False))
             pass_secrets = bool(getattr(settings, "shell_pass_secrets", False))
         except Exception:
             return ToolResult(success=False, error="BLOCKED: shell configuration unavailable")
@@ -130,7 +132,7 @@ class ShellTool(IsaacTool):
         except (ValueError, TypeError, OverflowError):
             return ToolResult(success=False, error="Invalid timeout: expected seconds as int.")
 
-        # ── Gate 1: constitutional review (fail-closed) ────────────────────
+        # Gate 1: constitutional review (fail-closed)
         try:
             decision = self._review_or_raise(command, cwd)
         except PermissionError as exc:
@@ -147,12 +149,23 @@ class ShellTool(IsaacTool):
                 metadata={"constitution": decision.to_dict()},
             )
 
-        # ── Gate 3: execution mode ─────────────────────────────────────────
-        if unrestricted:
-            return ToolResult(
-                success=False,
-                error="BLOCKED: unrestricted host execution is disabled; use the Docker code tool.",
-            )
+        # Gate 2: path_policy review for file paths in command
+        try:
+            parts = shlex.split(command)
+            for part in parts[1:]:  # Skip the command itself
+                p = Path(part)
+                if (p.is_absolute() or part.startswith(("~/", "./", "../"))) and is_sensitive_path(
+                    p.expanduser()
+                ):
+                    return ToolResult(
+                        success=False,
+                        error=f"BLOCKED by path policy: sensitive path '{part}'",
+                        metadata={"path_policy": {"path": part, "blocked": True}},
+                    )
+        except Exception:
+            pass  # Best effort; constitution gate is primary
+
+        # Gate 3: execution mode (restricted only)
         return self._run_allowlisted(command, cwd, timeout, pass_secrets)
 
     # ------------------------------------------------------------------
@@ -200,8 +213,8 @@ class ShellTool(IsaacTool):
         ok = exit_code == 0
         summary = body if body else "(no stdout)"
         if err:
-            summary = f"{summary}\n[stderr]\n{err}"
-        summary = f"$ {command}\n[exit {exit_code}]\n{summary}"
+            summary = summary + "\n[stderr]\n" + err
+        summary = f"$ {command}\n[exit {exit_code}]\n" + summary
         return ToolResult(
             success=ok,
             output=summary,

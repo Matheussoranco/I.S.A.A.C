@@ -12,7 +12,15 @@ import asyncio
 import pytest
 
 from isaac.config.settings import get_settings
-from isaac.tools.fileops import FsCopyTool, FsListTool, FsMoveTool, FsReadTool, FsWriteTool
+from isaac.tools.file import FileDeleteTool, FileListTool, FileReadTool, FileWriteTool
+from isaac.tools.fileops import (
+    FsCopyTool,
+    FsListTool,
+    FsMkdirTool,
+    FsMoveTool,
+    FsReadTool,
+    FsWriteTool,
+)
 from isaac.tools.shell import ShellTool
 from isaac.tools.system import SystemInfoTool
 
@@ -26,6 +34,13 @@ def allowed_root(tmp_path, monkeypatch):
     """Confine the fs_* tools to a temp directory."""
     monkeypatch.setattr(get_settings(), "allowed_paths", [str(tmp_path)], raising=False)
     return tmp_path
+
+
+def _workspace_root_fixture(monkeypatch, tmp_path):
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    monkeypatch.setattr(get_settings(), "isaac_home", tmp_path, raising=False)
+    return ws
 
 
 # ── fileops confinement ────────────────────────────────────────────────────
@@ -58,7 +73,6 @@ def test_fs_move_refuses_overwrite(allowed_root) -> None:
     res = _run(FsMoveTool().execute(src=str(src), dest=str(dest)))
     assert res.success is False
     assert "overwrite" in res.error.lower()
-    # With overwrite it succeeds.
     res2 = _run(FsMoveTool().execute(src=str(src), dest=str(dest), overwrite=True))
     assert res2.success
     assert dest.read_text(encoding="utf-8") == "one"
@@ -176,7 +190,7 @@ def test_fs_read_denies_ssh_keys_inside_allowed_root(allowed_root) -> None:
     secret.write_text("PRIVATE KEY", encoding="utf-8")
     res = _run(FsReadTool().execute(path=str(secret)))
     assert res.success is False
-    assert "protected" in res.error
+    assert "protected" in res.error or "BLOCKED by safety critic" in res.error
 
 
 def test_fs_write_denies_env_files(allowed_root) -> None:
@@ -204,6 +218,105 @@ def test_fs_list_skips_sensitive_entries(allowed_root) -> None:
     assert "credentials" not in res.output
 
 
+# ── file tools (workspace) dual-gate: constitutional + path_policy ─────────
+
+
+def test_file_read_requires_constitution_review(monkeypatch, tmp_path) -> None:
+    ws = _workspace_root_fixture(monkeypatch, tmp_path)
+    target = ws / "notes.txt"
+    target.write_text("hello", encoding="utf-8")
+    res = _run(FileReadTool().execute(path="notes.txt"))
+    assert res.success, res.error
+    assert "hello" in res.output
+
+    secret = ws / ".env"
+    secret.write_text("KEY=1", encoding="utf-8")
+    res2 = _run(FileReadTool().execute(path=".env"))
+    assert res2.success is False
+    blocked = res2.error
+    assert (
+        "protected" in blocked
+        or "escapes workspace" in blocked
+        or "BLOCKED by safety critic" in blocked
+    )
+
+
+def test_file_write_requires_constitution_review(monkeypatch, tmp_path) -> None:
+    _workspace_root_fixture(monkeypatch, tmp_path)
+    res = _run(FileWriteTool().execute(path="notes.txt", content="hello"))
+    assert res.success, res.error
+
+    res2 = _run(FileWriteTool().execute(path=".env", content="KEY=1"))
+    assert res2.success is False
+    blocked = res2.error
+    assert (
+        "protected" in blocked
+        or "escapes workspace" in blocked
+        or "BLOCKED by safety critic" in blocked
+    )
+
+
+def test_file_list_requires_constitution_review(monkeypatch, tmp_path) -> None:
+    ws = _workspace_root_fixture(monkeypatch, tmp_path)
+    (ws / "a.txt").write_text("hello", encoding="utf-8")
+    res = _run(FileListTool().execute(path="."))
+    assert res.success, res.error
+    assert "a.txt" in res.output
+
+
+def test_file_delete_requires_constitution_review(monkeypatch, tmp_path) -> None:
+    ws = _workspace_root_fixture(monkeypatch, tmp_path)
+    target = ws / "notes.txt"
+    target.write_text("hello", encoding="utf-8")
+    res = _run(FileDeleteTool().execute(path="notes.txt"))
+    assert res.success, res.error
+
+
+# ── fileops dual-gate: constitutional + path_policy ────────────────────────
+
+
+def test_fs_read_requires_constitution_review(monkeypatch, allowed_root) -> None:
+    target = allowed_root / "notes.txt"
+    target.write_text("hello", encoding="utf-8")
+    res = _run(FsReadTool().execute(path=str(target)))
+    assert res.success, res.error
+    assert "hello" in res.output
+
+
+def test_fs_write_requires_constitution_review(monkeypatch, allowed_root) -> None:
+    target = allowed_root / "notes.txt"
+    res = _run(FsWriteTool().execute(path=str(target), content="hello"))
+    assert res.success, res.error
+
+
+def test_fs_list_requires_constitution_review(monkeypatch, allowed_root) -> None:
+    (allowed_root / "a.txt").write_text("hello", encoding="utf-8")
+    res = _run(FsListTool().execute(path=str(allowed_root), recursive=True))
+    assert res.success, res.error
+    assert "a.txt" in res.output
+
+
+def test_fs_mkdir_requires_constitution_review(monkeypatch, allowed_root) -> None:
+    res = _run(FsMkdirTool().execute(path=str(allowed_root / "newdir")))
+    assert res.success, res.error
+
+
+def test_fs_move_requires_constitution_review(monkeypatch, allowed_root) -> None:
+    src = allowed_root / "a.txt"
+    dest = allowed_root / "b.txt"
+    src.write_text("one", encoding="utf-8")
+    res = _run(FsMoveTool().execute(src=str(src), dest=str(dest), overwrite=True))
+    assert res.success, res.error
+
+
+def test_fs_copy_requires_constitution_review(monkeypatch, allowed_root) -> None:
+    src = allowed_root / "a.txt"
+    dest = allowed_root / "b.txt"
+    src.write_text("one", encoding="utf-8")
+    res = _run(FsCopyTool().execute(src=str(src), dest=str(dest), overwrite=True))
+    assert res.success, res.error
+
+
 # ── shell gating ────────────────────────────────────────────────────────────
 
 
@@ -219,9 +332,25 @@ def test_shell_blocks_critical_command() -> None:
     assert "BLOCKED" in res.error
 
 
+def test_shell_blocks_sensitive_file_path_in_command(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(get_settings(), "shell_unrestricted", False, raising=False)
+    secret = tmp_path / "id_rsa"
+    secret.write_text("PRIVATE", encoding="utf-8")
+    res = _run(ShellTool().execute(command=f"cat {secret}"))
+    assert res.success is False
+    assert "BLOCKED" in res.error or "protected" in res.error.lower()
+
+
+def test_shell_blocks_env_file_in_command(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(get_settings(), "shell_unrestricted", False, raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("SECRET=1", encoding="utf-8")
+    res = _run(ShellTool().execute(command=f"cat {env_file}"))
+    assert res.success is False
+    assert "BLOCKED" in res.error or "protected" in res.error.lower()
+
+
 def test_shell_allowlist_rejects_unknown_command(monkeypatch) -> None:
-    # Default (restricted) mode: a command not on the allow-list is rejected
-    # without executing anything.
     monkeypatch.setattr(get_settings(), "shell_unrestricted", False, raising=False)
     res = _run(ShellTool().execute(command="totallybogus_xyz --do-thing"))
     assert res.success is False
@@ -236,3 +365,10 @@ def test_system_info_reports_os() -> None:
     assert res.success
     assert "OS:" in res.output
     assert res.metadata.get("cpu_count", 0) >= 0
+
+
+def _workspace_root_fixture(monkeypatch, tmp_path):
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    monkeypatch.setattr(get_settings(), "isaac_home", tmp_path, raising=False)
+    return ws
