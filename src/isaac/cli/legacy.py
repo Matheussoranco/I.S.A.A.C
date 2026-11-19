@@ -2119,30 +2119,31 @@ def kanban_cmd(
 
     from isaac.config.settings import get_settings
     from isaac.kanban import (
-        add_comment,
-        add_task_dep,
-        claim_task,
-        create_column,
-        create_task,
-        get_active_claim,
-        get_board,
-        get_board_stats,
-        get_columns,
-        get_comments,
-        get_dependents,
-        get_task,
-        get_task_deps,
-        init_db,
-        init_kanban_board,
-        is_claim_stale,
-        list_boards,
-        list_tasks,
-        move_task,
-        reclaim_stale_claims,
-        release_task_claims,
-        remove_task_dep,
-        update_task,
-    )
+            add_comment,
+            add_task_dep,
+            claim_task,
+            create_column,
+            create_task,
+            get_active_claim,
+            get_board,
+            get_board_stats,
+            get_columns,
+            get_comments,
+            get_dependents,
+            get_task,
+            get_task_deps,
+            init_db,
+            init_kanban_board,
+            is_claim_stale,
+            list_boards,
+            list_tasks,
+            move_task,
+            reclaim_stale_claims,
+            release_task_claims,
+            remove_task_dep,
+            update_task,
+            Comment,
+        )
 
     db_path = _Path(db) if db else get_settings().isaac_home / "kanban.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2560,7 +2561,7 @@ def kanban_cmd(
             _ = add_comment(db_path, name, author, body)
             typer.echo(f"Added comment to task {name}")
         else:
-            comments = get_comments(db_path, name)
+            comments: list[Comment] = get_comments(db_path, name)
             if json_output:
                 typer.echo(
                     _json.dumps(
