@@ -13,13 +13,18 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any
 
 from isaac.kanban import (
-    get_tasks, get_active_claim, reclaim_stale_claims, claim_task,
-    get_board, get_columns, Task, Claim,
+    Claim,
+    Task,
+    claim_task,
+    get_active_claim,
+    get_board,
+    get_columns,
+    get_tasks,
+    reclaim_stale_claims,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +33,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WorkerProfile:
     """Defines a worker's capabilities and current status."""
+
     worker_id: str
     profile: str  # e.g., "coder", "researcher", "file_organizer"
     max_concurrent: int = 1
@@ -51,6 +57,7 @@ class WorkerProfile:
 @dataclass
 class DispatchConfig:
     """Configuration for the dispatcher."""
+
     board_name: str = "default"
     stale_threshold_minutes: int = 60
     poll_interval_seconds: float = 30.0
@@ -81,11 +88,14 @@ class WorkerRegistry:
                 return True
             return False
 
-    def get_available_workers(self, profile: str, timeout_seconds: float = 300.0) -> list[WorkerProfile]:
+    def get_available_workers(
+        self, profile: str, timeout_seconds: float = 300.0
+    ) -> list[WorkerProfile]:
         with self._lock:
             now = time.time()
             return [
-                w for w in self._workers.values()
+                w
+                for w in self._workers.values()
                 if w.profile == profile
                 and w.is_available
                 and (now - w.last_heartbeat) < timeout_seconds
@@ -133,7 +143,10 @@ class LoggingGateway(TaskGateway):
     def deliver(self, task: Task, worker: WorkerProfile, claim: Claim) -> bool:
         logger.info(
             "DELIVER: task=%s worker=%s profile=%s claim=%s",
-            task.id, worker.worker_id, worker.profile, claim.id
+            task.id,
+            worker.worker_id,
+            worker.profile,
+            claim.id,
         )
         return True
 
@@ -147,6 +160,7 @@ class HTTPGateway(TaskGateway):
 
     def deliver(self, task: Task, worker: WorkerProfile, claim: Claim) -> bool:
         import requests
+
         try:
             payload = {
                 "task_id": task.id,
@@ -207,8 +221,8 @@ class Dispatcher:
         logger.info("Dispatcher stopped")
 
     def _run_loop(self) -> None:
-        from isaac.kanban import init_db
         from isaac.config.settings import get_settings
+        from isaac.kanban import init_db
 
         db_path = self.config.db_path or get_settings().isaac_home / "kanban.db"
         init_db(db_path)
@@ -244,10 +258,9 @@ class Dispatcher:
             return
 
         ready_tasks = get_tasks(db_path, board.id, ready_col.id)
-        unclaimed_ready = [
-            t for t in ready_tasks
-            if get_active_claim(db_path, t.id) is None
-        ][:self.config.max_tasks_per_poll]
+        unclaimed_ready = [t for t in ready_tasks if get_active_claim(db_path, t.id) is None][
+            : self.config.max_tasks_per_poll
+        ]
 
         if not unclaimed_ready:
             return
@@ -278,8 +291,11 @@ class Dispatcher:
         # Claim the task
         try:
             claim = claim_task(
-                db_path, task.id, worker.worker_id, worker.profile,
-                self.config.stale_threshold_minutes
+                db_path,
+                task.id,
+                worker.worker_id,
+                worker.profile,
+                self.config.stale_threshold_minutes,
             )
         except ValueError:
             # Task already claimed
@@ -293,6 +309,7 @@ class Dispatcher:
         if not success:
             # Release claim on delivery failure
             from isaac.kanban import release_task_claims
+
             release_task_claims(db_path, task.id)
             self.worker_registry.decrement_task_count(worker.worker_id)
             return False
@@ -304,8 +321,9 @@ class Dispatcher:
         """Called by worker when task is complete."""
         self.worker_registry.decrement_task_count(worker_id)
         # Release the claim
-        from isaac.kanban import release_task_claims
         from isaac.config.settings import get_settings
+        from isaac.kanban import release_task_claims
+
         db_path = self.config.db_path or get_settings().isaac_home / "kanban.db"
         release_task_claims(db_path, task_id)
         logger.info("Task %s completed by worker %s (success=%s)", task_id, worker_id, success)
@@ -324,7 +342,9 @@ def get_dispatcher() -> Dispatcher | None:
         return _global_dispatcher
 
 
-def start_dispatcher(config: DispatchConfig | None = None, gateway: TaskGateway | None = None) -> Dispatcher:
+def start_dispatcher(
+    config: DispatchConfig | None = None, gateway: TaskGateway | None = None
+) -> Dispatcher:
     """Start the global dispatcher."""
     global _global_dispatcher
     with _dispatcher_lock:
@@ -346,15 +366,15 @@ def stop_dispatcher(timeout: float = 10.0) -> None:
 
 def run_dispatcher_once(config: DispatchConfig | None = None) -> int:
     """Run a single dispatch cycle synchronously. Returns number of tasks assigned."""
-    from isaac.kanban import init_db
     from isaac.config.settings import get_settings
+    from isaac.kanban import init_db
 
     cfg = config or DispatchConfig()
     db_path = cfg.db_path or get_settings().isaac_home / "kanban.db"
     init_db(db_path)
 
     # Reclaim stale claims
-    reclaimed = reclaim_stale_claims(db_path)
+    _ = reclaim_stale_claims(db_path)
 
     board = get_board(db_path, cfg.board_name)
     if not board:
@@ -368,10 +388,9 @@ def run_dispatcher_once(config: DispatchConfig | None = None) -> int:
         return 0
 
     ready_tasks = get_tasks(db_path, board.id, ready_col.id)
-    unclaimed_ready = [
-        t for t in ready_tasks
-        if get_active_claim(db_path, t.id) is None
-    ][:cfg.max_tasks_per_poll]
+    unclaimed_ready = [t for t in ready_tasks if get_active_claim(db_path, t.id) is None][
+        : cfg.max_tasks_per_poll
+    ]
 
     assigned = 0
     registry = get_worker_registry()
@@ -389,7 +408,9 @@ def run_dispatcher_once(config: DispatchConfig | None = None) -> int:
         worker = min(workers, key=lambda w: w.active_task_count)
 
         try:
-            claim = claim_task(db_path, task.id, worker.worker_id, worker.profile, cfg.stale_threshold_minutes)
+            claim = claim_task(
+                db_path, task.id, worker.worker_id, worker.profile, cfg.stale_threshold_minutes
+            )
         except ValueError:
             continue
 
@@ -397,6 +418,7 @@ def run_dispatcher_once(config: DispatchConfig | None = None) -> int:
         success = gateway.deliver(task, worker, claim)
         if not success:
             from isaac.kanban import release_task_claims
+
             release_task_claims(db_path, task.id)
             registry.decrement_task_count(worker.worker_id)
             continue

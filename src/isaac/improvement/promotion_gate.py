@@ -14,7 +14,6 @@ from __future__ import annotations
 import ast
 import json
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -64,9 +63,15 @@ def extract_main_function(code: str) -> tuple[str, list[str]] | None:
 
     # Look for functions with docstrings mentioning skill/entry
     for fn in functions:
-        if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(fn.body[0].value, ast.Constant):
+        if (
+            fn.body
+            and isinstance(fn.body[0], ast.Expr)
+            and isinstance(fn.body[0].value, ast.Constant)
+        ):
             docstring = fn.body[0].value.value
-            if isinstance(docstring, str) and any(kw in docstring.lower() for kw in ("skill", "entry", "entrypoint")):
+            if isinstance(docstring, str) and any(
+                kw in docstring.lower() for kw in ("skill", "entry", "entrypoint")
+            ):
                 params = [arg.arg for arg in fn.args.args]
                 return fn.name, params
 
@@ -100,7 +105,11 @@ def synthesize_test_args(param_names: list[str], code: str) -> list[dict]:
         args = {}
         for param in param_names:
             hint = type_hints.get(param, "").lower()
-            if "int" in hint or "number" in hint or param in ("count", "num", "n", "limit", "max", "min"):
+            if (
+                "int" in hint
+                or "number" in hint
+                or param in ("count", "num", "n", "limit", "max", "min")
+            ):
                 args[param] = i + 1
             elif "float" in hint:
                 args[param] = float(i + 1) * 1.5
@@ -285,7 +294,9 @@ def run_promotion_gate(
             continue
 
         if result.exit_code != 0:
-            errors.append(f"Test case {i}: Exit code {result.exit_code}, stderr: {result.stderr[:200]}")
+            errors.append(
+                f"Test case {i}: Exit code {result.exit_code}, stderr: {result.stderr[:200]}"
+            )
             continue
 
         # Validate output

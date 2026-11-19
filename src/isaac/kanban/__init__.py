@@ -4,7 +4,8 @@ Schema
 ------
 board (id, name, created_at, updated_at)
 column (id, board_id, name, position, wip_limit)
-task (id, board_id, column_id, title, description, priority, assignee, created_at, updated_at, due_at, blocked, tags)
+task (id, board_id, column_id, title, description, priority,
+      assignee, created_at, updated_at, due_at, blocked, tags)
 task_dep (task_id, depends_on_task_id)
 claim (id, task_id, worker_id, profile, claimed_at, released_at, stale_threshold_minutes)
 comment (id, task_id, author, body, created_at)
@@ -18,8 +19,28 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal
 
+# Dispatcher exports
+from isaac.kanban.dispatcher import (
+    DispatchConfig,
+    Dispatcher,
+    HTTPGateway,
+    LoggingGateway,
+    TaskGateway,
+    WorkerProfile,
+    WorkerRegistry,
+    get_dispatcher,
+    get_worker_registry,
+    run_dispatcher_once,
+    start_dispatcher,
+    stop_dispatcher,
+)
+
+# Dashboard exports
+try:
+    from isaac.kanban.dashboard import app as dashboard_app
+except ImportError:
+    dashboard_app = None
 
 DB_SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -115,6 +136,7 @@ def init_db(db_path: Path) -> None:
 
 # Board operations
 
+
 @dataclass
 class Board:
     id: str
@@ -163,6 +185,7 @@ def update_board_timestamp(db_path: Path, board_id: str) -> None:
 
 # Column operations
 
+
 @dataclass
 class Column:
     id: str
@@ -187,10 +210,14 @@ def create_default_columns(db_path: Path, board_id: str) -> list[Column]:
         for name, position, wip_limit in DEFAULT_COLUMNS:
             col_id = gen_id("c_")
             conn.execute(
-                "INSERT INTO column (id, board_id, name, position, wip_limit) VALUES (?, ?, ?, ?, ?)",
-                (col_id, board_id, name, position, wip_limit),
+                "INSERT INTO column (id, board_id, name, position, wip_limit) "
+                "VALUES (?, ?, ?, ?, ?)"(col_id, board_id, name, position, wip_limit),
             )
-            columns.append(Column(id=col_id, board_id=board_id, name=name, position=position, wip_limit=wip_limit))
+            columns.append(
+                Column(
+                    id=col_id, board_id=board_id, name=name, position=position, wip_limit=wip_limit
+                )
+            )
         conn.commit()
         return columns
 
@@ -204,7 +231,13 @@ def get_columns(db_path: Path, board_id: str) -> list[Column]:
         return [Column(**row) for row in rows]
 
 
-def create_column(db_path: Path, board_id: str, name: str, position: int | None = None, wip_limit: int | None = None) -> Column:
+def create_column(
+    db_path: Path,
+    board_id: str,
+    name: str,
+    position: int | None = None,
+    wip_limit: int | None = None,
+) -> Column:
     with connect(db_path) as conn:
         col_id = gen_id("c_")
         if position is None:
@@ -218,10 +251,13 @@ def create_column(db_path: Path, board_id: str, name: str, position: int | None 
             (col_id, board_id, name, position, wip_limit),
         )
         conn.commit()
-        return Column(id=col_id, board_id=board_id, name=name, position=position, wip_limit=wip_limit)
+        return Column(
+            id=col_id, board_id=board_id, name=name, position=position, wip_limit=wip_limit
+        )
 
 
 # Task operations
+
 
 @dataclass
 class Task:
@@ -270,9 +306,25 @@ def create_task(
         task_id = gen_id("t_")
         now = now_iso()
         conn.execute(
-            """INSERT INTO task (id, board_id, column_id, title, description, priority, assignee, created_at, updated_at, due_at, blocked, tags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (task_id, board_id, column_id, title, description, priority, assignee, now, now, due_at, 0, tags),
+                    (
+                        "INSERT INTO task (id, board_id, column_id, title, description, "
+                        "priority, assignee, created_at, updated_at, due_at, blocked, tags) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    ),
+            (
+                task_id,
+                board_id,
+                column_id,
+                title,
+                description,
+                priority,
+                assignee,
+                now,
+                now,
+                due_at,
+                0,
+                tags,
+            ),
         )
         # Update board timestamp in the same transaction
         conn.execute(
@@ -281,9 +333,18 @@ def create_task(
         )
         conn.commit()
         return Task(
-            id=task_id, board_id=board_id, column_id=column_id, title=title,
-            description=description, priority=priority, assignee=assignee,
-            created_at=now, updated_at=now, due_at=due_at, blocked=0, tags=tags
+            id=task_id,
+            board_id=board_id,
+            column_id=column_id,
+            title=title,
+            description=description,
+            priority=priority,
+            assignee=assignee,
+            created_at=now,
+            updated_at=now,
+            due_at=due_at,
+            blocked=0,
+            tags=tags,
         )
 
 
@@ -299,12 +360,12 @@ def list_tasks(db_path: Path, board_id: str, column_id: str | None = None) -> li
     with connect(db_path) as conn:
         if column_id:
             rows = conn.execute(
-                "SELECT * FROM task WHERE board_id = ? AND column_id = ? ORDER BY priority DESC, created_at",
+                "SELECT * FROM task WHERE board_id = ? AND column_id = ? ORDER BY priority DESC, created_at",  # noqa: E501
                 (board_id, column_id),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM task WHERE board_id = ? ORDER BY column_id, priority DESC, created_at",
+                "SELECT * FROM task WHERE board_id = ? ORDER BY column_id, priority DESC, created_at",  # noqa: E501
                 (board_id,),
             ).fetchall()
         return [Task(**row) for row in rows]
@@ -367,7 +428,7 @@ def update_task(
             params.append(task_id)
             conn.execute(f"UPDATE task SET {', '.join(fields)} WHERE id = ?", params)
             conn.execute(
-                "UPDATE board SET updated_at = ? WHERE id = (SELECT board_id FROM task WHERE id = ?)",
+                "UPDATE board SET updated_at = ? WHERE id = (SELECT board_id FROM task WHERE id = ?)",  # noqa: E501
                 (now, task_id),
             )
             conn.commit()
@@ -414,6 +475,7 @@ def get_dependents(db_path: Path, task_id: str) -> list[str]:
 
 # Claim operations (for dispatcher)
 
+
 @dataclass
 class Claim:
     id: str
@@ -425,7 +487,9 @@ class Claim:
     stale_threshold_minutes: int
 
 
-def claim_task(db_path: Path, task_id: str, worker_id: str, profile: str, stale_threshold_minutes: int = 60) -> Claim:
+def claim_task(
+    db_path: Path, task_id: str, worker_id: str, profile: str, stale_threshold_minutes: int = 60
+) -> Claim:
     with connect(db_path) as conn:
         # Check if task is already claimed and not stale
         existing = conn.execute(
@@ -441,14 +505,20 @@ def claim_task(db_path: Path, task_id: str, worker_id: str, profile: str, stale_
         claim_id = gen_id("cl_")
         now = now_iso()
         conn.execute(
-            """INSERT INTO claim (id, task_id, worker_id, profile, claimed_at, stale_threshold_minutes)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (claim_id, task_id, worker_id, profile, now, stale_threshold_minutes),
+            (
+                "INSERT INTO claim (id, task_id, worker_id, profile, "
+                "claimed_at, stale_threshold_minutes) "
+                "VALUES (?, ?, ?, ?, ?, ?)"
+            ),
         )
-        conn.commit()
         return Claim(
-            id=claim_id, task_id=task_id, worker_id=worker_id, profile=profile,
-            claimed_at=now, released_at=None, stale_threshold_minutes=stale_threshold_minutes
+            id=claim_id,
+            task_id=task_id,
+            worker_id=worker_id,
+            profile=profile,
+            claimed_at=now,
+            released_at=None,
+            stale_threshold_minutes=stale_threshold_minutes,
         )
 
 
@@ -493,9 +563,7 @@ def is_claim_stale(claim: Claim) -> bool:
 
 def reclaim_stale_claims(db_path: Path) -> list[Claim]:
     with connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT * FROM claim WHERE released_at IS NULL"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM claim WHERE released_at IS NULL").fetchall()
         reclaimed = []
         for row in rows:
             claim = Claim(**row)
@@ -506,6 +574,7 @@ def reclaim_stale_claims(db_path: Path) -> list[Claim]:
 
 
 # Comment operations
+
 
 @dataclass
 class Comment:
@@ -539,6 +608,7 @@ def get_comments(db_path: Path, task_id: str) -> list[Comment]:
 
 # Statistics
 
+
 @dataclass
 class BoardStats:
     board_id: str
@@ -558,7 +628,9 @@ def get_board_stats(db_path: Path, board_id: str) -> BoardStats:
             raise ValueError(f"Board {board_id} not found")
         board_name = board[0]
 
-        total = conn.execute("SELECT COUNT(*) FROM task WHERE board_id = ?", (board_id,)).fetchone()[0]
+        total = conn.execute(
+            "SELECT COUNT(*) FROM task WHERE board_id = ?", (board_id,)
+        ).fetchone()[0]
 
         col_rows = conn.execute(
             """SELECT c.name, COUNT(t.id)
@@ -594,55 +666,93 @@ def get_board_stats(db_path: Path, board_id: str) -> BoardStats:
                WHERE t.board_id = ? AND c.released_at IS NULL""",
             (board_id,),
         ).fetchall()
-        stale = sum(1 for claimed_at, threshold in claim_rows if is_claim_stale(Claim(
-            id="", task_id="", worker_id="", profile="",
-            claimed_at=claimed_at, released_at=None, stale_threshold_minutes=threshold
-        )))
+        stale = sum(
+            1
+            for claimed_at, threshold in claim_rows
+            if is_claim_stale(
+                Claim(
+                    id="",
+                    task_id="",
+                    worker_id="",
+                    profile="",
+                    claimed_at=claimed_at,
+                    released_at=None,
+                    stale_threshold_minutes=threshold,
+                )
+            )
+        )
 
         return BoardStats(
-            board_id=board_id, board_name=board_name, total_tasks=total,
-            by_column=by_column, by_priority=by_priority,
-            blocked_count=blocked, claimed_count=claimed, stale_claims=stale
+            board_id=board_id,
+            board_name=board_name,
+            total_tasks=total,
+            by_column=by_column,
+            by_priority=by_priority,
+            blocked_count=blocked,
+            claimed_count=claimed,
+            stale_claims=stale,
         )
 
 
-# Dispatcher exports
-from isaac.kanban.dispatcher import (
-    WorkerProfile,
-    WorkerRegistry,
-    get_worker_registry,
-    TaskGateway,
-    LoggingGateway,
-    HTTPGateway,
-    Dispatcher,
-    DispatchConfig,
-    get_dispatcher,
-    start_dispatcher,
-    stop_dispatcher,
-    run_dispatcher_once,
-)
-
-# Dashboard exports
 try:
     from isaac.kanban.dashboard import app as dashboard_app
 except ImportError:
     dashboard_app = None
 
 __all__ = [
-    "Board", "Column", "Task", "Claim", "Comment", "BoardStats",
-    "init_db", "init_kanban_board", "create_board", "get_board", "list_boards",
-    "get_columns", "create_column", "create_task", "get_task", "list_tasks",
-    "move_task", "update_task", "add_task_dep", "remove_task_dep",
-    "get_task_deps", "get_dependents", "claim_task", "release_claim",
-    "release_task_claims", "get_active_claim", "reclaim_stale_claims",
-    "is_claim_stale", "add_comment", "get_comments", "get_board_stats",
-    "WorkerProfile", "WorkerRegistry", "get_worker_registry",
-    "TaskGateway", "LoggingGateway", "HTTPGateway",
-    "Dispatcher", "DispatchConfig", "get_dispatcher",
-    "start_dispatcher", "stop_dispatcher", "run_dispatcher_once",
+    "Board",
+    "BoardStats",
+    "Claim",
+    "Column",
+    "Comment",
+    "DispatchConfig",
+    "Dispatcher",
+    "HTTPGateway",
+    "LoggingGateway",
+    "Task",
+    "TaskGateway",
+    "WorkerProfile",
+    "WorkerRegistry",
+    "add_comment",
+    "add_task_dep",
+    "claim_task",
+    "create_board",
+    "create_column",
+    "create_task",
+    "get_active_claim",
+    "get_board",
+    "get_board_stats",
+    "get_columns",
+    "get_comments",
+    "get_dependents",
+    "get_dispatcher",
+    "get_task",
+    "get_task_deps",
+    "get_worker_registry",
+    "init_db",
+    "init_kanban_board",
+    "is_claim_stale",
+    "list_boards",
+    "list_tasks",
+    "move_task",
+    "reclaim_stale_claims",
+    "release_claim",
+    "release_task_claims",
+    "remove_task_dep",
+    "run_dispatcher_once",
+    "start_dispatcher",
+    "stop_dispatcher",
+    "update_task",
 ]
+
 if dashboard_app:
     __all__.append("dashboard_app")
+
+
+# High-level board initialization
+
+
+def init_kanban_board(db_path: Path, name: str) -> tuple[Board, list[Column]]:
     """Create a new board with default columns."""
     board = create_board(db_path, name)
     columns = create_default_columns(db_path, board.id)
