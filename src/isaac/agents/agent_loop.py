@@ -56,6 +56,7 @@ from isaac.agents.tool_repair import (
 )
 from isaac.agents.trace import TraceStore
 from isaac.agents.validation import validate_args
+from isaac.memory.manager import MemoryManager
 from isaac.security.redact import redact_secrets
 from isaac.tools.base import IsaacTool
 
@@ -269,15 +270,25 @@ class _RunBoundary:
         self.should_stop = should_stop
         self.timeout_reason = timeout_reason
         self._reason = ""
+        self._commit_started = False
         self._lock = threading.Lock()
 
     def stop(self, reason: str = "cancelled") -> str:
         with self._lock:
-            if not self._reason:
+            if not self._commit_started and not self._reason:
                 self._reason = reason
             return self._reason
 
+    def begin_commit(self) -> None:
+        self.check()
+        with self._lock:
+            if self._reason:
+                raise _RunStopped(self._reason)
+            self._commit_started = True
+
     def reason(self) -> str:
+        if self._commit_started:
+            return ""
         if self._reason:
             return self._reason
         if self.parent is not None and (reason := self.parent.reason()):
@@ -322,16 +333,22 @@ class _RunBoundary:
                 future.exception()
 
         pending.add_done_callback(consume)
+        task = asyncio.current_task()
+        pending_cancellations = task.cancelling() if task is not None else 0
         try:
             while not pending.done():
                 self.check()
-                await asyncio.wait({pending}, timeout=0.01)
+                try:
+                    await asyncio.wait({pending}, timeout=0.01)
+                except asyncio.CancelledError:
+                    if self.stop():
+                        raise
+                    # Cancellation cannot undo an authorized commit.
+                    if task is not None:
+                        while task.cancelling() > pending_cancellations:
+                            task.uncancel()
             self.check()
             return work.future.result()
-        except asyncio.CancelledError:
-            self.stop()
-            work.cancel()
-            raise
         except BaseException:
             work.cancel()
             raise
@@ -827,14 +844,24 @@ class AgentLoop:
     async def arun(
         self, task: str, context: str = "", *, attachments: list[dict] | None = None
     ) -> AgentRunResult:
+        return await self._arun_turn(
+            task, context, attachments, count_turn=_active_boundary.get() is None
+        )
+
+    async def _arun_turn(
+        self, task: str, context: str, attachments: list[dict] | None, *, count_turn: bool
+    ) -> AgentRunResult:
         boundary = _RunBoundary(
             self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
         )
         progress = AgentRunResult(output="", iterations=0)
         try:
-            return await boundary.acall(
+            result = await boundary.acall(
                 lambda: self._arun(task, context, attachments, progress), asynchronous=True
             )
+            if count_turn and result.completed:
+                progress = result
+                await boundary.acall(lambda: MemoryManager.consolidate(completed_turn=boundary))
         except _RunStopped as exc:
             self._emit(exc.reason, message=exc.reason)
             return replace(
@@ -847,6 +874,7 @@ class AgentLoop:
                 messages=list(progress.messages),
                 verified_success=None,
             )
+        return result
 
     async def _arun(
         self,
@@ -1187,10 +1215,13 @@ class AgentLoop:
     def run(
         self, task: str, context: str = "", *, attachments: list[dict] | None = None
     ) -> AgentRunResult:
-        boundary = _RunBoundary(parent=_active_boundary.get())
+        parent = _active_boundary.get()
+        boundary = _RunBoundary(parent=parent)
         try:
             return boundary.call(
-                lambda: asyncio.run(self.arun(task, context, attachments=attachments))
+                lambda: asyncio.run(
+                    self._arun_turn(task, context, attachments, count_turn=parent is None)
+                )
             )
         except _RunStopped as exc:
             return AgentRunResult(
@@ -1201,9 +1232,8 @@ class AgentLoop:
         self, task: str, context: str = "", *, attachments: list[dict] | None = None
     ) -> AsyncIterator[str]:
         """Stream the agent's response token by token (for direct response mode)."""
-        boundary = _RunBoundary(
-            self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
-        )
+        parent = _active_boundary.get()
+        boundary = _RunBoundary(self.max_wall_seconds, self._should_stop, parent=parent)
         token = _active_boundary.set(boundary)
         try:
             async with asyncio.timeout(
@@ -1212,6 +1242,9 @@ class AgentLoop:
                 async for chunk in self._astream(task, context, attachments):
                     boundary.check()
                     yield chunk
+                boundary.check()
+            if parent is None:
+                await boundary.acall(lambda: MemoryManager.consolidate(completed_turn=boundary))
         except TimeoutError:
             yield "Stopped: budget_exhausted."
         except _RunStopped as exc:

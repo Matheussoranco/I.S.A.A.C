@@ -4,8 +4,7 @@ Stores cross-session memories with full-text search for recall.
 Each memory has a type (fact, preference, event, skill_outcome),
 an importance score, access tracking, and a preview for FTS indexing.
 
-Consolidation merges duplicate or low-importance memories automatically
-after every N interactions (configurable via settings).
+Consolidation deduplicates and ages memories on a completed-turn cadence.
 """
 
 from __future__ import annotations
@@ -13,7 +12,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import uuid
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ class LongTermMemory:
         Path to the SQLite database file.
     """
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
+    def __init__(self, db_path: str | Path | None = None, *, timeout: float = 5.0) -> None:
         if db_path is None or not str(db_path).strip():
             from isaac.config.settings import get_settings
 
@@ -40,11 +40,14 @@ class LongTermMemory:
 
         self._db_path = Path(db_path).expanduser()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: sqlite3.Connection = sqlite3.connect(str(self._db_path))
+        self._conn = sqlite3.connect(str(self._db_path), timeout=timeout)
         self._conn.row_factory = sqlite3.Row
-        self._interaction_count: int = 0
-        self._closed: bool = False
-        self._init_db()
+        self._closed = False
+        try:
+            self._init_db()
+        except BaseException:
+            self.close()
+            raise
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -83,6 +86,11 @@ class LongTermMemory:
                 importance REAL NOT NULL DEFAULT 0.5,
                 access_count INTEGER NOT NULL DEFAULT 0,
                 last_accessed TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS memory_maintenance (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                turns_since_consolidation INTEGER NOT NULL
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -148,9 +156,6 @@ class LongTermMemory:
             (memory_id, now, type, content, preview, max(0.0, min(1.0, importance)), now),
         )
         self._conn.commit()
-
-        self._interaction_count += 1
-        self._maybe_consolidate()
 
         logger.debug(
             "LongTermMemory: remembered [%s] (type=%s, importance=%.2f) id=%s",
@@ -275,61 +280,82 @@ class LongTermMemory:
     # Consolidation
     # ------------------------------------------------------------------
 
-    def consolidate(self) -> int:
-        """Merge duplicate and prune low-importance memories.
-
-        * Exact-duplicate content → keep highest importance, remove rest.
-        * Memories with importance < 0.1 and access_count == 0 → delete.
-
-        Returns
-        -------
-        int
-            Number of memories removed.
-        """
-        removed = 0
-
-        # Remove exact duplicates (keep the row with highest importance)
-        cursor = self._conn.execute(
-            """SELECT content, COUNT(*) as cnt
-               FROM memories
-               GROUP BY content
-               HAVING cnt > 1"""
-        )
-        for row in cursor.fetchall():
-            dups = self._conn.execute(
-                """SELECT id FROM memories
-                   WHERE content = ?
-                   ORDER BY importance DESC, timestamp DESC""",
-                (row["content"],),
-            ).fetchall()
-            # Keep first (highest importance), delete rest
-            for dup in dups[1:]:
-                self._conn.execute("DELETE FROM memories WHERE id = ?", (dup["id"],))
-                removed += 1
-
-        # Prune low-importance, never-accessed memories
-        cursor = self._conn.execute(
-            "DELETE FROM memories WHERE importance < 0.1 AND access_count = 0"
-        )
-        removed += cursor.rowcount
-
-        if removed > 0:
-            self._conn.commit()
+    def record_turn(
+        self,
+        interval: int,
+        *,
+        check: Callable[[], None] | None = None,
+        begin_commit: Callable[[], None] | None = None,
+    ) -> bool:
+        """Persist a completed turn and return whether it triggered consolidation."""
+        if interval < 1:
+            raise ValueError("Consolidation interval must be positive")
+        if check is not None:
+            check()
+        with self._conn:
+            if begin_commit is not None:
+                self._conn.execute("BEGIN EXCLUSIVE")
+            self._conn.execute(
+                """INSERT INTO memory_maintenance (id, turns_since_consolidation) VALUES (1, 1)
+                   ON CONFLICT (id) DO UPDATE SET
+                       turns_since_consolidation = turns_since_consolidation + 1"""
+            )
+            turn = self._conn.execute(
+                "SELECT turns_since_consolidation FROM memory_maintenance WHERE id = 1"
+            ).fetchone()[0]
+            if check is not None:
+                check()
+            due = turn >= interval
+            if due:
+                removed = self._consolidate()
+                self._conn.execute(
+                    "UPDATE memory_maintenance SET turns_since_consolidation = 0 WHERE id = 1"
+                )
+            if begin_commit is not None:
+                begin_commit()
+            elif check is not None:
+                check()
+        if due:
             logger.info("LongTermMemory: consolidation removed %d memories.", removed)
+        return due
 
+    def consolidate(self) -> int:
+        """Deduplicate, decay weak stale memories, and return the number removed."""
+        with self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            return self._consolidate()
+
+    def _consolidate(self) -> int:
+        removed = 0
+        groups = self._conn.execute(
+            """SELECT type, content, SUM(access_count) AS accesses, MAX(last_accessed) AS seen
+               FROM memories GROUP BY type, content HAVING COUNT(*) > 1"""
+        ).fetchall()
+        for group in groups:
+            key = (group["type"], group["content"])
+            keep = self._conn.execute(
+                """SELECT id FROM memories WHERE type = ? AND content = ?
+                   ORDER BY importance DESC, access_count DESC, timestamp DESC, id LIMIT 1""",
+                key,
+            ).fetchone()[0]
+            self._conn.execute(
+                "UPDATE memories SET access_count = ?, last_accessed = ? WHERE id = ?",
+                (group["accesses"], group["seen"], keep),
+            )
+            removed += self._conn.execute(
+                "DELETE FROM memories WHERE type = ? AND content = ? AND id != ?",
+                (*key, keep),
+            ).rowcount
+        cutoff = (datetime.now(tz=UTC) - timedelta(days=30)).isoformat()
+        self._conn.execute(
+            """UPDATE memories SET importance = importance * 0.95
+               WHERE importance < 0.5 AND access_count = 0 AND last_accessed < ?""",
+            (cutoff,),
+        )
+        removed += self._conn.execute(
+            "DELETE FROM memories WHERE importance < 0.1 AND access_count = 0"
+        ).rowcount
         return removed
-
-    def _maybe_consolidate(self) -> None:
-        """Consolidate if interaction count has reached the threshold."""
-        try:
-            from isaac.config.settings import settings
-
-            interval = settings.memory_consolidation_interval
-        except Exception:
-            interval = 10
-
-        if self._interaction_count > 0 and self._interaction_count % interval == 0:
-            self.consolidate()
 
     # ------------------------------------------------------------------
     # Stats & context

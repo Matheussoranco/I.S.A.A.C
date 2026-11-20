@@ -48,6 +48,7 @@ from isaac.agents.agent_loop import (
     _RunBoundary,
     _RunStopped,
 )
+from isaac.memory.manager import MemoryManager
 from isaac.specialists.base import Specialist, SpecialistResult
 
 logger = logging.getLogger(__name__)
@@ -304,12 +305,13 @@ class Orchestrator:
             caught and surfaced as a failed result.
         """
         start = time.monotonic()
-        boundary = _RunBoundary(
-            self.max_wall_seconds, self._should_stop, parent=_active_boundary.get()
-        )
+        parent = _active_boundary.get()
+        boundary = _RunBoundary(self.max_wall_seconds, self._should_stop, parent=parent)
         outcome = OrchestrationResult(goal, [], [], "", False, 0)
         try:
             outcome = boundary.call(lambda: self._run(goal, context, boundary, outcome))
+            if parent is None and outcome.completed:
+                boundary.call(lambda: MemoryManager.consolidate(completed_turn=boundary))
         except _RunStopped as exc:
             results = list(outcome.results)
             finished = {r.subtask.id for r in results}

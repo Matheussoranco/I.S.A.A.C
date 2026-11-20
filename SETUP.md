@@ -60,6 +60,23 @@ entry. Named profiles use their own skills and memory paths even if the
 legacy paths are configured. Explicit external workspaces and an explicitly
 shared `ISAAC_KANBAN_DB` are outside this isolation.
 
+### Automatic long-term memory maintenance
+
+Every 50 completed top-level AgentLoop or Orchestrator turns, I.S.A.A.C.
+consolidates the active profile’s long-term memory. A completed stream counts
+as a turn; cancelled runs and nested specialist calls do not. The counter
+survives restarts. To change the interval, use
+`isaac config set memory_consolidation_interval 100` (allowed range: 5–1000).
+
+The pass merges exact duplicates of the same memory type, reduces importance
+for weak, unused entries older than 30 days, and prunes unused entries below
+0.1 importance. It does not modify the episodic ring buffer, call a model, or
+require the improvement engine. The write respects the turn's cancellation
+and time budget until SQLite begins committing. Once the commit starts, the
+turn finishes rather than reporting a cancellation that cannot undo the write.
+If storage stays unavailable after up to one second of retries, the failure
+is logged and the turn may go uncounted.
+
 ### Profile settings and credentials
 
 Use `isaac config paths` to find the active profile’s `config.yaml`. Put

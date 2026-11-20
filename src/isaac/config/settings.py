@@ -380,7 +380,7 @@ class Settings(BaseSettings):
     user_profile_path: str = ""
     """JSON file path for user profile (default: ~/.isaac/user_profile.json)."""
     memory_consolidation_interval: int = Field(default=50, ge=5, le=1000)
-    """Number of interactions between automatic memory consolidation runs."""
+    """Number of completed top-level turns between long-term memory consolidation runs."""
 
     # ── Connectors ──────────────────────────────────────────────────────
     allowed_paths: list[str] = Field(

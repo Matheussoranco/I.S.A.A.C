@@ -8,11 +8,22 @@ nodes.
 from __future__ import annotations
 
 import logging
+import sqlite3
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
+
+from isaac.config.settings import get_settings
+from isaac.memory.long_term import LongTermMemory
 
 logger = logging.getLogger(__name__)
+
+
+class _TurnCompletion(Protocol):
+    def check(self) -> None: ...
+
+    def begin_commit(self) -> None: ...
 
 
 @dataclass
@@ -235,8 +246,12 @@ class MemoryManager:
         except Exception:
             logger.warning("MemoryManager: KG sync failed.", exc_info=True)
 
-    def consolidate(self) -> None:
-        """Consolidate episodic memory into persistent layers."""
+    @staticmethod
+    def consolidate(*, completed_turn: _TurnCompletion | None = None) -> None:
+        """Record a checked completed turn, or run the existing semantic pass."""
+        if completed_turn is not None:
+            _record_completed_turn(completed_turn)
+            return
         try:
             from isaac.memory.consolidation import consolidate_now
 
@@ -248,6 +263,45 @@ class MemoryManager:
         """Close all memory layer connections."""
         if self._semantic is not None:
             self._semantic.close()
+
+
+def _record_completed_turn(completion: _TurnCompletion) -> None:
+    retry_until = time.monotonic() + 1.0
+    committing = False
+
+    def authorize_commit() -> None:
+        nonlocal committing
+        completion.begin_commit()
+        committing = True
+
+    while True:
+        completion.check()
+        try:
+            settings = get_settings()
+            path = settings.memory_db_path.strip() or settings.isaac_home / "long_term_memory.db"
+            # Retry outside SQLite so waits never bypass the turn's cancellation check.
+            with LongTermMemory(path, timeout=0) as memory:
+                memory.record_turn(
+                    settings.memory_consolidation_interval,
+                    check=completion.check,
+                    begin_commit=authorize_commit,
+                )
+            return
+        except Exception as error:
+            completion.check()
+            if (
+                not committing
+                and isinstance(error, sqlite3.OperationalError)
+                and (getattr(error, "sqlite_errorcode", 0) & 0xFF)
+                in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                and time.monotonic() < retry_until
+            ):
+                time.sleep(0.01)
+                continue
+            logger.warning(
+                "Could not record completed turn for memory consolidation", exc_info=True
+            )
+            return
 
 
 # ---------------------------------------------------------------------------
