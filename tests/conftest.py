@@ -11,6 +11,7 @@ Ollama is now the default provider.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -44,6 +45,19 @@ def isolate_capability_store(
     monkeypatch.setattr(capabilities, "_instance", store)
     yield store
     monkeypatch.setattr(capabilities, "_instance", None)
+
+
+@pytest.fixture(autouse=True)
+def isolate_turn_consolidation(tmp_path, monkeypatch):
+    from isaac.memory import manager
+
+    monkeypatch.setattr(
+        manager,
+        "get_settings",
+        lambda: SimpleNamespace(
+            isaac_home=tmp_path, memory_db_path="", memory_consolidation_interval=50
+        ),
+    )
 
 
 @pytest.fixture(autouse=True)
