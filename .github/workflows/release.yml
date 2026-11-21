@@ -35,7 +35,7 @@ jobs:
           CIBW_SKIP: "pp* cp313-*"
           CIBW_BEFORE_ALL: "pip install -e ."
           CIBW_TEST_COMMAND: "pytest tests/test_host_tools.py -q"
-          CIBW_ALLOW_PURE_PYTHON: "1"
+          CIBW_ALLOW_PURE_PYTHON: "true"
         run: cibuildwheel --output-dir wheelhouse
 
       - uses: actions/upload-artifact@v4
