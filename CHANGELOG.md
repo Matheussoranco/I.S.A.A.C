@@ -7,9 +7,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — 2026-11-03
+## [Unreleased] — 2026-11-20
+
+## [1.6.3] — 2026-11-20 — Code quality fixes & documentation
+
+### Fixed
+
+- Fix mypy type errors across 5 source files (kanban, dispatcher, promotion_gate, legacy CLI)
+- Fix ruff line-length violations in legacy CLI (E501)
+- Fix missing `get_tasks` alias in kanban module (used by dispatcher & dashboard)
+- Fix `TemplateResponse` argument order for FastAPI 0.100+ compatibility
+- Fix `WorkerProfile.metadata` default using `field(default_factory=dict)` instead of `None`
+- Fix `kanban_cmd` missing docstring (CONTRIBUTING.md compliance)
+- Fix `get_tasks` documented as public API (not Middle Man)
+
+### Changed
+
+- Complete README rewrite with architecture diagrams, cognitive graph, multimodal pipelines, self-improvement lifecycle, LLM routing matrix, memory flow, evaluation harness, state schema, sandbox security, and CLI reference
 
 ### Added
+
+- Added `types-tabulate` to dev dependencies for mypy stub support
+
+### Tests
+
+- All 1278 tests pass; ruff, mypy, pytest CI gates green
+
+## [1.6.2] — 2026-08-31 — Standalone Windows executable
 
 - Added persistent profile selection with `isaac profile create`, `list`,
   `current`, and `switch`. Named profiles separate dotenv, skills, memory,
