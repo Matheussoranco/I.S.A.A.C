@@ -12,17 +12,37 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 jobs:
+  test-image:
+    name: Build and smoke-test the image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build locally
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: isaac-smoke:local
+          cache-from: type=gha
+
+      - name: Test image runs
+        run: docker run --rm isaac-smoke:local --help
+
   build-and-push:
+    if: github.event_name == 'push'
+    needs: test-image
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      id-token: write
 
     steps:
       - name: Checkout
@@ -30,6 +50,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Enable ARM64 emulation
+        uses: docker/setup-qemu-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -42,7 +65,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner | lower }}/isaac-agent
+          images: ghcr.io/${{ github.repository_owner }}/isaac-agent
           tags: |
             type=ref,event=tag
             type=ref,event=branch
@@ -59,16 +82,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  test-image:
-    name: Test Built Image
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Pull image
-        run: |
-          docker pull ghcr.io/${{ github.repository_owner | lower }}/isaac-agent:${{ github.ref_name }}
-
-      - name: Test image runs
-        run: |
-          docker run --rm ghcr.io/${{ github.repository_owner | lower }}/isaac-agent:${{ github.ref_name }} --help
