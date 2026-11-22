@@ -9,9 +9,11 @@ on:
     paths:
       - '.github/workflows/release.yml'
       - 'pyproject.toml'
+      - 'scripts/validate_release_tag.py'
       - 'src/**'
       - 'tests/conftest.py'
       - 'tests/test_host_tools.py'
+      - 'tests/test_release_workflow.py'
       - 'README.md'
       - 'LICENSE'
       - 'NOTICE'
@@ -37,6 +39,11 @@ jobs:
           python -m pip install build
           python -m build --wheel --outdir wheelhouse
 
+      - name: Validate release tag matches package and wheel version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          python scripts/validate_release_tag.py --tag "${{ github.ref }}" --pyproject pyproject.toml --wheel-dir wheelhouse
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel
@@ -60,7 +67,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: wheel
           path: wheelhouse
@@ -70,7 +77,7 @@ jobs:
         run: |
           wheel=(wheelhouse/*.whl)
           python -m pip install "${wheel[0]}[dev]"
-          python -m pytest tests/test_host_tools.py -q
+          python -m pytest tests/test_host_tools.py tests/test_release_workflow.py -q
 
   publish-pypi:
     name: Publish to PyPI
@@ -82,13 +89,40 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: wheel
           path: wheelhouse
 
+      - name: Verify downloaded wheel version matches release tag before publish
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import os, sys, zipfile
+          from email.parser import Parser
+          from pathlib import Path
+
+          ref = os.environ.get("RELEASE_REF", "").strip()
+          if not ref.startswith("refs/tags/"):
+              sys.exit(f"Expected refs/tags/ ref, got {ref!r}")
+          tag = ref.removeprefix("refs/tags/")
+          wheels = sorted(Path("wheelhouse").glob("*.whl"))
+          if len(wheels) != 1:
+              sys.exit(f"Expected exactly 1 wheel, found {len(wheels)}")
+          with zipfile.ZipFile(wheels[0]) as zf:
+              meta = [n for n in zf.namelist() if n.endswith(".dist-info/METADATA")]
+              if len(meta) != 1:
+                  sys.exit(f"Expected 1 METADATA in {wheels[0].name}, found {len(meta)}")
+              version = Parser().parsestr(zf.read(meta[0]).decode("utf-8")).get("Version", "").strip()
+          expected = f"v{version}"
+          if not version or tag != expected:
+              sys.exit(f"Release tag {tag!r} != expected {expected!r} from {wheels[0].name}")
+          print(f"Pre-publish gate PASSED: {tag} == {expected} ({wheels[0].name})")
+          PY
+
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1 (v1.14.3)
         with:
           packages-dir: wheelhouse
           verbose: true
