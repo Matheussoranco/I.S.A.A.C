@@ -68,7 +68,8 @@ jobs:
       - name: Install and test wheel
         shell: bash
         run: |
-          python -m pip install wheelhouse/*.whl 'pytest>=8,<9'
+          wheel=(wheelhouse/*.whl)
+          python -m pip install "${wheel[0]}[dev]"
           python -m pytest tests/test_host_tools.py -q
 
   publish-pypi:
