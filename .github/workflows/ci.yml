@@ -33,13 +33,13 @@ jobs:
       - name: Ruff lint
         # src/ AND tests/ — same scope as the sibling projects. Test code that
         # nobody lints is where the dead imports and unused bindings collect.
-        run: ruff check src/ tests/ scripts/doctor_smoke.py
+        run: ruff check src/ tests/ scripts/doctor_smoke.py scripts/validate_release_tag.py
 
       - name: Ruff format check
-        run: ruff format --check src/ tests/ scripts/doctor_smoke.py
+        run: ruff format --check src/ tests/ scripts/doctor_smoke.py scripts/validate_release_tag.py
 
       - name: Mypy type check
-        run: mypy src/isaac scripts/doctor_smoke.py --ignore-missing-imports
+        run: mypy src/isaac scripts/doctor_smoke.py scripts/validate_release_tag.py --ignore-missing-imports
 
       - name: Forbidden terms check (ADR-001)
         run: python scripts/forbidden_terms.py
