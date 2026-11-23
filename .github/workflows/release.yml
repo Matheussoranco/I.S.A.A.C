@@ -41,8 +41,10 @@ jobs:
 
       - name: Validate release tag matches package and wheel version
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_REF: ${{ github.ref }}
         run: |
-          python scripts/validate_release_tag.py --tag "${{ github.ref }}" --pyproject pyproject.toml --wheel-dir wheelhouse
+          python scripts/validate_release_tag.py --tag "${RELEASE_REF}" --pyproject pyproject.toml --wheel-dir wheelhouse
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

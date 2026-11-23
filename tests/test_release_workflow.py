@@ -195,6 +195,20 @@ def test_release_workflow_pins_all_actions_to_full_commit_shas_and_gates_publish
     )
     assert validate_idx < upload_idx
 
+    # Never interpolate untrusted github.ref/github.event expressions directly in shell run blocks.
+    validate_step = build_steps[validate_idx]
+    assert validate_step.get("env", {}).get("RELEASE_REF") == "${{ github.ref }}"
+    assert '"${RELEASE_REF}"' in validate_step.get("run", "")
+    for job_name, job in jobs.items():
+        for step in job.get("steps", []):
+            run_script = step.get("run", "")
+            assert "${{ github.ref" not in run_script, (
+                f"Direct github.ref interpolation in shell run block of {job_name!r}"
+            )
+            assert "${{ github.event" not in run_script, (
+                f"Direct github.event interpolation in shell run block of {job_name!r}"
+            )
+
     publish_steps = jobs["publish-pypi"]["steps"]
     gate_idx = next(
         i for i, s in enumerate(publish_steps) if "Pre-publish gate" in s.get("run", "")
