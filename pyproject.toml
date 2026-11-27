@@ -7,8 +7,8 @@ name = "isaac"
 version = "1.6.3"
 description = "Intelligent System for Autonomous Action and Cognition — neuro-symbolic autonomous agent"
 readme = "README.md"
-license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
 requires-python = ">=3.12"
 authors = [{ name = "Matheus Soranço", email = "matheussoranco@gmail.com" }]
 keywords = ["agent", "agi", "neuro-symbolic", "langgraph", "code-agent"]

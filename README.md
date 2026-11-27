@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-1.6.2-blue)](https://github.com/Matheussoranco/I.S.A.A.C/releases)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)]()
 
@@ -743,10 +743,15 @@ CI runs on every PR: `ruff check`, `ruff format --check`, `mypy src/isaac --igno
 
 ## License
 
-I.S.A.A.C. is licensed under the [Apache License, Version 2.0](LICENSE).
-See [NOTICE](NOTICE) for copyright information. Previously published releases retain the license they shipped with.
+Original project code is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
 
----
+Copyright (c) 2025–2026 Matheus Pullig Soranço de Carvalho (Matheus Soranço).
+
+The AGPL permits commercial and noncommercial use. If you modify the program and let users interact with that version remotely through a network, offer them its corresponding source under the AGPL. Distribution is subject to the license’s corresponding-source and notice requirements.
+
+See [NOTICE](NOTICE) for attribution.
+
+Previously published versions retain their original terms. The previous [license text](LICENSES/Apache-2.0.previous.txt) is retained for reference.
 
 ## Acknowledgments
 
